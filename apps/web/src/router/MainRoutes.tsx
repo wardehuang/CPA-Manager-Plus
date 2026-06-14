@@ -21,6 +21,7 @@ import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { AccountActionCandidatesPage } from '@/pages/AccountActionCandidatesPage';
 import { ModelPricesPage } from '@/pages/ModelPricesPage';
 import { CodexInspectionPage } from '@/pages/CodexInspectionPage';
+import { CodexAccountStatusPage } from '@/pages/CodexAccountStatusPage';
 import { ServerCodexInspectionPage } from '@/pages/ServerCodexInspectionPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
@@ -180,7 +181,9 @@ const mainRoutes = [
   { path: '/auth-files/oauth-model-alias', element: <AuthFilesOAuthModelAliasEditPage /> },
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
-  { path: '/codex-inspection', element: <CodexInspectionPage /> },
+  { path: '/codex-inspection/status', element: <CodexAccountStatusPage /> },
+  { path: '/codex-inspection', element: <Navigate to="/codex-inspection/server" replace /> },
+  { path: '/codex-inspection/local', element: <CodexInspectionPage /> },
   {
     path: '/codex-inspection/server',
     element: (
@@ -224,7 +227,11 @@ const mainRoutes = [
       </FeatureGate>
     ),
   },
-  { path: '/monitoring/codex-inspection', element: <Navigate to="/codex-inspection" replace /> },
+  {
+    path: '/monitoring/codex-inspection/status',
+    element: <Navigate to="/codex-inspection/status" replace />,
+  },
+  { path: '/monitoring/codex-inspection', element: <Navigate to="/codex-inspection/server" replace /> },
   {
     path: '/monitoring/codex-inspection/server',
     element: (

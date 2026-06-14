@@ -538,7 +538,7 @@ func (s *Service) inspectAccounts(
 		go func() {
 			defer wg.Done()
 			for item := range jobs {
-				result := s.inspectSingleAccount(ctx, setup, settings, item, logger)
+				result := s.inspectSingleAccount(ctx, setup, settings, runID, item, logger)
 				result.RunID = runID
 				if _, err := s.store.InsertCodexInspectionResult(ctx, result); err != nil {
 					logger.error(ctx, "写入巡检账号结果失败", map[string]any{
@@ -582,6 +582,7 @@ func (s *Service) inspectSingleAccount(
 	ctx context.Context,
 	setup store.Setup,
 	settings model.ManagerCodexInspectionConfig,
+	runID int64,
 	item account,
 	logger runLogger,
 ) model.CodexInspectionResult {
@@ -636,6 +637,7 @@ func (s *Service) inspectSingleAccount(
 	}
 	planType := normalizeCodexPlanType(readString(payload, "plan_type", "planType"))
 	rateLimit := parseRateLimit(readMap(payload, "rate_limit", "rateLimit"))
+	s.captureCodexAccountStatusDetail(ctx, runID, base.AccountKey, payload, planType)
 	usedPercent := deriveRateLimitUsedPercent(rateLimit)
 	bodyLower := strings.ToLower(response.BodyText)
 	isQuota := statusCode == http.StatusPaymentRequired ||

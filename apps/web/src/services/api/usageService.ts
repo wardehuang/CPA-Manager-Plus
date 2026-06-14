@@ -148,6 +148,24 @@ export interface ManagerConfigResponse {
   cpaUsage?: CPAUsageConfig;
 }
 
+export interface CodexAccountStatusItem extends Omit<CodexInspectionResult, 'createdAtMs'> {
+  resultCreatedAtMs: number;
+  accountType?: string;
+  fiveHourUsedPercent?: number;
+  fiveHourResetAtMs?: number;
+  weeklyUsedPercent?: number;
+  weeklyResetAtMs?: number;
+  monthlyUsedPercent?: number;
+  monthlyResetAtMs?: number;
+  rateLimitResetCreditsAvailableCount?: number;
+  checkedAtMs?: number;
+}
+
+export interface CodexAccountStatusResponse {
+  run: CodexInspectionRun;
+  items: CodexAccountStatusItem[];
+}
+
 export interface CodexInspectionRun {
   id: number;
   triggerType: string;
@@ -979,6 +997,22 @@ export const usageServiceApi = {
       const response = await axios.put<ManagerConfigResponse>(
         buildUrl(base, '/usage-service/config'),
         { config },
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  getCodexAccountStatusLatest: async (
+    base: string,
+    managementKey?: string
+  ): Promise<CodexAccountStatusResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.get<CodexAccountStatusResponse>(
+        buildUrl(base, '/v0/management/codex-account-status/latest'),
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),

@@ -164,6 +164,24 @@ func Migrate(db *sql.DB) error {
 			unique(run_id, account_key)
 		)`,
 		`create index if not exists idx_codex_inspection_results_run on codex_inspection_results(run_id)`,
+		`create table if not exists codex_account_status_details (
+			run_id integer not null,
+			account_key text not null,
+			account_type text,
+			five_hour_used_percent real,
+			five_hour_reset_at_ms integer,
+			weekly_used_percent real,
+			weekly_reset_at_ms integer,
+			monthly_used_percent real,
+			monthly_reset_at_ms integer,
+			rate_limit_reset_credits_available_count integer,
+			checked_at_ms integer,
+			created_at_ms integer not null,
+			updated_at_ms integer not null,
+			foreign key(run_id) references codex_inspection_runs(id) on delete cascade,
+			unique(run_id, account_key)
+		)`,
+		`create index if not exists idx_codex_account_status_details_run on codex_account_status_details(run_id)`,
 		`create table if not exists codex_inspection_logs (
 			id integer primary key autoincrement,
 			run_id integer not null,

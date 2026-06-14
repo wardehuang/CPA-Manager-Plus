@@ -7,6 +7,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/accountaction"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/apikeyalias"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexaccountstatus"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/modelprice"
@@ -60,14 +61,15 @@ type EventsPage = usageevent.EventsPage
 type Store struct {
 	db *sql.DB
 
-	Settings         setting.Repository
-	UsageEvents      usageevent.Repository
-	DeadLetters      deadletter.Repository
-	ModelPrices      modelprice.Repository
-	APIKeyAliases    apikeyalias.Repository
-	AccountActions   accountaction.Repository
-	CodexInspections codexinspection.Repository
-	QuotaCooldowns   quotacooldown.Repository
+	CodexAccountStatus codexaccountstatus.Repository
+	Settings           setting.Repository
+	UsageEvents        usageevent.Repository
+	DeadLetters        deadletter.Repository
+	ModelPrices        modelprice.Repository
+	APIKeyAliases      apikeyalias.Repository
+	AccountActions     accountaction.Repository
+	CodexInspections   codexinspection.Repository
+	QuotaCooldowns     quotacooldown.Repository
 }
 
 func Open(path string, protector ...*security.Protector) (*Store, error) {
@@ -80,15 +82,16 @@ func Open(path string, protector ...*security.Protector) (*Store, error) {
 
 func New(db *sql.DB, protector ...*security.Protector) *Store {
 	return &Store{
-		db:               db,
-		Settings:         setting.New(db, protector...),
-		UsageEvents:      usageevent.New(db),
-		DeadLetters:      deadletter.New(db),
-		ModelPrices:      modelprice.New(db),
-		APIKeyAliases:    apikeyalias.New(db),
-		AccountActions:   accountaction.New(db),
-		CodexInspections: codexinspection.New(db),
-		QuotaCooldowns:   quotacooldown.New(db),
+		db:                 db,
+		CodexAccountStatus: codexaccountstatus.New(db),
+		Settings:           setting.New(db, protector...),
+		UsageEvents:        usageevent.New(db),
+		DeadLetters:        deadletter.New(db),
+		ModelPrices:        modelprice.New(db),
+		APIKeyAliases:      apikeyalias.New(db),
+		AccountActions:     accountaction.New(db),
+		CodexInspections:   codexinspection.New(db),
+		QuotaCooldowns:     quotacooldown.New(db),
 	}
 }
 
@@ -189,6 +192,14 @@ func (s *Store) UpdatePendingAccountActionCandidateStatus(ctx context.Context, i
 
 func (s *Store) RecordAccountActionCandidateFailure(ctx context.Context, id int64, reason string) error {
 	return s.AccountActions.RecordFailure(ctx, id, reason)
+}
+
+func (s *Store) UpsertCodexAccountStatusDetail(ctx context.Context, detail model.CodexAccountStatusDetail) error {
+	return s.CodexAccountStatus.UpsertDetail(ctx, detail)
+}
+
+func (s *Store) ListCodexAccountStatusItems(ctx context.Context, runID int64) ([]model.CodexAccountStatusItem, error) {
+	return s.CodexAccountStatus.ListItemsByRun(ctx, runID)
 }
 
 func (s *Store) CreateCodexInspectionRun(ctx context.Context, run CodexInspectionRun) (CodexInspectionRun, error) {

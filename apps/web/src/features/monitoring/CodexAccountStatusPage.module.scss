@@ -1,0 +1,217 @@
+.page {
+  --inspect-bg: var(--bg-secondary);
+  --inspect-surface: var(--bg-primary);
+  --inspect-surface-elevated: color-mix(in srgb, var(--bg-primary) 82%, var(--surface-subtle));
+  --inspect-surface-muted: var(--surface-subtle);
+  --inspect-surface-hover: color-mix(in srgb, var(--surface-subtle-hover) 74%, var(--bg-primary));
+  --inspect-line: var(--border-color);
+  --inspect-line-strong: var(--border-primary);
+  --inspect-ink: var(--text-primary);
+  --inspect-muted: var(--text-secondary);
+  --inspect-accent: var(--primary-color);
+  --inspect-accent-strong: var(--primary-active);
+  --inspect-green: var(--success-color);
+  --inspect-amber: var(--warning-color);
+  --inspect-red: var(--error-color);
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.panel {
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.codexAccountStatusPanel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.accountStatusSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summaryCard,
+.accountStatusSummaryCard {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--surface-subtle);
+}
+
+.accountStatusSummaryLabel,
+.accountStatusSummaryMeta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accountStatusSummaryValue {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.accountStatusTone-blue { border-color: color-mix(in srgb, var(--primary-color) 28%, var(--border-color)); }
+.accountStatusTone-green { border-color: color-mix(in srgb, var(--success-color) 28%, var(--border-color)); }
+.accountStatusTone-amber { border-color: color-mix(in srgb, var(--warning-color) 28%, var(--border-color)); }
+.accountStatusTone-red { border-color: color-mix(in srgb, var(--error-color) 28%, var(--border-color)); }
+.accountStatusTone-violet { border-color: color-mix(in srgb, var(--primary-active) 28%, var(--border-color)); }
+
+.accountStatusToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.accountStatusSearch,
+.accountStatusSelect {
+  min-height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.accountStatusSearch {
+  flex: 1 1 260px;
+  min-width: 180px;
+  padding: 0 12px;
+}
+
+.accountStatusSelect {
+  padding: 0 10px;
+}
+
+.accountStatusRunMeta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accountStatusError,
+.accountStatusErrorText {
+  color: var(--error-color);
+}
+
+.accountStatusTableWrap {
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+}
+
+.accountStatusTable {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+}
+
+.accountStatusTable th,
+.accountStatusTable td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: top;
+}
+
+.accountStatusTable th {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--surface-subtle);
+}
+
+.accountStatusAccountCell,
+.accountStatusStateCell,
+.accountStatusQuotaList,
+.accountStatusExtraCell {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tone-idle { color: var(--text-secondary); }
+.tone-good { color: var(--success-color); }
+.tone-warn { color: var(--warning-color); }
+.tone-bad { color: var(--error-color); }
+
+.accountStatusQuotaItem {
+  display: grid;
+  gap: 6px;
+}
+
+.accountStatusQuotaHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.accountStatusQuotaMeter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+
+.accountStatusQuotaMeter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary-color);
+}
+
+.accountStatusQuotaItem small,
+.accountStatusExtraCell {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.accountStatusEmpty {
+  color: var(--text-secondary);
+  text-align: center !important;
+}
+
+@media (max-width: 1280px) {
+  .accountStatusSummaryGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .accountStatusSummaryGrid {
+    grid-template-columns: 1fr;
+  }
+}
