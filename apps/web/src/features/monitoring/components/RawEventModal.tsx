@@ -33,6 +33,12 @@ const layout = {
     padding: '12px 14px',
     background: 'rgba(15, 23, 42, 0.36)',
   },
+  statusSuccess: {
+    color: '#86efac',
+  },
+  statusFailure: {
+    color: '#fca5a5',
+  },
   label: {
     display: 'block',
     marginBottom: 6,
@@ -44,20 +50,6 @@ const layout = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: 13,
     overflowWrap: 'anywhere',
-  },
-  code: {
-    maxHeight: '52vh',
-    overflow: 'auto',
-    margin: 0,
-    padding: 16,
-    borderRadius: 14,
-    border: '1px solid rgba(59, 130, 246, 0.24)',
-    background: 'linear-gradient(180deg, rgba(2, 6, 23, 0.92), rgba(15, 23, 42, 0.92))',
-    color: '#dbeafe',
-    fontSize: 12,
-    lineHeight: 1.65,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
   },
   muted: {
     color: 'rgba(148, 163, 184, 0.95)',
@@ -87,8 +79,74 @@ const formatStatus = (data: MonitoringRawEventResponse | null) => {
 };
 
 const formatValue = (value: unknown) => {
-  if (value === null || value === undefined || value === '') return '-';
+  if (value === null || value === undefined || value === '') return '';
   return String(value);
+};
+
+type RawRecord = Record<string, unknown>;
+
+type DetailItem = {
+  label: string;
+  value: unknown;
+  valueStyle?: CSSProperties;
+};
+
+const isRecord = (value: unknown): value is RawRecord =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const readPath = (record: RawRecord | null, path: string[]) => {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[key];
+  }
+  return current;
+};
+
+const readStringPath = (record: RawRecord | null, ...paths: string[][]) => {
+  for (const path of paths) {
+    const value = readPath(record, path);
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+};
+
+const readNumberPath = (record: RawRecord | null, ...paths: string[][]) => {
+  for (const path of paths) {
+    const value = readPath(record, path);
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const readBooleanPath = (record: RawRecord | null, ...paths: string[][]) => {
+  for (const path of paths) {
+    const value = readPath(record, path);
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string' && value.trim()) return value.trim().toLowerCase() === 'true';
+  }
+  return null;
+};
+
+const formatTokenCount = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 1 : 2)}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(abs >= 100_000 ? 1 : 2)}K`;
+  return String(value);
+};
+
+const formatDuration = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  if (value < 1000) return `${Math.round(value)} ms`;
+  const seconds = value / 1000;
+  return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
+};
+
+const formatCacheHit = (cachedTokens: number, denominator: number) => {
+  if (!Number.isFinite(cachedTokens) || !Number.isFinite(denominator) || denominator <= 0) return '';
+  return ` (${((cachedTokens / denominator) * 100).toFixed(1)}%)`;
 };
 
 export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
@@ -144,22 +202,80 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
     return data.raw_json_text || JSON.stringify(data.event, null, 2);
   }, [data]);
 
-  const details = data
-    ? [
-        ['事件 ID', data.event.id],
-        ['Event Hash', data.event.event_hash],
-        ['请求 ID', data.event.request_id],
-        ['时间', formatTime(data.event.timestamp_ms)],
-        ['模型', data.event.model],
-        ['Resolved Model', data.event.resolved_model],
-        ['Endpoint', data.event.endpoint || `${data.event.method} ${data.event.path}`.trim()],
-        ['账号', data.event.account_snapshot || data.event.auth_label_snapshot],
-        ['Auth Index', data.event.auth_index],
-        ['API Key Hash', data.event.api_key_hash],
-        ['总 Tokens', data.event.total_tokens],
-        ['耗时', data.event.latency_ms === null ? '-' : `${data.event.latency_ms} ms`],
-      ]
-    : [];
+  const rawRecord = useMemo(() => {
+    if (data?.raw_json && isRecord(data.raw_json)) return data.raw_json;
+    if (!data?.raw_json_text) return null;
+    try {
+      const parsed: unknown = JSON.parse(data.raw_json_text);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [data]);
+
+  const details = useMemo<DetailItem[]>(() => {
+    if (!data) return [];
+    const inputTokens = readNumberPath(rawRecord, ['tokens', 'input_tokens']) ?? data.event.input_tokens;
+    const outputTokens = readNumberPath(rawRecord, ['tokens', 'output_tokens']) ?? data.event.output_tokens;
+    const reasoningTokens =
+      readNumberPath(rawRecord, ['tokens', 'reasoning_tokens']) ?? data.event.reasoning_tokens;
+    const cachedTokens = readNumberPath(rawRecord, ['tokens', 'cached_tokens']) ?? data.event.cached_tokens;
+    const cacheDenominator = inputTokens + outputTokens + reasoningTokens;
+	const compactDetected =
+		readBooleanPath(
+			rawRecord,
+			['metadata', 'cpa.compact.detected'],
+			['cpa.compact.detected'],
+			['cpa', 'compact', 'detected']
+		) ?? false;
+    const endpoint =
+      readStringPath(rawRecord, ['endpoint']) ||
+      data.event.endpoint ||
+      `${data.event.method} ${data.event.path}`.trim();
+
+    return [
+      {
+        label: '状态',
+        value: formatStatus(data),
+        valueStyle: data.event.failed ? layout.statusFailure : layout.statusSuccess,
+      },
+      {
+        label: '模型',
+        value: readStringPath(rawRecord, ['model'], ['alias']) || data.event.model,
+      },
+      { label: '时间', value: formatTime(data.event.timestamp_ms) },
+      { label: '输入 token', value: formatTokenCount(inputTokens) },
+      { label: '输出 token', value: formatTokenCount(outputTokens) },
+      { label: '思考 token', value: formatTokenCount(reasoningTokens) },
+      {
+        label: '缓存 token',
+        value: `${formatTokenCount(cachedTokens)}${formatCacheHit(cachedTokens, cacheDenominator)}`,
+      },
+      {
+        label: '请求 ID',
+        value: readStringPath(rawRecord, ['request_id'], ['requestId']) || data.event.request_id,
+      },
+      { label: 'Endpoint', value: endpoint },
+		{ label: '账号', value: readStringPath(rawRecord, ['metadata', 'selected_auth_id'], ['selected_auth_id']) },
+      { label: '总时间', value: formatDuration(readNumberPath(rawRecord, ['latency_ms']) ?? data.event.latency_ms) },
+      { label: '首字时间', value: formatDuration(readNumberPath(rawRecord, ['ttft_ms']) ?? data.event.ttft_ms) },
+		{
+			label: '项目 ID',
+			value: readStringPath(rawRecord, ['metadata', 'project_id'], ['metadata', 'cpa.project_id'], ['project_id']),
+		},
+      {
+        label: 'prompt_cache_key',
+			value: readStringPath(
+				rawRecord,
+				['metadata', 'upstream_prompt_cache_key'],
+				['metadata', 'cpa.upstream_prompt_cache_key'],
+				['upstream_prompt_cache_key'],
+				['cpa.upstream_prompt_cache_key']
+			),
+		},
+      { label: 'compact', value: compactDetected ? 'True' : 'False' },
+    ];
+  }, [data, rawRecord]);
 
   const handleCopy = async () => {
     const copied = await copyToClipboard(rawText || JSON.stringify(data, null, 2));
@@ -167,7 +283,7 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
   };
 
   return (
-    <Modal open={open} title="原始数据" onClose={onClose} width="min(960px, 92vw)">
+    <Modal open={open} title="原始数据" onClose={onClose} width="min(960px, 92vw)" closeImmediately>
       <div style={layout.stack}>
         <div style={layout.toolbar}>
           <div style={layout.muted}>从当前数据库 usage_raw 读取上游原始 raw 并格式化展示。</div>
@@ -180,37 +296,14 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
         {error ? <div style={{ ...layout.card, color: '#fecaca' }}>{error}</div> : null}
 
         {data ? (
-          <>
-            <div style={layout.metaGrid}>
-              <div style={layout.card}>
-                <span style={layout.label}>状态</span>
-                <span style={layout.value}>{formatStatus(data)}</span>
+          <div style={layout.metaGrid}>
+            {details.map((item) => (
+              <div key={item.label} style={layout.card}>
+                <span style={layout.label}>{item.label}</span>
+                <span style={{ ...layout.value, ...item.valueStyle }}>{formatValue(item.value)}</span>
               </div>
-              <div style={layout.card}>
-                <span style={layout.label}>模型</span>
-                <span style={layout.value}>{formatValue(data.event.model)}</span>
-              </div>
-              <div style={layout.card}>
-                <span style={layout.label}>时间</span>
-                <span style={layout.value}>{formatTime(data.event.timestamp_ms)}</span>
-              </div>
-              <div style={layout.card}>
-                <span style={layout.label}>Tokens</span>
-                <span style={layout.value}>{formatValue(data.event.total_tokens)}</span>
-              </div>
-            </div>
-
-            <div style={layout.metaGrid}>
-              {details.map(([label, value]) => (
-                <div key={label} style={layout.card}>
-                  <span style={layout.label}>{label}</span>
-                  <span style={layout.value}>{formatValue(value)}</span>
-                </div>
-              ))}
-            </div>
-
-            <pre style={layout.code}>{rawText}</pre>
-          </>
+            ))}
+          </div>
         ) : null}
       </div>
     </Modal>

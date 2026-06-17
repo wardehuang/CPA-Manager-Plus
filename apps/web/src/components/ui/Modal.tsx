@@ -19,6 +19,7 @@ interface ModalProps {
   width?: number | string;
   className?: string;
   closeDisabled?: boolean;
+  closeImmediately?: boolean;
 }
 
 const CLOSE_ANIMATION_DURATION = 350;
@@ -124,6 +125,7 @@ export function Modal({
   width = 520,
   className,
   closeDisabled = false,
+  closeImmediately = false,
   children,
 }: PropsWithChildren<ModalProps>) {
   const { t } = useTranslation();
@@ -184,8 +186,13 @@ export function Modal({
   }, [open, isVisible, startClose]);
 
   const handleClose = useCallback(() => {
+    if (closeImmediately) {
+      onClose();
+      startClose(false);
+      return;
+    }
     startClose(true);
-  }, [startClose]);
+  }, [closeImmediately, onClose, startClose]);
 
   useEffect(() => {
     return () => {
