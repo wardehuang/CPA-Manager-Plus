@@ -3,6 +3,7 @@ package codexaccountwindowcost
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
@@ -98,6 +99,13 @@ func (r *repository) ListByRun(ctx context.Context, runID int64) ([]model.CodexA
 }
 
 func (r *repository) SumUsageByWindow(ctx context.Context, target model.CodexAccountWindowCostTarget, fromMS int64, toMS int64) ([]model.CodexAccountWindowUsageAggregate, error) {
+	identityFilter, identityArgs := accountWindowUsageIdentityFilter(target)
+	if identityFilter == "" {
+		return []model.CodexAccountWindowUsageAggregate{}, nil
+	}
+	args := []any{fromMS, toMS}
+	args = append(args, identityArgs...)
+
 	rows, err := r.db.QueryContext(
 		ctx,
 		`select
@@ -109,19 +117,9 @@ func (r *repository) SumUsageByWindow(ctx context.Context, target model.CodexAcc
 			coalesce(sum(cache_read_tokens), 0),
 			coalesce(sum(cache_creation_tokens), 0)
 		from usage_events
-		where timestamp_ms >= ? and timestamp_ms < ? and (
-			(? <> '' and auth_index = ?) or
-			(? <> '' and account_snapshot = ?) or
-			(? <> '' and auth_label_snapshot = ?) or
-			(? <> '' and auth_file_snapshot = ?)
-		)
+		where timestamp_ms >= ? and timestamp_ms < ? and `+identityFilter+`
 		group by billing_model, service_tier`,
-		fromMS,
-		toMS,
-		target.AuthIndex, target.AuthIndex,
-		target.DisplayAccount, target.DisplayAccount,
-		target.DisplayAccount, target.DisplayAccount,
-		target.FileName, target.FileName,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -145,6 +143,19 @@ func (r *repository) SumUsageByWindow(ctx context.Context, target model.CodexAcc
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func accountWindowUsageIdentityFilter(target model.CodexAccountWindowCostTarget) (string, []any) {
+	if authIndex := strings.TrimSpace(target.AuthIndex); authIndex != "" {
+		return "auth_index = ?", []any{authIndex}
+	}
+	if fileName := strings.TrimSpace(target.FileName); fileName != "" {
+		return "auth_file_snapshot = ?", []any{fileName}
+	}
+	if displayAccount := strings.TrimSpace(target.DisplayAccount); displayAccount != "" {
+		return "(account_snapshot = ? or auth_label_snapshot = ?)", []any{displayAccount, displayAccount}
+	}
+	return "", nil
 }
 
 func scanCost(row interface{ Scan(dest ...any) error }) (model.CodexAccountWindowCost, error) {
