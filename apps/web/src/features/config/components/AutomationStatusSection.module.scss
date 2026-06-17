@@ -1,0 +1,186 @@
+.section {
+  display: grid;
+  gap: 12px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sectionHeaderText {
+  display: grid;
+  gap: 4px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sectionHint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.restartNote {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 40%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.restartIcon {
+  margin-top: 2px;
+  color: var(--warning-color);
+  flex-shrink: 0;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-subtle) 50%, var(--bg-primary));
+}
+
+.cardHeader {
+  display: grid;
+  gap: 4px;
+}
+
+.cardHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badgeOn {
+  color: color-mix(in srgb, var(--success-color, #16a34a) 86%, #000 14%);
+  background: color-mix(in srgb, var(--success-color, #16a34a) 14%, transparent);
+  border-color: color-mix(in srgb, var(--success-color, #16a34a) 36%, transparent);
+}
+
+.badgeOff {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface-subtle) 80%, transparent);
+  border-color: var(--border-color);
+}
+
+.cardDescription {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.metaList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-subtle) 50%, transparent);
+}
+
+.metaRow {
+  display: grid;
+  grid-template-columns: minmax(0, 110px) 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.metaRow dt {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.metaRow dd {
+  margin: 0;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.metaRow code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.behaviorList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.dependencyNote {
+  margin: 0;
+  padding: 6px 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 40%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.cardActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.errorState {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--error-color) 40%, transparent);
+  background: color-mix(in srgb, var(--error-color) 8%, transparent);
+  color: var(--error-color);
+  font-size: 12px;
+}

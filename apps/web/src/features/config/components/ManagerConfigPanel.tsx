@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconEye, IconEyeOff, IconX } from '@/components/ui/icons';
+import { AutomationStatusSection } from './AutomationStatusSection';
 import styles from '../ConfigPage.module.scss';
 
 type ManagerConfigPanelProps = {
@@ -299,6 +300,10 @@ export function ManagerConfigPanel({
             }
           />
         </div>
+      </section>
+
+      <section className={styles.managerSection}>
+        <AutomationStatusSection />
       </section>
 
       <div className={styles.managerMetaGrid}>
