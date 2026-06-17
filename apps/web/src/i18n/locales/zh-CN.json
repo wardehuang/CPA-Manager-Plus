@@ -173,6 +173,7 @@
     "account_actions": "认证异常",
     "config_management": "配置面板",
     "logs": "日志查看",
+    "server_logs": "详细日志",
     "system_info": "系统信息"
   },
   "account_actions": {
@@ -1690,7 +1691,7 @@
     "codex_inspection_mode_label": "巡检方式",
     "codex_inspection_mode_local": "本机巡检",
     "codex_inspection_mode_server": "服务端巡检",
-    "codex_inspection_mode_current": "当前方式：{{mode}}",
+    "codex_inspection_mode_current": "{{mode}}",
     "codex_inspection_mode_local_desc": "在当前浏览器连接的本机流程中执行巡检，依赖当前连接和浏览器会话，适合快速检查当前设备上的账号状态。",
     "codex_inspection_mode_server_desc": "提交到 Manager Server 执行巡检，支持定时、后台运行和历史记录，适合批量和统一审计。",
     "codex_inspection_execution_mode": "执行方式",
@@ -2081,6 +2082,24 @@
     "removed": "已过滤",
     "upgrade_required_title": "需要升级 CLI Proxy API",
     "upgrade_required_desc": "当前服务器版本不支持日志查看功能，请升级到最新版本的 CLI Proxy API 以使用此功能。"
+  },
+  "server_logs": {
+    "eyebrow": "Server Log Files",
+    "title": "详细日志",
+    "description": "查看 Manager Server 所在服务器上的 CLIProxyAPI 日志文件，并可按需下载单个日志文件。",
+    "table_title": "服务端日志文件",
+    "total_files": "共 {{count}} 个文件",
+    "column_name": "文件名",
+    "column_time": "修改时间",
+    "column_size": "大小",
+    "column_actions": "操作",
+    "download": "下载",
+    "loading": "正在加载日志文件...",
+    "load_error": "加载详细日志失败",
+    "download_success": "日志文件下载成功",
+    "download_failed": "日志文件下载失败",
+    "empty_title": "暂无服务端日志文件",
+    "empty_desc": "未在 /opt/cli-proxy-api/logs/ 目录中找到可展示的文件。"
   },
   "config_management": {
     "title": "配置面板",

@@ -150,6 +150,7 @@ export interface ManagerConfigResponse {
 
 export interface CodexAccountStatusItem extends Omit<CodexInspectionResult, 'createdAtMs'> {
   resultCreatedAtMs: number;
+  priority?: number;
   accountType?: string;
   fiveHourUsedPercent?: number;
   fiveHourResetAtMs?: number;
@@ -159,6 +160,18 @@ export interface CodexAccountStatusItem extends Omit<CodexInspectionResult, 'cre
   monthlyResetAtMs?: number;
   rateLimitResetCreditsAvailableCount?: number;
   checkedAtMs?: number;
+  originalPriority?: number;
+  windowCosts?: CodexAccountWindowCost[];
+}
+
+export interface CodexAccountWindowCost {
+  accountKey: string;
+  windowType: 'five_hour' | 'weekly' | 'monthly' | string;
+  windowStartAtMs: number;
+  windowResetAtMs: number;
+  estimatedCost: number;
+  isQuotaExhausted?: boolean;
+  calculatedAtMs?: number;
 }
 
 export interface CodexAccountStatusResponse {
@@ -241,6 +254,13 @@ export interface CodexInspectionActionOutcome {
   status: string;
   success: boolean;
   error?: string;
+}
+
+export interface CodexManualRefreshRequest {
+  accountKey?: string;
+  fileName?: string;
+  authIndex?: string;
+  reason?: string;
 }
 
 export interface CodexInspectionActionsResponse {
@@ -821,6 +841,55 @@ export interface MonitoringAnalyticsResponse {
   events?: MonitoringAnalyticsEventsResponse;
 }
 
+export interface MonitoringRawEventRecord {
+  id: number;
+  request_id: string;
+  event_hash: string;
+  timestamp_ms: number;
+  timestamp: string;
+  provider: string;
+  executor_type: string;
+  model: string;
+  endpoint: string;
+  method: string;
+  path: string;
+  auth_type: string;
+  auth_index: string;
+  source: string;
+  source_hash: string;
+  api_key_hash: string;
+  account_snapshot: string;
+  auth_label_snapshot: string;
+  auth_file_snapshot: string;
+  auth_provider_snapshot: string;
+  auth_project_id_snapshot: string;
+  auth_snapshot_at_ms: number;
+  requested_model: string;
+  resolved_model: string;
+  reasoning_effort: string;
+  service_tier: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cache_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  latency_ms: number | null;
+  ttft_ms: number | null;
+  failed: boolean;
+  fail_status_code: number | null;
+  fail_summary: string;
+  created_at_ms: number;
+}
+
+export interface MonitoringRawEventResponse {
+  event: MonitoringRawEventRecord;
+  raw_json?: unknown;
+  raw_json_text?: string;
+}
+
 const USAGE_SERVICE_TIMEOUT_MS = 15 * 1000;
 const USAGE_SERVICE_TRANSFER_TIMEOUT_MS = 60 * 1000;
 const CODEX_INSPECTION_RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -1015,6 +1084,42 @@ export const usageServiceApi = {
         buildUrl(base, '/v0/management/codex-account-status/latest'),
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  patchCodexAuthFileFields: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: Record<string, unknown>
+  ): Promise<unknown> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.patch(
+        buildUrl(base, '/v0/management/auth-files/fields'),
+        payload,
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  refreshCodexAccount: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: CodexManualRefreshRequest
+  ): Promise<CodexInspectionRunDetail> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.post<CodexInspectionRunDetail>(
+        buildUrl(base, '/v0/management/codex-inspection/manual-refresh'),
+        payload,
+        {
+          timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
           headers: authHeaders(managementKey),
         }
       );
@@ -1389,6 +1494,24 @@ export const monitoringAnalyticsApi = {
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  getRawEvent: async (
+    base: string,
+    managementKey: string | undefined,
+    eventId: string
+  ): Promise<MonitoringRawEventResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.get<MonitoringRawEventResponse>(
+        buildUrl(base, '/v0/management/monitoring/raw-event'),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+          params: { id: eventId },
         }
       );
       return response.data;

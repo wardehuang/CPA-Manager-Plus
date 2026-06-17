@@ -88,6 +88,7 @@ type account struct {
 	DisplayAccount string
 	AuthIndex      string
 	AccountID      string
+	Priority       *int
 	Provider       string
 	Disabled       bool
 	Status         string
@@ -637,7 +638,6 @@ func (s *Service) inspectSingleAccount(
 	}
 	planType := normalizeCodexPlanType(readString(payload, "plan_type", "planType"))
 	rateLimit := parseRateLimit(readMap(payload, "rate_limit", "rateLimit"))
-	s.captureCodexAccountStatusDetail(ctx, runID, base.AccountKey, payload, planType)
 	usedPercent := deriveRateLimitUsedPercent(rateLimit)
 	bodyLower := strings.ToLower(response.BodyText)
 	isQuota := statusCode == http.StatusPaymentRequired ||
@@ -647,9 +647,16 @@ func (s *Service) inspectSingleAccount(
 		isRateLimitReached(rateLimit) ||
 		(usedPercent != nil && *usedPercent >= settings.UsedPercentThreshold)
 	decision := resolveProbeAction(item, statusCode, response.BodyText, rateLimit, usedPercent, isQuota, settings.UsedPercentThreshold, planType)
+	priorityAdjustmentLabel, adjustedPriority := s.applyCodexPriorityAdjustment(ctx, setup, item, payload, planType, logger)
+	detailPriority := item.Priority
+	if adjustedPriority != nil {
+		detailPriority = adjustedPriority
+	}
+	s.captureCodexAccountStatusDetail(ctx, runID, base.AccountKey, detailPriority, payload, planType, logger)
+	s.captureCodexAccountWindowCosts(ctx, item, payload, planType, logger)
 
 	base.Action = decision.Action
-	base.ActionReason = decision.ActionReason
+	base.ActionReason = appendPriorityAdjustmentReason(decision.ActionReason, priorityAdjustmentLabel)
 	base.UsedPercent = decision.UsedPercent
 	base.IsQuota = decision.IsQuota
 	base.Error = ""
@@ -1004,6 +1011,7 @@ func shouldFallbackManagement(status int) bool {
 type runLogger struct {
 	service *Service
 	runID   int64
+	prefix  string
 }
 
 func (l runLogger) info(ctx context.Context, message string, detail any) {
@@ -1025,6 +1033,9 @@ func (l runLogger) error(ctx context.Context, message string, detail any) {
 func (l runLogger) log(ctx context.Context, level string, message string, detail any) {
 	if l.service == nil || l.runID <= 0 {
 		return
+	}
+	if l.prefix != "" {
+		message = l.prefix + message
 	}
 	_, _ = l.service.store.InsertCodexInspectionLog(ctx, model.CodexInspectionLog{
 		RunID:   l.runID,
@@ -1619,12 +1630,26 @@ func toAccount(file authFile) account {
 		DisplayAccount: displayAccount,
 		AuthIndex:      authIndex,
 		AccountID:      resolveCodexAccountID(file),
+		Priority:       readAuthFilePriority(file),
 		Provider:       provider,
 		Disabled:       isDisabledAuthFile(file),
 		Status:         readString(file, "status"),
 		State:          readString(file, "state"),
 		File:           file,
 	}
+}
+
+func readAuthFilePriority(file authFile) *int {
+	metadata := readMap(file, "metadata")
+	attributes := readMap(file, "attributes")
+	candidates := []map[string]any{file, metadata, attributes}
+	for _, candidate := range candidates {
+		if value, ok := readNumberPtr(candidate, "priority"); ok && value != nil {
+			result := int(math.Round(*value))
+			return &result
+		}
+	}
+	return nil
 }
 
 func resolveCodexAccountID(file authFile) string {

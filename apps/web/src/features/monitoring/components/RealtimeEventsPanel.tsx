@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { Button } from '@/components/ui/Button';
 import { IconCopy, IconEye, IconEyeOff, IconFilter } from '@/components/ui/icons';
@@ -7,6 +7,7 @@ import {
   RecentPattern,
 } from '@/features/monitoring/components/MonitoringShared';
 import { MonitoringPanel } from '@/features/monitoring/components/MonitoringPanel';
+import { RawEventModal } from '@/features/monitoring/components/RawEventModal';
 import { formatPercent } from '@/features/monitoring/components/accountOverviewPresentation';
 import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
 import type { MonitoringEventRow } from '@/features/monitoring/hooks/useMonitoringData';
@@ -332,6 +333,7 @@ export function RealtimeEventsPanel({
 }: RealtimeEventsPanelProps) {
   const tooltipIdPrefix = useId();
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const [rawEventId, setRawEventId] = useState<string | null>(null);
   const sourceApiKeyLabel = shortLabel(
     t,
     'monitoring.column_source_api_key_short',
@@ -375,6 +377,10 @@ export function RealtimeEventsPanel({
       t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
       copied ? 'success' : 'error'
     );
+  };
+  const handleOpenRawEvent = (row: RealtimeLogRow) => {
+    if (!row.eventHash) return;
+    setRawEventId(row.eventHash);
   };
   const actions = (
     <RealtimeEventsPanelActions
@@ -448,7 +454,13 @@ export function RealtimeEventsPanel({
               const ttftToneClass = getRealtimeDurationToneClass(row.ttftMs);
               const latencyToneClass = getRealtimeDurationToneClass(row.latencyMs);
               return (
-                <tr key={row.id} className={row.failed ? styles.logRowFailed : undefined}>
+                <tr
+                  key={row.id}
+                  className={row.failed ? styles.logRowFailed : undefined}
+                  onClick={() => handleOpenRawEvent(row)}
+                  title={row.eventHash ? '点击查看原始数据' : undefined}
+                  style={row.eventHash ? { cursor: 'pointer' } : undefined}
+                >
                   <td>
                     <div className={styles.logTypeCell}>
                       <div className={styles.primaryCell} title={sourceDisplay.title}>
@@ -651,6 +663,7 @@ export function RealtimeEventsPanel({
           ) : null}
         </div>
       ) : null}
+      <RawEventModal eventId={rawEventId} onClose={() => setRawEventId(null)} />
     </>
   );
 

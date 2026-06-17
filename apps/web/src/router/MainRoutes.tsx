@@ -25,6 +25,7 @@ import { CodexAccountStatusPage } from '@/pages/CodexAccountStatusPage';
 import { ServerCodexInspectionPage } from '@/pages/ServerCodexInspectionPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
+import { ServerLogsPage } from '@/pages/ServerLogsPage';
 import { PluginResourcePage } from '@/pages/PluginResourcePage';
 import { PluginsPage } from '@/pages/PluginsPage';
 import { SystemPage } from '@/pages/SystemPage';
@@ -192,7 +193,7 @@ const mainRoutes = [
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
   { path: '/codex-inspection/status', element: <CodexAccountStatusPage /> },
-  { path: '/codex-inspection', element: <Navigate to="/codex-inspection/server" replace /> },
+  { path: '/codex-inspection', element: <Navigate to="/codex-inspection/status" replace /> },
   { path: '/codex-inspection/local', element: <CodexInspectionPage /> },
   {
     path: '/codex-inspection/server',
@@ -241,7 +242,7 @@ const mainRoutes = [
     path: '/monitoring/codex-inspection/status',
     element: <Navigate to="/codex-inspection/status" replace />,
   },
-  { path: '/monitoring/codex-inspection', element: <Navigate to="/codex-inspection/server" replace /> },
+  { path: '/monitoring/codex-inspection', element: <Navigate to="/codex-inspection/status" replace /> },
   {
     path: '/monitoring/codex-inspection/server',
     element: (
@@ -278,6 +279,7 @@ const mainRoutes = [
   { path: '/plugin-store/*', element: <Navigate to="/plugins?tab=store" replace /> },
   { path: '/plugin-pages/*', element: <Navigate to="/" replace /> },
   { path: '/config', element: <ConfigPage /> },
+  { path: '/logs/server', element: <ServerLogsPage /> },
   {
     path: '/logs',
     element: (

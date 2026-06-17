@@ -57,6 +57,7 @@ type Event struct {
 	// Public APIs, compatible payloads, and exports must use FailSummary instead.
 	FailBody    string `json:"-"`
 	RawJSON     string `json:"raw_json,omitempty"`
+	RawPayload  string `json:"-"`
 	CreatedAtMS int64  `json:"created_at_ms"`
 }
 
@@ -245,6 +246,7 @@ func NormalizeRaw(raw []byte) (Event, error) {
 		FailSummary:           failSummary,
 		FailBody:              failBody,
 		RawJSON:               string(redactedJSON),
+		RawPayload:            string(raw),
 		CreatedAtMS:           time.Now().UnixMilli(),
 	}
 	if event.Model == "" {

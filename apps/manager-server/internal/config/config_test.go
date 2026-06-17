@@ -64,6 +64,7 @@ func TestLoadReadsConfigAndResolvesRelativePaths(t *testing.T) {
   "httpAddr": "127.0.0.1:19000",
   "dataDir": "state",
   "cpaUpstreamUrl": "http://cpa.local:8317",
+  "serverLogDir": "logs",
   "managementKeyFile": "secret.txt",
   "collectorMode": "http",
   "queue": "custom-usage",
@@ -94,6 +95,9 @@ func TestLoadReadsConfigAndResolvesRelativePaths(t *testing.T) {
 	}
 	if cfg.CPAUpstreamURL != "http://cpa.local:8317" {
 		t.Fatalf("CPAUpstreamURL = %q", cfg.CPAUpstreamURL)
+	}
+	if want := filepath.Join(dir, "logs"); cfg.ServerLogDir != want {
+		t.Fatalf("ServerLogDir = %q, want %q", cfg.ServerLogDir, want)
 	}
 	if cfg.ManagementKey != "secret-value" {
 		t.Fatalf("ManagementKey = %q", cfg.ManagementKey)
@@ -139,6 +143,7 @@ func TestLoadEnvOverridesConfig(t *testing.T) {
 	t.Setenv(configEnvKey, configPath)
 	t.Setenv("HTTP_ADDR", "127.0.0.1:19001")
 	t.Setenv("USAGE_DATA_DIR", filepath.Join(dir, "env-data"))
+	t.Setenv("CPA_SERVER_LOG_DIR", filepath.Join(dir, "env-logs"))
 	t.Setenv("CPA_MANAGEMENT_KEY", "env-secret")
 	t.Setenv("USAGE_BATCH_SIZE", "12")
 
@@ -154,6 +159,9 @@ func TestLoadEnvOverridesConfig(t *testing.T) {
 	}
 	if cfg.ManagementKey != "env-secret" {
 		t.Fatalf("ManagementKey = %q", cfg.ManagementKey)
+	}
+	if want := filepath.Join(dir, "env-logs"); cfg.ServerLogDir != want {
+		t.Fatalf("ServerLogDir = %q, want %q", cfg.ServerLogDir, want)
 	}
 	if cfg.BatchSize != 12 {
 		t.Fatalf("BatchSize = %d", cfg.BatchSize)
@@ -189,6 +197,7 @@ func clearConfigEnv(t *testing.T) {
 		"USAGE_DATA_DIR",
 		"USAGE_DB_PATH",
 		"CPA_UPSTREAM_URL",
+		"CPA_SERVER_LOG_DIR",
 		"CPA_MANAGEMENT_KEY",
 		"CPA_MANAGEMENT_KEY_FILE",
 		"USAGE_COLLECTOR_MODE",

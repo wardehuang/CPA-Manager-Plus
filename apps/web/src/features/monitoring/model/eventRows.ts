@@ -125,6 +125,7 @@ export const buildEventRows = (
 
       return {
         id: `${detail.timestamp}-${detail.__modelName || '-'}-${sourceKey}-${authIndex}-${index}`,
+        eventHash: detail.__eventHash,
         timestamp: detail.timestamp,
         timestampMs,
         dayKey,

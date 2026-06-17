@@ -32,14 +32,15 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.CodexAccount
 	_, err := r.db.ExecContext(
 		ctx,
 		`insert into codex_account_status_details (
-			run_id, account_key, account_type,
+			run_id, account_key, priority, account_type,
 			five_hour_used_percent, five_hour_reset_at_ms,
 			weekly_used_percent, weekly_reset_at_ms,
 			monthly_used_percent, monthly_reset_at_ms,
 			rate_limit_reset_credits_available_count, checked_at_ms,
 			created_at_ms, updated_at_ms
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(run_id, account_key) do update set
+			priority = excluded.priority,
 			account_type = excluded.account_type,
 			five_hour_used_percent = excluded.five_hour_used_percent,
 			five_hour_reset_at_ms = excluded.five_hour_reset_at_ms,
@@ -52,6 +53,7 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.CodexAccount
 			updated_at_ms = excluded.updated_at_ms`,
 		detail.RunID,
 		detail.AccountKey,
+		nullInt(detail.Priority),
 		nullString(detail.AccountType),
 		nullFloat(detail.FiveHourUsedPercent),
 		nullPositiveInt64(detail.FiveHourResetAtMS),
@@ -75,7 +77,7 @@ func (r *repository) ListItemsByRun(ctx context.Context, runID int64) ([]model.C
 			r.provider, r.disabled, r.status, r.state, r.action, r.action_reason, r.status_code,
 			r.used_percent, r.is_quota, r.error, r.action_status, r.executed_action, r.action_error,
 			r.created_at_ms,
-			d.account_type, d.five_hour_used_percent, d.five_hour_reset_at_ms,
+			d.priority, d.account_type, d.five_hour_used_percent, d.five_hour_reset_at_ms,
 			d.weekly_used_percent, d.weekly_reset_at_ms,
 			d.monthly_used_percent, d.monthly_reset_at_ms,
 			d.rate_limit_reset_credits_available_count, d.checked_at_ms
@@ -105,7 +107,7 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 	var item model.CodexAccountStatusItem
 	var authIndex, accountID, provider, status, state, actionReason, errorText sql.NullString
 	var actionStatus, executedAction, actionError, accountType sql.NullString
-	var statusCode, fiveHourResetAt, weeklyResetAt, monthlyResetAt, resetCredits, checkedAt sql.NullInt64
+	var statusCode, priority, fiveHourResetAt, weeklyResetAt, monthlyResetAt, resetCredits, checkedAt sql.NullInt64
 	var usedPercent, fiveHourUsedPercent, weeklyUsedPercent, monthlyUsedPercent sql.NullFloat64
 	var disabled, isQuota int
 	if err := row.Scan(
@@ -130,6 +132,7 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 		&executedAction,
 		&actionError,
 		&item.ResultCreatedAtMS,
+		&priority,
 		&accountType,
 		&fiveHourUsedPercent,
 		&fiveHourResetAt,
@@ -154,6 +157,10 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 	item.ActionStatus = model.NormalizeCodexInspectionActionStatus(actionStatus.String, item.Action)
 	item.ExecutedAction = executedAction.String
 	item.ActionError = actionError.String
+	if priority.Valid {
+		value := int(priority.Int64)
+		item.Priority = &value
+	}
 	item.AccountType = accountType.String
 	if statusCode.Valid {
 		value := int(statusCode.Int64)

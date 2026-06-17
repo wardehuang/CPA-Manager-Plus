@@ -2,6 +2,7 @@ package codexinspection
 
 import (
 	"context"
+	"log"
 	"math"
 	"time"
 
@@ -14,8 +15,14 @@ type accountStatusWindow struct {
 	ResetAtMS          int64
 }
 
-func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int64, accountKey string, payload map[string]any, planType string) {
+func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int64, accountKey string, priority *int, payload map[string]any, planType string, logger runLogger) {
 	if runID <= 0 || accountKey == "" || payload == nil {
+		logger.warning(ctx, "跳过写入账号状态详情", map[string]any{
+			"runId":      runID,
+			"accountKey": accountKey,
+			"payloadNil": payload == nil,
+		})
+		log.Printf("[codex-inspection] skip account status detail run_id=%d account_key=%q payload_nil=%t", runID, accountKey, payload == nil)
 		return
 	}
 	rateLimit := readMap(payload, "rate_limit", "rateLimit")
@@ -25,6 +32,7 @@ func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int
 	detail := model.CodexAccountStatusDetail{
 		RunID:                               runID,
 		AccountKey:                          accountKey,
+		Priority:                            priority,
 		AccountType:                         normalizeCodexPlanType(planType),
 		RateLimitResetCreditsAvailableCount: readAccountStatusIntPtr(readMap(payload, "rate_limit_reset_credits", "rateLimitResetCredits"), "available_count", "availableCount"),
 		CheckedAtMS:                         time.Now().UnixMilli(),
@@ -41,7 +49,39 @@ func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int
 		detail.MonthlyUsedPercent = monthly.UsedPercent
 		detail.MonthlyResetAtMS = monthly.ResetAtMS
 	}
-	_ = s.store.UpsertCodexAccountStatusDetail(ctx, detail)
+	if err := s.upsertCodexAccountStatusDetailWithRetry(ctx, detail); err != nil {
+		logger.warning(ctx, "写入账号状态详情失败", map[string]any{
+			"runId":                 runID,
+			"accountKey":            accountKey,
+			"priority":              priority,
+			"accountType":           detail.AccountType,
+			"fiveHourUsedPercent":   detail.FiveHourUsedPercent,
+			"weeklyUsedPercent":     detail.WeeklyUsedPercent,
+			"monthlyUsedPercent":    detail.MonthlyUsedPercent,
+			"fiveHourResetAtMs":     detail.FiveHourResetAtMS,
+			"weeklyResetAtMs":       detail.WeeklyResetAtMS,
+			"monthlyResetAtMs":      detail.MonthlyResetAtMS,
+			"resetCreditsAvailable": detail.RateLimitResetCreditsAvailableCount,
+			"error":                 err.Error(),
+		})
+		log.Printf("[codex-inspection] write account status detail failed run_id=%d account_key=%q error=%v", runID, accountKey, err)
+		return
+	}
+}
+
+func (s *Service) upsertCodexAccountStatusDetailWithRetry(ctx context.Context, detail model.CodexAccountStatusDetail) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := s.store.UpsertCodexAccountStatusDetail(ctx, detail); err != nil {
+			lastErr = err
+			if attempt < 2 {
+				time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+			}
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 func parseAccountStatusWindow(raw map[string]any) *accountStatusWindow {

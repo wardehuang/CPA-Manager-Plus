@@ -592,6 +592,16 @@
   display: none;
 }
 
+.buttonContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.buttonContent svg {
+  flex: 0 0 auto;
+}
+
 .customRangeModalBody {
   display: grid;
   gap: 12px;

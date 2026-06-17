@@ -22,8 +22,10 @@ services:
       USAGE_POLL_INTERVAL_MS: "500"
       USAGE_QUERY_LIMIT: "50000"
       USAGE_CORS_ORIGINS: "*"
+      CPA_SERVER_LOG_DIR: "/opt/cli-proxy-api/logs"
     volumes:
       - cpa-manager-plus-data:/data
+      - /opt/cli-proxy-api/logs:/opt/cli-proxy-api/logs:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18317/health"]
       interval: 10s

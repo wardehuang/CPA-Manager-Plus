@@ -60,6 +60,13 @@ func Migrate(db *sql.DB) error {
 		`create index if not exists idx_usage_events_model on usage_events(model)`,
 		`create index if not exists idx_usage_events_auth_index on usage_events(auth_index)`,
 		`create index if not exists idx_usage_events_endpoint on usage_events(endpoint)`,
+		`create table if not exists usage_raw (
+			event_hash text primary key,
+			raw_payload text not null,
+			created_at_ms integer not null,
+			foreign key(event_hash) references usage_events(event_hash) on delete cascade
+		)`,
+		`create index if not exists idx_usage_raw_created_at on usage_raw(created_at_ms)`,
 		`create table if not exists dead_letter_events (
 			id integer primary key autoincrement,
 			payload text not null,
@@ -167,6 +174,7 @@ func Migrate(db *sql.DB) error {
 		`create table if not exists codex_account_status_details (
 			run_id integer not null,
 			account_key text not null,
+			priority integer,
 			account_type text,
 			five_hour_used_percent real,
 			five_hour_reset_at_ms integer,
@@ -182,6 +190,32 @@ func Migrate(db *sql.DB) error {
 			unique(run_id, account_key)
 		)`,
 		`create index if not exists idx_codex_account_status_details_run on codex_account_status_details(run_id)`,
+		`create table if not exists codex_account_window_costs (
+			account_key text not null,
+			window_type text not null,
+			window_start_at_ms integer not null,
+			window_reset_at_ms integer not null,
+			estimated_cost real not null default 0,
+			is_quota_exhausted integer not null default 0,
+			calculated_at_ms integer not null,
+			created_at_ms integer not null,
+			updated_at_ms integer not null,
+			unique(account_key, window_type, window_reset_at_ms)
+		)`,
+		`create index if not exists idx_codex_account_window_costs_account on codex_account_window_costs(account_key, window_type)`,
+		`create index if not exists idx_codex_account_window_costs_reset on codex_account_window_costs(window_type, window_reset_at_ms)`,
+		`create table if not exists codex_priority_adjustments (
+			account_key text primary key,
+			file_name text not null,
+			display_account text not null,
+			auth_index text,
+			account_id text,
+			original_priority integer,
+			recover_at_ms integer,
+			created_at_ms integer not null,
+			updated_at_ms integer not null
+		)`,
+		`create index if not exists idx_codex_priority_adjustments_recover_at on codex_priority_adjustments(recover_at_ms)`,
 		`create table if not exists codex_inspection_logs (
 			id integer primary key autoincrement,
 			run_id integer not null,
@@ -226,10 +260,44 @@ func Migrate(db *sql.DB) error {
 	if err := ensureCodexInspectionResultColumns(db); err != nil {
 		return err
 	}
+	if err := ensureCodexAccountStatusDetailColumns(db); err != nil {
+		return err
+	}
 	if err := ensureAccountActionCandidateColumns(db); err != nil {
 		return err
 	}
 	return ensureModelPriceColumns(db)
+}
+
+func ensureCodexAccountStatusDetailColumns(db *sql.DB) error {
+	rows, err := db.Query(`pragma table_info(codex_account_status_details)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if _, ok := existing["priority"]; ok {
+		return nil
+	}
+	_, err = db.Exec(`alter table codex_account_status_details add column priority integer`)
+	return err
 }
 
 func ensureAccountActionCandidateColumns(db *sql.DB) error {

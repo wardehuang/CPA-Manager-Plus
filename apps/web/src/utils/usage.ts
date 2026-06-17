@@ -69,6 +69,7 @@ export interface UsageDetail {
   failSummary?: string;
   fail_body?: string;
   failBody?: string;
+  __eventHash?: string;
   __modelName?: string;
   __resolvedModel?: string;
   __timestampMs?: number;

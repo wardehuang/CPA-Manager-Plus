@@ -105,6 +105,8 @@ func runServer() {
 	serverApp := httpapi.New(cfg, db, manager)
 	codexInspectionWorker := worker.NewCodexInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().CodexInspectionService)
 	codexInspectionWorker.Start(ctx)
+	codexConditionalInspectionWorker := worker.NewCodexConditionalInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().CodexInspectionService)
+	codexConditionalInspectionWorker.Start(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,

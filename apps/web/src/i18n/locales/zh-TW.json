@@ -172,6 +172,7 @@
     "account_actions": "認證異常",
     "config_management": "設定面板",
     "logs": "記錄檢視",
+    "server_logs": "詳細記錄",
     "system_info": "系統資訊"
   },
   "account_actions": {
@@ -2106,6 +2107,24 @@
     "removed": "已篩選",
     "upgrade_required_title": "需要升級 CLI Proxy API",
     "upgrade_required_desc": "目前伺服器版本不支援記錄檢視功能，請升級到最新版本的 CLI Proxy API 以使用此功能。"
+  },
+  "server_logs": {
+    "eyebrow": "Server Log Files",
+    "title": "詳細記錄",
+    "description": "查看 Manager Server 所在伺服器上的 CLIProxyAPI 記錄檔案，並可按需下載單個記錄檔案。",
+    "table_title": "服務端記錄檔案",
+    "total_files": "共 {{count}} 個檔案",
+    "column_name": "檔案名",
+    "column_time": "修改時間",
+    "column_size": "大小",
+    "column_actions": "操作",
+    "download": "下載",
+    "loading": "正在載入記錄檔案...",
+    "load_error": "載入詳細記錄失敗",
+    "download_success": "記錄檔案下載成功",
+    "download_failed": "記錄檔案下載失敗",
+    "empty_title": "暫無服務端記錄檔案",
+    "empty_desc": "未在 /opt/cli-proxy-api/logs/ 目錄中找到可顯示的檔案。"
   },
   "config_management": {
     "title": "設定面板",

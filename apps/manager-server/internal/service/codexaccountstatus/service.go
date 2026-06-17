@@ -30,5 +30,20 @@ func (s *Service) Latest(ctx context.Context) (model.CodexAccountStatusResponse,
 	if err != nil {
 		return model.CodexAccountStatusResponse{}, err
 	}
+	s.refreshCodexAccountWindowCosts(ctx, items)
+	costs, err := s.store.ListCodexAccountWindowCostsByRun(ctx, runs[0].ID)
+	if err != nil {
+		return model.CodexAccountStatusResponse{}, err
+	}
+	costsByAccount := make(map[string][]model.CodexAccountWindowCost, len(costs))
+	for _, cost := range costs {
+		costsByAccount[cost.AccountKey] = append(costsByAccount[cost.AccountKey], cost)
+	}
+	for index := range items {
+		items[index].WindowCosts = costsByAccount[items[index].AccountKey]
+		if adjustment, ok, err := s.store.GetCodexPriorityAdjustment(ctx, items[index].AccountKey); err == nil && ok {
+			items[index].OriginalPriority = adjustment.OriginalPriority
+		}
+	}
 	return model.CodexAccountStatusResponse{Run: runs[0], Items: items}, nil
 }

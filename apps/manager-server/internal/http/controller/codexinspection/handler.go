@@ -25,6 +25,22 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	path := strings.Trim(strings.TrimRight(r.URL.Path, "/"), " ")
 	switch {
+	case path == "/v0/management/codex-inspection/manual-refresh":
+		if r.Method != http.MethodPost {
+			response.MethodNotAllowed(w)
+			return
+		}
+		var req codexsvc.ManualRefreshRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			response.Error(w, http.StatusBadRequest, err)
+			return
+		}
+		result, err := h.App.CodexInspectionService.RunManualRefresh(context.WithoutCancel(r.Context()), req)
+		if err != nil {
+			response.Error(w, codexInspectionErrorStatus(err), err)
+			return
+		}
+		response.JSON(w, http.StatusOK, result)
 	case path == "/v0/management/codex-inspection/run":
 		if r.Method != http.MethodPost {
 			response.MethodNotAllowed(w)
@@ -108,7 +124,8 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 
 func codexInspectionErrorStatus(err error) int {
 	switch {
-	case errors.Is(err, codexsvc.ErrRunNotFound):
+	case errors.Is(err, codexsvc.ErrRunNotFound),
+		errors.Is(err, codexsvc.ErrManualRefreshAccountNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, codexsvc.ErrRunAlreadyActive),
 		errors.Is(err, codexsvc.ErrRunNotCompleted):

@@ -9,6 +9,10 @@
 @use './components.scss';
 @use './layout.scss';
 
+:root {
+  --font-family-mono: #{$font-mono};
+}
+
 body {
   background-color: var(--app-bg);
   color: var(--text-primary);
@@ -46,16 +50,22 @@ body.modal-open .content {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--border-hover));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  border: 2px solid color-mix(in srgb, var(--bg-secondary) 72%, var(--border-hover));
+  background: color-mix(in srgb, var(--primary-color) 52%, var(--border-hover));
   border-radius: $radius-full;
 
   &:hover {
-    background: var(--border-hover);
+    background: color-mix(in srgb, var(--primary-color) 72%, var(--border-hover));
   }
+}
+
+* {
+  scrollbar-color: color-mix(in srgb, var(--primary-color) 52%, var(--border-hover)) color-mix(in srgb, var(--bg-secondary) 72%, var(--border-hover));
+  scrollbar-width: thin;
 }
 
 // 通用工具类

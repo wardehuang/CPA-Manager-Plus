@@ -438,9 +438,17 @@ export function MainLayout() {
             label: t('nav.logs'),
             shortLabel: navShortLabel('nav.logs', t('nav.logs')),
             icon: sidebarIcons.logs,
+            exact: true,
           },
         ]
       : []),
+    {
+      path: '/logs/server',
+      label: t('nav.server_logs'),
+      shortLabel: navShortLabel('nav.server_logs', t('nav.server_logs')),
+      icon: sidebarIcons.logs,
+      exact: true,
+    },
   ];
   const pluginControlNavItems: NavItem[] = pluginControlMenuVisible
     ? [

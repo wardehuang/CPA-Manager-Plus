@@ -31,9 +31,11 @@ type Repository interface {
 	TaskBucketsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]TaskBucket, error)
 	RecentFailuresWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]RecentFailure, error)
 	EventsPageWithFilter(ctx context.Context, filter AnalyticsFilter, beforeMS int64, beforeID int64, limit int) (EventsPage, error)
+	GetRawEventByHash(ctx context.Context, eventHash string) (RawEvent, bool, error)
 	EventsCountWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error)
 	ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error)
 	ZeroTokenModelsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]string, error)
+	ConditionalAccountsBetween(ctx context.Context, fromMS, toMS int64) ([]ConditionalAccountStat, error)
 }
 
 type repository struct {
@@ -68,6 +70,14 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		return model.InsertResult{}, err
 	}
 	defer stmt.Close()
+
+	rawStmt, err := tx.PrepareContext(ctx, `insert or ignore into usage_raw (
+		event_hash, raw_payload, created_at_ms
+	) values (?, ?, ?)`)
+	if err != nil {
+		return model.InsertResult{}, err
+	}
+	defer rawStmt.Close()
 
 	result := model.InsertResult{}
 	for _, event := range events {
@@ -130,6 +140,9 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		}
 		affected, _ := res.RowsAffected()
 		if affected > 0 {
+			if _, err := rawStmt.ExecContext(ctx, event.EventHash, event.RawPayload, event.CreatedAtMS); err != nil {
+				return model.InsertResult{}, err
+			}
 			result.Inserted++
 			result.InsertedEventHashes = append(result.InsertedEventHashes, event.EventHash)
 		} else {

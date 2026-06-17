@@ -18,16 +18,16 @@ const MODES: ReadonlyArray<{
   fallbackLabel: string;
 }> = [
   {
-    mode: 'server',
-    path: '/codex-inspection/server',
-    labelKey: 'monitoring.codex_inspection_mode_server',
-    fallbackLabel: '服务端巡检',
-  },
-  {
     mode: 'status',
     path: '/codex-inspection/status',
     labelKey: 'monitoring.codex_inspection_mode_status',
     fallbackLabel: '账号状态',
+  },
+  {
+    mode: 'server',
+    path: '/codex-inspection/server',
+    labelKey: 'monitoring.codex_inspection_mode_server',
+    fallbackLabel: '服务端巡检',
   },
   {
     mode: 'local',

@@ -183,6 +183,8 @@
     "config_management_short": "Config",
     "logs": "Logs Viewer",
     "logs_short": "Logs",
+    "server_logs": "Detailed Logs",
+    "server_logs_short": "Details",
     "system_info": "System Info",
     "system_info_short": "System"
   },
@@ -2135,6 +2137,24 @@
     "removed": "Filtered",
     "upgrade_required_title": "Please Upgrade CLI Proxy API",
     "upgrade_required_desc": "The current server version does not support the logs viewing feature. Please upgrade to the latest version of CLI Proxy API to use this feature."
+  },
+  "server_logs": {
+    "eyebrow": "Server Log Files",
+    "title": "Detailed Logs",
+    "description": "View CLIProxyAPI log files on the Manager Server host and download individual files when needed.",
+    "table_title": "Server log files",
+    "total_files": "{{count}} files total",
+    "column_name": "File name",
+    "column_time": "Modified time",
+    "column_size": "Size",
+    "column_actions": "Actions",
+    "download": "Download",
+    "loading": "Loading log files...",
+    "load_error": "Failed to load detailed logs",
+    "download_success": "Log file downloaded successfully",
+    "download_failed": "Failed to download log file",
+    "empty_title": "No server log files",
+    "empty_desc": "No displayable files were found in /opt/cli-proxy-api/logs/."
   },
   "config_management": {
     "title": "Config Panel",

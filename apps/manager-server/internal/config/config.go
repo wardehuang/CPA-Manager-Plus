@@ -23,6 +23,7 @@ type Config struct {
 	DataDir                   string
 	DBPath                    string
 	CPAUpstreamURL            string
+	ServerLogDir              string
 	ManagementKey             string
 	AdminKey                  string
 	DataKey                   string
@@ -50,6 +51,7 @@ type fileConfig struct {
 	DataDir                   string   `json:"dataDir,omitempty"`
 	DBPath                    string   `json:"dbPath,omitempty"`
 	CPAUpstreamURL            string   `json:"cpaUpstreamUrl,omitempty"`
+	ServerLogDir              string   `json:"serverLogDir,omitempty"`
 	ManagementKeyFile         string   `json:"managementKeyFile,omitempty"`
 	AdminKeyFile              string   `json:"adminKeyFile,omitempty"`
 	DataKeyFile               string   `json:"dataKeyFile,omitempty"`
@@ -95,6 +97,11 @@ func LoadWithOptions(options LoadOptions) (Config, error) {
 		dbPathFallback = resolveConfigPath(cfgFile.DBPath, cfgDir)
 	}
 
+	serverLogDirFallback := "/opt/cli-proxy-api/logs"
+	if cfgFile.ServerLogDir != "" {
+		serverLogDirFallback = resolveConfigPath(cfgFile.ServerLogDir, cfgDir)
+	}
+
 	managementKeyFile := defaultSecretFile
 	if cfgFile.ManagementKeyFile != "" {
 		managementKeyFile = resolveConfigPath(cfgFile.ManagementKeyFile, cfgDir)
@@ -119,6 +126,7 @@ func LoadWithOptions(options LoadOptions) (Config, error) {
 		DataDir:                   dataDir,
 		DBPath:                    env("USAGE_DB_PATH", dbPathFallback),
 		CPAUpstreamURL:            env("CPA_UPSTREAM_URL", cfgFile.CPAUpstreamURL),
+		ServerLogDir:              env("CPA_SERVER_LOG_DIR", serverLogDirFallback),
 		ManagementKey:             readSecret("CPA_MANAGEMENT_KEY", "CPA_MANAGEMENT_KEY_FILE", managementKeyFile),
 		AdminKey:                  readSecret("CPA_MANAGER_ADMIN_KEY", "CPA_MANAGER_ADMIN_KEY_FILE", adminKeyFile),
 		DataKey:                   readSecret("CPA_MANAGER_DATA_KEY", "CPA_MANAGER_DATA_KEY_FILE", dataKeyFile),

@@ -8,7 +8,9 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/accountaction"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/apikeyalias"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexaccountstatus"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexaccountwindowcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexinspection"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexpriorityadjustment"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/modelprice"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/quotacooldown"
@@ -39,6 +41,7 @@ type QuotaCooldown = model.QuotaCooldown
 type QuotaCooldownUpsert = model.QuotaCooldownUpsert
 type AccountActionCandidate = model.AccountActionCandidate
 type AccountActionCandidateUpsert = model.AccountActionCandidateUpsert
+type CodexPriorityAdjustment = model.CodexPriorityAdjustment
 
 var DefaultCodexInspectionConfig = model.DefaultCodexInspectionConfig
 var NormalizeCodexInspectionConfig = model.NormalizeCodexInspectionConfig
@@ -57,19 +60,23 @@ type APIKeyModelStat = usageevent.APIKeyModelStat
 type TaskBucket = usageevent.TaskBucket
 type EventPageItem = usageevent.EventPageItem
 type EventsPage = usageevent.EventsPage
+type RawEvent = usageevent.RawEvent
+type ConditionalAccountStat = usageevent.ConditionalAccountStat
 
 type Store struct {
 	db *sql.DB
 
-	CodexAccountStatus codexaccountstatus.Repository
-	Settings           setting.Repository
-	UsageEvents        usageevent.Repository
-	DeadLetters        deadletter.Repository
-	ModelPrices        modelprice.Repository
-	APIKeyAliases      apikeyalias.Repository
-	AccountActions     accountaction.Repository
-	CodexInspections   codexinspection.Repository
-	QuotaCooldowns     quotacooldown.Repository
+	CodexAccountWindowCosts  codexaccountwindowcost.Repository
+	CodexPriorityAdjustments codexpriorityadjustment.Repository
+	CodexAccountStatus       codexaccountstatus.Repository
+	Settings                 setting.Repository
+	UsageEvents              usageevent.Repository
+	DeadLetters              deadletter.Repository
+	ModelPrices              modelprice.Repository
+	APIKeyAliases            apikeyalias.Repository
+	AccountActions           accountaction.Repository
+	CodexInspections         codexinspection.Repository
+	QuotaCooldowns           quotacooldown.Repository
 }
 
 func Open(path string, protector ...*security.Protector) (*Store, error) {
@@ -82,16 +89,18 @@ func Open(path string, protector ...*security.Protector) (*Store, error) {
 
 func New(db *sql.DB, protector ...*security.Protector) *Store {
 	return &Store{
-		db:                 db,
-		CodexAccountStatus: codexaccountstatus.New(db),
-		Settings:           setting.New(db, protector...),
-		UsageEvents:        usageevent.New(db),
-		DeadLetters:        deadletter.New(db),
-		ModelPrices:        modelprice.New(db),
-		APIKeyAliases:      apikeyalias.New(db),
-		AccountActions:     accountaction.New(db),
-		CodexInspections:   codexinspection.New(db),
-		QuotaCooldowns:     quotacooldown.New(db),
+		db:                       db,
+		CodexAccountWindowCosts:  codexaccountwindowcost.New(db),
+		CodexPriorityAdjustments: codexpriorityadjustment.New(db),
+		CodexAccountStatus:       codexaccountstatus.New(db),
+		Settings:                 setting.New(db, protector...),
+		UsageEvents:              usageevent.New(db),
+		DeadLetters:              deadletter.New(db),
+		ModelPrices:              modelprice.New(db),
+		APIKeyAliases:            apikeyalias.New(db),
+		AccountActions:           accountaction.New(db),
+		CodexInspections:         codexinspection.New(db),
+		QuotaCooldowns:           quotacooldown.New(db),
 	}
 }
 
@@ -100,6 +109,18 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+func (s *Store) ListCodexAccountWindowCostsByRun(ctx context.Context, runID int64) ([]model.CodexAccountWindowCost, error) {
+	return s.CodexAccountWindowCosts.ListByRun(ctx, runID)
+}
+
+func (s *Store) SumCodexAccountUsageByWindow(ctx context.Context, target model.CodexAccountWindowCostTarget, fromMS int64, toMS int64) ([]model.CodexAccountWindowUsageAggregate, error) {
+	return s.CodexAccountWindowCosts.SumUsageByWindow(ctx, target, fromMS, toMS)
+}
+
+func (s *Store) UpsertCodexAccountWindowCost(ctx context.Context, cost model.CodexAccountWindowCost) error {
+	return s.CodexAccountWindowCosts.Upsert(ctx, cost)
 }
 
 func (s *Store) SaveSetup(ctx context.Context, setup Setup) error {
@@ -194,6 +215,22 @@ func (s *Store) RecordAccountActionCandidateFailure(ctx context.Context, id int6
 	return s.AccountActions.RecordFailure(ctx, id, reason)
 }
 
+func (s *Store) DeleteCodexPriorityAdjustment(ctx context.Context, accountKey string) error {
+	return s.CodexPriorityAdjustments.Delete(ctx, accountKey)
+}
+
+func (s *Store) GetCodexPriorityAdjustment(ctx context.Context, accountKey string) (model.CodexPriorityAdjustment, bool, error) {
+	return s.CodexPriorityAdjustments.Get(ctx, accountKey)
+}
+
+func (s *Store) ListDueCodexPriorityAdjustments(ctx context.Context, nowMS int64) ([]model.CodexPriorityAdjustment, error) {
+	return s.CodexPriorityAdjustments.ListDue(ctx, nowMS)
+}
+
+func (s *Store) UpsertCodexPriorityAdjustment(ctx context.Context, adjustment model.CodexPriorityAdjustment) error {
+	return s.CodexPriorityAdjustments.Upsert(ctx, adjustment)
+}
+
 func (s *Store) UpsertCodexAccountStatusDetail(ctx context.Context, detail model.CodexAccountStatusDetail) error {
 	return s.CodexAccountStatus.UpsertDetail(ctx, detail)
 }
@@ -242,6 +279,10 @@ func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertR
 	return s.UsageEvents.InsertBatch(ctx, events)
 }
 
+func (s *Store) GetRawEventByHash(ctx context.Context, eventHash string) (RawEvent, bool, error) {
+	return s.UsageEvents.GetRawEventByHash(ctx, eventHash)
+}
+
 func (s *Store) UpsertQuotaCooldown(ctx context.Context, cooldown QuotaCooldownUpsert) (QuotaCooldown, error) {
 	return s.QuotaCooldowns.UpsertActive(ctx, cooldown)
 }
@@ -268,6 +309,10 @@ func (s *Store) AddDeadLetter(ctx context.Context, payload string, parseErr erro
 
 func (s *Store) RecentEvents(ctx context.Context, limit int) ([]usage.Event, error) {
 	return s.UsageEvents.ListRecent(ctx, limit)
+}
+
+func (s *Store) ConditionalAccountsBetween(ctx context.Context, fromMS int64, toMS int64) ([]ConditionalAccountStat, error) {
+	return s.UsageEvents.ConditionalAccountsBetween(ctx, fromMS, toMS)
 }
 
 func (s *Store) Counts(ctx context.Context) (events int64, deadLetters int64, err error) {

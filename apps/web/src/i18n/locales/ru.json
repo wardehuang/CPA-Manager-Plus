@@ -182,6 +182,8 @@
     "config_management_short": "Конфиг",
     "logs": "Просмотр логов",
     "logs_short": "Логи",
+    "server_logs": "Подробные логи",
+    "server_logs_short": "Подробно",
     "system_info": "Информация системы",
     "system_info_short": "Система"
   },

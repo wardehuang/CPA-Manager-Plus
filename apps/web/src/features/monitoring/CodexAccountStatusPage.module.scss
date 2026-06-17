@@ -13,10 +13,21 @@
   --inspect-green: var(--success-color);
   --inspect-amber: var(--warning-color);
   --inspect-red: var(--error-color);
+  --monitor-bg: var(--bg-secondary);
+  --monitor-surface: var(--bg-primary);
+  --monitor-surface-elevated: color-mix(in srgb, var(--bg-primary) 82%, var(--surface-subtle));
+  --monitor-surface-muted: var(--surface-subtle);
+  --monitor-surface-hover: color-mix(in srgb, var(--surface-subtle-hover) 74%, var(--bg-primary));
+  --monitor-ink: var(--text-primary);
+  --monitor-muted: var(--text-secondary);
+  --monitor-line: var(--border-color);
+  --monitor-line-strong: var(--border-primary);
+  --monitor-accent: var(--primary-color);
+  --monitor-accent-strong: var(--primary-active);
   display: grid;
   gap: 16px;
   min-width: 0;
-  color: var(--text-primary);
+  color: var(--monitor-ink);
 }
 
 .panel {
@@ -40,32 +51,113 @@
 
 .summaryCard,
 .accountStatusSummaryCard {
-  display: grid;
-  gap: 8px;
+  --summary-accent: var(--account-status-tone);
+
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;
-  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  min-height: 88px;
+  padding: 14px 14px 12px 18px;
   border: 1px solid var(--border-color);
   border-radius: 18px;
-  background: var(--surface-subtle);
+  background:
+    radial-gradient(circle at 88% 16%, color-mix(in srgb, var(--summary-accent) 18%, transparent), transparent 32%),
+    linear-gradient(135deg, color-mix(in srgb, var(--summary-accent) 10%, transparent), transparent 58%),
+    var(--glass-bg, var(--surface-subtle));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--account-status-tone) 8%, transparent);
+}
+
+.summaryCard::before,
+.accountStatusSummaryCard::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: linear-gradient(180deg, var(--account-status-tone), color-mix(in srgb, var(--account-status-tone) 35%, transparent));
+}
+
+.accountStatusSummaryCard::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  bottom: 9px;
+  z-index: 0;
+  width: 96px;
+  height: 34px;
+  opacity: 0.35;
+  background:
+    linear-gradient(135deg, transparent 10%, color-mix(in srgb, var(--summary-accent) 22%, transparent) 10% 14%, transparent 14% 38%, color-mix(in srgb, var(--summary-accent) 18%, transparent) 38% 42%, transparent 42% 68%, color-mix(in srgb, var(--summary-accent) 20%, transparent) 68% 72%, transparent 72%),
+    radial-gradient(circle at 18% 78%, color-mix(in srgb, var(--summary-accent) 24%, transparent) 0 2px, transparent 3px),
+    radial-gradient(circle at 56% 42%, color-mix(in srgb, var(--summary-accent) 22%, transparent) 0 2px, transparent 3px),
+    radial-gradient(circle at 86% 62%, color-mix(in srgb, var(--summary-accent) 20%, transparent) 0 2px, transparent 3px);
+  pointer-events: none;
+}
+
+.accountStatusSummaryHeader {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.accountStatusSummaryIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  color: var(--summary-accent);
+  background: color-mix(in srgb, var(--summary-accent) 12%, transparent);
+}
+
+.accountStatusSummaryBody {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+}
+
+.accountStatusSummarySparkline {
+  position: absolute;
+  inset: auto 12px 9px auto;
+  z-index: 0;
+  width: 90px;
+  height: 28px;
+  opacity: 0.42;
+  background: linear-gradient(135deg, transparent 20%, color-mix(in srgb, var(--summary-accent) 26%, transparent) 21% 24%, transparent 25% 54%, color-mix(in srgb, var(--summary-accent) 20%, transparent) 55% 58%, transparent 59%);
+  pointer-events: none;
 }
 
 .accountStatusSummaryLabel,
 .accountStatusSummaryMeta {
+  overflow: hidden;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .accountStatusSummaryValue {
   font-size: 26px;
   line-height: 1;
+  color: var(--text-primary);
 }
 
-.accountStatusTone-blue { border-color: color-mix(in srgb, var(--primary-color) 28%, var(--border-color)); }
-.accountStatusTone-green { border-color: color-mix(in srgb, var(--success-color) 28%, var(--border-color)); }
-.accountStatusTone-amber { border-color: color-mix(in srgb, var(--warning-color) 28%, var(--border-color)); }
-.accountStatusTone-red { border-color: color-mix(in srgb, var(--error-color) 28%, var(--border-color)); }
-.accountStatusTone-violet { border-color: color-mix(in srgb, var(--primary-active) 28%, var(--border-color)); }
+.accountStatusTone-blue { --account-status-tone: var(--primary-color); border-color: color-mix(in srgb, var(--primary-color) 28%, var(--border-color)); }
+.accountStatusTone-green { --account-status-tone: var(--success-color); border-color: color-mix(in srgb, var(--success-color) 28%, var(--border-color)); }
+.accountStatusTone-amber { --account-status-tone: var(--warning-color); border-color: color-mix(in srgb, var(--warning-color) 28%, var(--border-color)); }
+.accountStatusTone-red { --account-status-tone: var(--error-color); border-color: color-mix(in srgb, var(--error-color) 28%, var(--border-color)); }
+.accountStatusTone-violet { --account-status-tone: #a78bfa; border-color: color-mix(in srgb, #a78bfa 28%, var(--border-color)); }
 
 .accountStatusToolbar {
   display: flex;
@@ -74,8 +166,61 @@
   align-items: center;
 }
 
+.accountStatusDataPanel {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-primary);
+}
+
+.accountStatusDataHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 82%, var(--surface-subtle));
+}
+
+.accountStatusDataTabs,
+.accountStatusDataActions,
+.accountStatusPagerControls,
+.maskToggle,
+.filterPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.accountStatusDataTabs {
+  flex: 1 1 420px;
+  min-width: 260px;
+}
+
+.accountStatusDataActions {
+  flex: 0 0 auto;
+}
+
+.accountStatusDataTab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+  border-radius: 999px;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .accountStatusSearch,
-.accountStatusSelect {
+.accountStatusSelect,
+.accountStatusPageSize,
+.accountStatusPageJump {
   min-height: 36px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -84,13 +229,52 @@
 }
 
 .accountStatusSearch {
-  flex: 1 1 260px;
-  min-width: 180px;
+  flex: 1 1 auto;
+  min-width: 260px;
+  height: 36px;
   padding: 0 12px;
+  font-size: 13px;
+  line-height: 36px;
 }
 
 .accountStatusSelect {
   padding: 0 10px;
+}
+
+.maskToggle,
+.filterPills {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+
+.maskToggle button,
+.filterPills button,
+.accountStatusPagination button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.maskToggle button {
+  padding: 0 10px;
+}
+
+.filterPills button {
+  padding: 0 11px;
+}
+
+.maskToggle .activeToggle,
+.filterPills .activeToggle {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
 }
 
 .accountStatusRunMeta {
@@ -105,53 +289,450 @@
 }
 
 .accountStatusTableWrap {
-  overflow: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .accountStatusTable {
   width: 100%;
-  min-width: 920px;
-  border-collapse: collapse;
+  min-width: 1120px;
+  overflow: visible;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  border-radius: 16px;
+  background: transparent;
+  table-layout: fixed;
+}
+
+.accountStatusColAccount {
+  width: 206px;
+}
+
+.accountStatusColType {
+  width: 96px;
+}
+
+.accountStatusColStatus {
+  width: 110px;
+}
+
+.accountStatusColPriority {
+  width: 80px;
+}
+
+.accountStatusColQuota {
+  width: 390px;
+}
+
+.accountStatusColCost {
+  width: 104px;
+}
+
+.accountStatusColInfo {
+  width: 112px;
+}
+
+.accountStatusTable th:first-child,
+.accountStatusTable td:first-child {
+  width: 206px;
+  max-width: 206px;
 }
 
 .accountStatusTable th,
 .accountStatusTable td {
   padding: 12px;
-  border-bottom: 1px solid var(--border-color);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+.accountStatusTable th:nth-child(2),
+.accountStatusTable td:nth-child(2),
+.accountStatusTable th:nth-child(3),
+.accountStatusTable td:nth-child(3),
+.accountStatusTable th:nth-child(4),
+.accountStatusTable td:nth-child(4) {
+  text-align: center;
 }
 
 .accountStatusTable th {
-  color: var(--text-secondary);
-  font-size: 12px;
+  text-align: center;
+}
+
+.accountStatusTable thead th {
+  text-align: center;
+}
+
+.accountStatusTable td:first-child,
+.accountStatusTable td:nth-child(5) {
+  text-align: left;
+}
+
+.accountStatusTable th:nth-child(6),
+.accountStatusTable td:nth-child(6),
+.accountStatusTable th:nth-child(7),
+.accountStatusTable td:nth-child(7) {
+  text-align: center;
+}
+
+.accountStatusTable th:nth-child(2) .sortButton,
+.accountStatusTable th:nth-child(4) .sortButton {
+  justify-content: center;
+}
+
+.accountStatusTable th .sortButton {
+  justify-content: center;
+}
+
+.accountStatusTable td:nth-child(2) .accountTypeBadge,
+.accountStatusTable td:nth-child(3) .statusBadge,
+.accountStatusTable td:nth-child(4) .priorityBadge {
+  margin-inline: auto;
+}
+
+.accountStatusTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  color: var(--monitor-muted);
+  font-size: 11px;
   font-weight: 700;
-  background: var(--surface-subtle);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--monitor-surface) 88%, var(--monitor-surface-muted));
+}
+
+.accountStatusTable th:first-child {
+  border-left: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-radius: 12px 0 0 12px;
+}
+
+.accountStatusTable th:last-child {
+  border-right: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-radius: 0 12px 12px 0;
+}
+
+.accountStatusTable tbody td {
+  border-top: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  background: var(--monitor-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.accountStatusTable tbody td:first-child {
+  border-left: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-radius: 14px 0 0 14px;
+}
+
+.accountStatusTable tbody td:last-child {
+  border-right: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
+  border-radius: 0 14px 14px 0;
+}
+
+.accountStatusTable tbody tr:nth-child(even) td {
+  background: var(--monitor-surface-elevated);
+}
+
+.accountStatusTable tbody tr:hover td {
+  background: var(--monitor-surface-hover);
+}
+
+.accountStatusSingleLineRow td {
+  padding-block: 8px;
+}
+
+.accountStatusSingleLineRow .accountStatusAccountCell,
+.accountStatusSingleLineRow .accountStatusStateCell,
+.accountStatusSingleLineRow .accountStatusQuotaList,
+.accountStatusSingleLineRow .accountStatusCostList,
+.accountStatusSingleLineRow .accountStatusExtraCell {
+  gap: 4px;
+}
+
+.accountStatusSingleLineRow .accountStatusCostList {
+  min-height: 30px;
+}
+
+.accountStatusSingleLineRow .accountStatusQuotaItem {
+  gap: 3px;
+}
+
+.accountStatusEmpty {
+  color: var(--text-secondary);
+  text-align: center !important;
+}
+
+.accountStatusLoadingState {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  min-height: 128px;
+  color: var(--primary-color);
+}
+
+.accountStatusLoadingOrb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary-color) 18%, transparent) 0 38%, transparent 39%),
+    conic-gradient(from 0deg, transparent 0 28%, color-mix(in srgb, var(--primary-color) 92%, #60a5fa) 36% 58%, transparent 66% 100%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary-color) 18%, transparent),
+    0 12px 28px color-mix(in srgb, var(--primary-color) 20%, transparent);
+  animation: accountStatusLoadingSpin 1.1s linear infinite;
+}
+
+.accountStatusLoadingOrb::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: inherit;
+  background: var(--monitor-surface);
+}
+
+.accountStatusLoadingOrb span {
+  position: absolute;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--primary-color) 68%, transparent);
+  animation: accountStatusLoadingPulse 1.1s ease-in-out infinite;
+}
+
+.accountStatusLoadingOrb span:nth-child(1) {
+  transform: translate(-12px, 7px);
+}
+
+.accountStatusLoadingOrb span:nth-child(2) {
+  transform: translate(0, -13px);
+  animation-delay: 0.14s;
+}
+
+.accountStatusLoadingOrb span:nth-child(3) {
+  transform: translate(12px, 7px);
+  animation-delay: 0.28s;
+}
+
+.accountStatusLoadingText {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+@keyframes accountStatusLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes accountStatusLoadingPulse {
+  0%, 100% {
+    opacity: 0.45;
+    scale: 0.86;
+  }
+
+  50% {
+    opacity: 1;
+    scale: 1.12;
+  }
+}
+
+.sortButton {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.sortButton:hover {
+  transform: none;
+  color: var(--monitor-ink);
+}
+
+.sortButtonActive {
+  color: var(--monitor-accent-strong);
 }
 
 .accountStatusAccountCell,
 .accountStatusStateCell,
 .accountStatusQuotaList,
+.accountStatusCostList,
 .accountStatusExtraCell {
   display: grid;
   gap: 8px;
   min-width: 0;
 }
 
+.accountStatusCostList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 54px;
+}
+
+.accountStatusCostBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 74px;
+  max-width: 74px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, #34d399 34%, var(--border-color));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 18% 20%, color-mix(in srgb, #6ee7b7 12%, transparent), transparent 45%),
+    color-mix(in srgb, #10b981 10%, transparent);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #10b981 7%, transparent) inset;
+}
+
+.accountStatusCostWindow {
+  color: color-mix(in srgb, #fde68a 78%, var(--text-secondary));
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.accountStatusCostIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  color: color-mix(in srgb, #6ee7b7 86%, var(--text-secondary));
+}
+
+.accountStatusLastInspection {
+  display: inline-flex;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.accountStatusAccountCell strong {
+  display: block;
+  width: 206px;
+  max-width: 206px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountTypeBadge,
+.priorityBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 48px;
+  max-width: 48px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.priorityBadge {
+  width: 44px;
+  max-width: 44px;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+}
+
+.accountType-free {
+  color: #94a3b8;
+  border-color: color-mix(in srgb, #94a3b8 38%, var(--border-color));
+  background: color-mix(in srgb, #94a3b8 13%, transparent);
+}
+
+.accountType-plus {
+  color: #38bdf8;
+  border-color: color-mix(in srgb, #38bdf8 35%, var(--border-color));
+  background: color-mix(in srgb, #38bdf8 12%, transparent);
+}
+
+.accountType-k12 {
+  color: #818cf8;
+  border-color: color-mix(in srgb, #818cf8 38%, var(--border-color));
+  background: color-mix(in srgb, #818cf8 13%, transparent);
+}
+
+.accountType-pro5x {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 38%, var(--border-color));
+  background: color-mix(in srgb, #f59e0b 13%, transparent);
+}
+
+.accountType-pro20x {
+  color: #fb7185;
+  border-color: color-mix(in srgb, #fb7185 42%, var(--border-color));
+  background: color-mix(in srgb, #fb7185 14%, transparent);
+}
+
 .statusBadge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  width: fit-content;
-  min-height: 30px;
+  box-sizing: border-box;
+  width: 80px;
+  max-width: 80px;
+  min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: var(--surface-subtle);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .statusDot {
@@ -165,35 +746,57 @@
 .tone-good { color: var(--success-color); }
 .tone-warn { color: var(--warning-color); }
 .tone-bad { color: var(--error-color); }
+.tone-violet { color: #a78bfa; }
 
 .accountStatusQuotaItem {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .accountStatusQuotaHeader {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.accountStatusQuotaHeader span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountStatusQuotaHeader small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .accountStatusQuotaMeter {
   height: 8px;
   overflow: hidden;
+  padding: 1px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   border-radius: 999px;
-  background: var(--surface-subtle);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success-color) 12%, var(--surface-subtle)), color-mix(in srgb, var(--warning-color) 12%, var(--surface-subtle)), color-mix(in srgb, var(--error-color) 12%, var(--surface-subtle)));
 }
 
 .accountStatusQuotaMeter span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--primary-color);
+  box-shadow: 0 0 10px color-mix(in srgb, currentColor 20%, transparent);
+  transition: width 180ms ease;
 }
 
 .accountStatusQuotaItem small,
+.accountStatusMutedText,
 .accountStatusExtraCell {
   color: var(--text-secondary);
   font-size: 12px;
@@ -204,9 +807,619 @@
   text-align: center !important;
 }
 
+.accountStatusPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 14px 12px 12px;
+  border-top: 1px solid var(--monitor-line);
+}
+
+.accountStatusPaginationInfo {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--monitor-line);
+  border-radius: 999px;
+  background: var(--monitor-surface-elevated);
+  color: var(--monitor-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.accountStatusPageSizeField,
+.accountStatusPageJumpField {
+  display: inline-flex;
+  align-items: center;
+  color: var(--monitor-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.accountStatusPageSizeField {
+  box-sizing: border-box;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--monitor-line);
+  border-radius: 999px;
+  background: var(--monitor-surface-elevated);
+}
+
+.accountStatusPageJumpField {
+  gap: 7px;
+  min-height: 34px;
+}
+
+.accountStatusPagination button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--monitor-line);
+  border-radius: 999px;
+  background: var(--monitor-surface-elevated);
+  color: var(--monitor-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.accountStatusPagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.accountStatusPageSize {
+  width: 104px;
+  min-height: 30px;
+  padding: 0 2px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--monitor-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.accountStatusPageSizeSelect {
+  width: 104px;
+  flex: 0 0 auto;
+}
+
+.accountStatusPageSizeSelectTrigger {
+  min-width: 88px;
+  height: 30px !important;
+  padding: 0 2px 0 8px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--monitor-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.accountStatusPageSizeSelectTrigger:hover,
+.accountStatusPageSizeSelectTrigger:focus,
+.accountStatusPageSizeSelectTrigger[aria-expanded='true'] {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.accountStatusPageJump {
+  width: 58px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--monitor-line);
+  border-radius: 10px;
+  background: var(--monitor-surface);
+  color: var(--monitor-ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+
+.accountStatusClickableRow {
+  cursor: pointer;
+}
+
+.accountStatusClickableRow td {
+  user-select: none;
+}
+
+.accountStatusClickableRow:hover td,
+.accountStatusExpandedRow td {
+  border-color: color-mix(in srgb, var(--monitor-accent) 38%, var(--monitor-line)) !important;
+  box-shadow: none !important;
+}
+
+.accountStatusExpandedRow td:not(:first-child):not(:last-child),
+.accountStatusClickableRow:hover td:not(:first-child):not(:last-child) {
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+}
+
+.accountStatusExpandHint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--monitor-accent) 25%, var(--monitor-line));
+  border-radius: 999px;
+  color: var(--monitor-accent);
+  background: color-mix(in srgb, var(--monitor-accent) 9%, transparent);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.accountStatusDetailRow td {
+  padding: 0 0 8px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.accountStatusDetailPanel {
+  display: grid;
+  gap: 14px;
+  margin: -2px 8px 8px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--monitor-accent) 24%, var(--monitor-line));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--monitor-accent) 15%, transparent), transparent 30%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, #34d399 10%, transparent), transparent 28%),
+    color-mix(in srgb, var(--monitor-surface) 88%, var(--monitor-surface-muted));
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+  transform-origin: top center;
+  overflow: hidden;
+  animation: accountStatusDetailIn 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.accountStatusDetailPanelClosing {
+  pointer-events: none;
+  animation: accountStatusDetailOut 50ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.accountStatusDialogBackdrop,
+.accountStatusOperationOverlay {
+  --monitor-surface: var(--bg-primary);
+  --monitor-surface-muted: var(--surface-subtle);
+  --monitor-ink: var(--text-primary);
+  --monitor-muted: var(--text-secondary);
+  --monitor-line: var(--border-color);
+  --monitor-accent: var(--primary-color);
+}
+
+.accountStatusOperationOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.46);
+  backdrop-filter: blur(8px);
+  cursor: wait;
+}
+
+.accountStatusOperationCard {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-width: 280px;
+  padding: 22px 24px;
+  border: 1px solid color-mix(in srgb, var(--monitor-accent) 32%, var(--monitor-line));
+  border-radius: 22px;
+  color: var(--monitor-ink);
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--monitor-accent) 18%, transparent), transparent 42%),
+    var(--monitor-surface);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.accountStatusOperationCard strong {
+  font-size: 15px;
+}
+
+.accountStatusOperationCard small {
+  color: var(--monitor-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.accountStatusOperationSpinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, var(--monitor-accent) 18%, transparent);
+  border-top-color: var(--monitor-accent);
+  border-radius: 999px;
+  animation: accountStatusOperationSpin 720ms linear infinite;
+}
+
+@keyframes accountStatusOperationSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes accountStatusDetailIn {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.96);
+  }
+
+  to {
+    max-height: 520px;
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes accountStatusDetailOut {
+  from {
+    max-height: 520px;
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+
+  to {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.96);
+  }
+}
+
+.accountStatusDialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.accountStatusPriorityDialog {
+  width: min(420px, 100%);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #fbbf24 32%, var(--monitor-line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, #fbbf24 20%, transparent), transparent 34%),
+    var(--monitor-surface);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  animation: accountStatusDialogIn 180ms ease-out both;
+}
+
+.accountStatusPriorityDialogHeader,
+.accountStatusPriorityDialogActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.accountStatusPriorityDialogHeader {
+  border-bottom: 1px solid color-mix(in srgb, var(--monitor-line) 78%, transparent);
+  color: var(--monitor-ink);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.accountStatusPriorityDialogHeader button,
+.accountStatusPriorityDialogActions button {
+  border: 0;
+  cursor: pointer;
+}
+
+.accountStatusPriorityDialogHeader button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: var(--monitor-muted);
+  background: color-mix(in srgb, var(--monitor-surface-muted) 78%, transparent);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.accountStatusPriorityDialogBody {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.accountStatusPriorityDialogBody p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--monitor-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountStatusPriorityDialogBody label {
+  display: grid;
+  gap: 8px;
+  color: var(--monitor-ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.accountStatusPriorityDialogBody input {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, #fbbf24 36%, var(--monitor-line));
+  border-radius: 14px;
+  color: var(--monitor-ink);
+  background: var(--monitor-surface);
+  font-size: 15px;
+  font-weight: 800;
+  outline: none;
+}
+
+.accountStatusPriorityDialogBody input:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, #fbbf24 18%, transparent);
+}
+
+.accountStatusPriorityDialogActions {
+  justify-content: flex-end;
+  border-top: 1px solid color-mix(in srgb, var(--monitor-line) 78%, transparent);
+}
+
+.accountStatusPriorityDialogActions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.accountStatusPriorityDialogActions button:first-child {
+  color: var(--monitor-muted);
+  background: color-mix(in srgb, var(--monitor-surface-muted) 82%, transparent);
+}
+
+.accountStatusPriorityDialogActions button:last-child {
+  color: #1f2937;
+  background: linear-gradient(135deg, #fde68a, #fbbf24);
+  box-shadow: 0 10px 22px color-mix(in srgb, #fbbf24 22%, transparent);
+}
+
+@keyframes accountStatusDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.accountStatusDetailHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--monitor-line) 72%, transparent);
+}
+
+.accountStatusDetailHero h3 {
+  max-width: 640px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--monitor-ink);
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountStatusDetailEyebrow {
+  color: var(--monitor-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.accountStatusDetailBadges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.accountStatusDetailActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.accountStatusActionButton {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--monitor-line);
+  border-radius: 999px;
+  color: var(--monitor-ink);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.accountStatusActionButton:hover {
+  transform: translateY(-1px);
+}
+
+.accountStatusActionRefresh {
+  color: #38bdf8;
+  border-color: color-mix(in srgb, #38bdf8 42%, var(--monitor-line));
+  background: color-mix(in srgb, #38bdf8 12%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #38bdf8 12%, transparent);
+}
+
+.accountStatusActionEnable {
+  color: #34d399;
+  border-color: color-mix(in srgb, #34d399 42%, var(--monitor-line));
+  background: color-mix(in srgb, #34d399 12%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #34d399 12%, transparent);
+}
+
+.accountStatusActionDisable {
+  color: #fb7185;
+  border-color: color-mix(in srgb, #fb7185 42%, var(--monitor-line));
+  background: color-mix(in srgb, #fb7185 12%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #fb7185 12%, transparent);
+}
+
+.accountStatusActionPriority {
+  color: #fbbf24;
+  border-color: color-mix(in srgb, #fbbf24 42%, var(--monitor-line));
+  background: color-mix(in srgb, #fbbf24 12%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #fbbf24 12%, transparent);
+}
+
+.accountStatusDetailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.9fr);
+  gap: 12px;
+}
+
+.accountStatusDetailSection {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--monitor-line) 80%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--monitor-surface) 78%, transparent);
+}
+
+.accountStatusDetailSection h4 {
+  margin: 0 0 12px;
+  color: var(--monitor-ink);
+  font-size: 13px;
+}
+
+.accountStatusDetailList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.accountStatusDetailList div {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--monitor-line) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--monitor-surface-elevated) 72%, transparent);
+}
+
+.accountStatusDetailList dt {
+  margin-bottom: 4px;
+  color: var(--monitor-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.accountStatusDetailList dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--monitor-ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountStatusDetailWideField {
+  grid-column: 1 / -1;
+}
+
+.accountStatusDetailWideField dd {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.accountStatusWindowCards {
+  display: grid;
+  gap: 10px;
+}
+
+.accountStatusWindowCard {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, #34d399 22%, var(--monitor-line));
+  border-radius: 14px;
+  background: color-mix(in srgb, #10b981 8%, transparent);
+}
+
+.accountStatusWindowCard strong {
+  color: var(--monitor-ink);
+  font-size: 12px;
+}
+
+.accountStatusWindowCard span {
+  color: #34d399;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.accountStatusWindowCard small {
+  color: var(--monitor-muted);
+  font-size: 11px;
+}
+
+.accountStatusRawSection {
+  grid-column: 1 / -1;
+}
+
+.accountStatusRawSection pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--monitor-line) 78%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, #020617 72%, var(--monitor-surface));
+  color: color-mix(in srgb, #e2e8f0 88%, var(--monitor-ink));
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 1280px) {
   .accountStatusSummaryGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .accountStatusDetailGrid,
+  .accountStatusDetailList {
+    grid-template-columns: 1fr;
   }
 }
 

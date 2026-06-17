@@ -22,10 +22,17 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := strings.TrimRight(r.URL.Path, "/")
-	if path != "/v0/management/monitoring/analytics" {
+	switch path {
+	case "/v0/management/monitoring/analytics":
+		h.analytics(w, r)
+	case "/v0/management/monitoring/raw-event":
+		h.rawEvent(w, r)
+	default:
 		response.MethodNotAllowed(w)
-		return
 	}
+}
+
+func (h *Handler) analytics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.MethodNotAllowed(w)
 		return
@@ -44,6 +51,30 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	result, err := h.App.MonitoringService.Analytics(r.Context(), req)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) rawEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	eventID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if eventID == "" {
+		response.Error(w, http.StatusBadRequest, errors.New("event id is required"))
+		return
+	}
+
+	result, found, err := h.App.MonitoringService.RawEvent(r.Context(), eventID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !found {
+		response.Error(w, http.StatusNotFound, errors.New("raw event not found"))
 		return
 	}
 	response.JSON(w, http.StatusOK, result)
