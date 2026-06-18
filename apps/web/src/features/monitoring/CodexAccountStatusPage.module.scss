@@ -252,6 +252,7 @@
 
 .maskToggle button,
 .filterPills button,
+.accountStatusRefreshButton,
 .accountStatusPagination button {
   min-height: 28px;
   border: 0;
@@ -269,6 +270,17 @@
 
 .filterPills button {
   padding: 0 11px;
+}
+
+.accountStatusRefreshButton {
+  padding: 0 12px;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.accountStatusRefreshButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .maskToggle .activeToggle,
@@ -982,12 +994,6 @@
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
   transform-origin: top center;
   overflow: hidden;
-  animation: accountStatusDetailIn 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.accountStatusDetailPanelClosing {
-  pointer-events: none;
-  animation: accountStatusDetailOut 50ms cubic-bezier(0.7, 0, 0.84, 0) both;
 }
 
 .accountStatusDialogBackdrop,
@@ -1049,34 +1055,6 @@
 @keyframes accountStatusOperationSpin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes accountStatusDetailIn {
-  from {
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(-6px) scaleY(0.96);
-  }
-
-  to {
-    max-height: 520px;
-    opacity: 1;
-    transform: translateY(0) scaleY(1);
-  }
-}
-
-@keyframes accountStatusDetailOut {
-  from {
-    max-height: 520px;
-    opacity: 1;
-    transform: translateY(0) scaleY(1);
-  }
-
-  to {
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(-6px) scaleY(0.96);
   }
 }
 

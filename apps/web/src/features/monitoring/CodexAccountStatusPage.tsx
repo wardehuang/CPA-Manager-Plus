@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -20,8 +20,6 @@ type AccountStatusSortKey = 'accountType' | 'priority';
 type SortDirection = 'asc' | 'desc';
 type AccountMaskMode = 'masked' | 'full';
 type AccountRowAction = 'refresh' | 'toggleDisabled' | 'priority';
-
-const DETAIL_CLOSE_ANIMATION_MS = 50;
 
 type CodexAccountStatusRow = {
   id: number;
@@ -265,14 +263,12 @@ export function CodexAccountStatusPage() {
   const [pageSize, setPageSize] = useState(100);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
-  const [closingRowId, setClosingRowId] = useState<number | null>(null);
   const [rowActionError, setRowActionError] = useState<string | null>(null);
   const [priorityDialogRow, setPriorityDialogRow] = useState<CodexAccountStatusRow | null>(null);
   const [priorityInput, setPriorityInput] = useState('');
   const [prioritySubmitting, setPrioritySubmitting] = useState(false);
   const [rowOperationLoading, setRowOperationLoading] = useState(false);
   const [rowOperationMessage, setRowOperationMessage] = useState('');
-  const closeTimerRef = useRef<number | null>(null);
 
   const loadLatestServerRun = useCallback(async () => {
     setLoading(true);
@@ -307,14 +303,7 @@ export function CodexAccountStatusPage() {
 
   useEffect(() => {
     setExpandedRowId(null);
-    setClosingRowId(null);
   }, [keyword, pageSize, statusFilter, sortDirection, sortKey]);
-
-  useEffect(() => () => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-    }
-  }, []);
 
   const filteredRows = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -393,29 +382,7 @@ export function CodexAccountStatusPage() {
   };
 
   const toggleRow = (row: CodexAccountStatusRow) => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    if (expandedRowId === row.id) {
-      setExpandedRowId(null);
-      setClosingRowId(row.id);
-      closeTimerRef.current = window.setTimeout(() => {
-        setClosingRowId(null);
-        closeTimerRef.current = null;
-      }, DETAIL_CLOSE_ANIMATION_MS);
-      return;
-    }
-    if (expandedRowId !== null) {
-      setClosingRowId(expandedRowId);
-      closeTimerRef.current = window.setTimeout(() => {
-        setClosingRowId(null);
-        closeTimerRef.current = null;
-      }, DETAIL_CLOSE_ANIMATION_MS);
-    } else {
-      setClosingRowId(null);
-    }
-    setExpandedRowId(row.id);
+    setExpandedRowId((value) => (value === row.id ? null : row.id));
   };
 
   const openPriorityDialog = (row: CodexAccountStatusRow) => {
@@ -508,6 +475,14 @@ export function CodexAccountStatusPage() {
               />
             </div>
             <div className={styles.accountStatusDataActions}>
+              <button
+                type="button"
+                className={styles.accountStatusRefreshButton}
+                onClick={() => void loadLatestServerRun()}
+                disabled={loading || featureAvailability.checking}
+              >
+                {loading ? tr(t, 'common.refreshing', '刷新中') : tr(t, 'common.refresh', '刷新')}
+              </button>
               <div className={styles.maskToggle} role="group" aria-label={tr(t, 'monitoring.codex_account_status_mask_mode', '账号显示模式')}>
                 <button
                   type="button"
@@ -609,7 +584,6 @@ export function CodexAccountStatusPage() {
                       language={i18n.language}
                       maskMode={maskMode}
                       expanded={expandedRowId === row.id}
-                      closing={closingRowId === row.id}
                       operationLoading={rowOperationLoading}
                       onToggle={() => {
                         if (!rowOperationLoading) toggleRow(row);
@@ -833,7 +807,6 @@ function AccountStatusTableRow({
   language,
   maskMode,
   expanded,
-  closing,
   operationLoading,
   onToggle,
   onAction,
@@ -843,7 +816,6 @@ function AccountStatusTableRow({
   language: string;
   maskMode: AccountMaskMode;
   expanded: boolean;
-  closing: boolean;
   operationLoading: boolean;
   onToggle: () => void;
   onAction: (action: AccountRowAction) => void;
@@ -880,7 +852,7 @@ function AccountStatusTableRow({
       className={[
         styles.accountStatusClickableRow,
         quotaItems.length <= 1 && row.windowCosts.length <= 1 ? styles.accountStatusSingleLineRow : '',
-        expanded || closing ? styles.accountStatusExpandedRow : '',
+        expanded ? styles.accountStatusExpandedRow : '',
       ].filter(Boolean).join(' ')}
       onClick={onToggle}
       aria-expanded={expanded}
@@ -957,15 +929,14 @@ function AccountStatusTableRow({
         </div>
       </td>
     </tr>
-    {expanded || closing ? (
-      <tr className={[styles.accountStatusDetailRow, closing ? styles.accountStatusDetailRowClosing : ''].filter(Boolean).join(' ')}>
+    {expanded ? (
+      <tr className={styles.accountStatusDetailRow}>
         <td colSpan={7}>
           <AccountStatusDetailPanel
             row={row}
             t={t}
             language={language}
             maskMode={maskMode}
-            closing={closing}
             operationLoading={operationLoading}
             onAction={onAction}
           />
@@ -981,7 +952,6 @@ function AccountStatusDetailPanel({
   t,
   language,
   maskMode,
-  closing,
   operationLoading,
   onAction,
 }: {
@@ -989,7 +959,6 @@ function AccountStatusDetailPanel({
   t: TFunction;
   language: string;
   maskMode: AccountMaskMode;
-  closing: boolean;
   operationLoading: boolean;
   onAction: (action: AccountRowAction) => void;
 }) {
@@ -1005,7 +974,7 @@ function AccountStatusDetailPanel({
   ];
 
   return (
-    <section className={[styles.accountStatusDetailPanel, closing ? styles.accountStatusDetailPanelClosing : ''].filter(Boolean).join(' ')} onClick={(event) => event.stopPropagation()}>
+    <section className={styles.accountStatusDetailPanel} onClick={(event) => event.stopPropagation()}>
       <div className={styles.accountStatusDetailHero}>
         <div>
           <span className={styles.accountStatusDetailEyebrow}>账号详情</span>

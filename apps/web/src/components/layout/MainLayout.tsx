@@ -519,6 +519,12 @@ export function MainLayout() {
         shortLabel: navShortLabel('nav.codex_inspection', t('nav.codex_inspection')),
         icon: sidebarIcons.codexInspection,
       },
+      {
+        path: '/agy-inspection',
+        label: t('nav.agy_inspection', { defaultValue: 'Agy 账号巡检' }),
+        shortLabel: navShortLabel('nav.agy_inspection', t('nav.agy_inspection', { defaultValue: 'Agy 巡检' })),
+        icon: sidebarIcons.codexInspection,
+      },
     ],
     operationNavItems,
     pluginResourceNavItems,

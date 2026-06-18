@@ -22,6 +22,8 @@ import { ModelPricesPage } from '@/pages/ModelPricesPage';
 import { CodexInspectionPage } from '@/pages/CodexInspectionPage';
 import { CodexAccountStatusPage } from '@/pages/CodexAccountStatusPage';
 import { ServerCodexInspectionPage } from '@/pages/ServerCodexInspectionPage';
+import { AgyInspectionPage } from '@/pages/AgyInspectionPage';
+import { ServerAgyInspectionPage } from '@/pages/ServerAgyInspectionPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { ServerLogsPage } from '@/pages/ServerLogsPage';
@@ -204,6 +206,10 @@ const mainRoutes = [
       </FeatureGate>
     ),
   },
+  { path: '/agy-inspection', element: <Navigate to="/agy-inspection/claude" replace /> },
+  { path: '/agy-inspection/claude', element: <AgyInspectionPage provider="claude" /> },
+  { path: '/agy-inspection/gemini', element: <AgyInspectionPage provider="gemini" /> },
+  { path: '/agy-inspection/server', element: <ServerAgyInspectionPage /> },
   {
     path: '/model-prices',
     element: (

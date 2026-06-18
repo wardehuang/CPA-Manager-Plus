@@ -270,6 +270,9 @@ func Migrate(db *sql.DB) error {
 	if err := ensureAccountActionCandidateColumns(db); err != nil {
 		return err
 	}
+	if err := migrateAntigravityInspection(db); err != nil {
+		return err
+	}
 	return ensureModelPriceColumns(db)
 }
 

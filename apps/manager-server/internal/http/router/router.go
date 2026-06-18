@@ -6,6 +6,8 @@ import (
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/app"
 	accountactioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/accountaction"
+	antigravityaccountstatuscontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/antigravityaccountstatus"
+	antigravityinspectioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/antigravityinspection"
 	apikeyaliascontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/apikeyalias"
 	automationcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/automation"
 	codexaccountstatuscontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/codexaccountstatus"
@@ -34,9 +36,11 @@ func New(appCtx *app.Context) http.Handler {
 	modelPriceHandler := &modelpricecontroller.Handler{App: appCtx}
 	apiKeyAliasHandler := &apikeyaliascontroller.Handler{App: appCtx}
 	codexAccountStatusHandler := &codexaccountstatuscontroller.Handler{App: appCtx}
+	antigravityAccountStatusHandler := &antigravityaccountstatuscontroller.Handler{App: appCtx}
 	accountActionHandler := &accountactioncontroller.Handler{App: appCtx}
 	automationHandler := automationcontroller.New(appCtx)
 	codexInspectionHandler := &codexinspectioncontroller.Handler{App: appCtx}
+	antigravityInspectionHandler := &antigravityinspectioncontroller.Handler{App: appCtx}
 	dashboardHandler := &dashboardcontroller.Handler{App: appCtx}
 	monitoringHandler := &monitoringcontroller.Handler{App: appCtx}
 	proxyHandler := &proxycontroller.Handler{App: appCtx}
@@ -51,7 +55,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/usage-service/account-processing-policy", middleware.WithCORS(appCtx.Config, automationHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
-	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))
+	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, antigravityAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, antigravityInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))
 
 	return middleware.Recovery(middleware.RequestLogger(mux))
 }
@@ -60,10 +64,12 @@ func rootHandler(
 	appCtx *app.Context,
 	usageHandler *usagecontroller.Handler,
 	codexAccountStatusHandler *codexaccountstatuscontroller.Handler,
+	antigravityAccountStatusHandler *antigravityaccountstatuscontroller.Handler,
 	modelPriceHandler *modelpricecontroller.Handler,
 	apiKeyAliasHandler *apikeyaliascontroller.Handler,
 	accountActionHandler *accountactioncontroller.Handler,
 	codexInspectionHandler *codexinspectioncontroller.Handler,
+	antigravityInspectionHandler *antigravityinspectioncontroller.Handler,
 	dashboardHandler *dashboardcontroller.Handler,
 	monitoringHandler *monitoringcontroller.Handler,
 	serverLogsHandler *serverlogscontroller.Handler,
@@ -77,6 +83,10 @@ func rootHandler(
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/codex-account-status") {
 			middleware.WithCORS(appCtx.Config, codexAccountStatusHandler.Handle)(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v0/management/antigravity-account-status") {
+			middleware.WithCORS(appCtx.Config, antigravityAccountStatusHandler.Handle)(w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/model-prices") {
@@ -93,6 +103,10 @@ func rootHandler(
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/codex-inspection") {
 			middleware.WithCORS(appCtx.Config, codexInspectionHandler.Handle)(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v0/management/antigravity-inspection") {
+			middleware.WithCORS(appCtx.Config, antigravityInspectionHandler.Handle)(w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/dashboard/") {

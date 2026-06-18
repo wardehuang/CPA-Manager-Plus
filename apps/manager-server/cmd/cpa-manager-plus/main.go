@@ -99,6 +99,8 @@ func runServer() {
 	codexInspectionWorker.Start(ctx)
 	codexConditionalInspectionWorker := worker.NewCodexConditionalInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().CodexInspectionService)
 	codexConditionalInspectionWorker.Start(ctx)
+	antigravityInspectionWorker := worker.NewAntigravityInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().AntigravityInspectionService)
+	antigravityInspectionWorker.Start(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
