@@ -21,6 +21,12 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 LOG_PATH = PROJECT_ROOT / "deploy.log"
 LOCAL_VERSION_PATH = PROJECT_ROOT / "LOCAL_VERSION"
