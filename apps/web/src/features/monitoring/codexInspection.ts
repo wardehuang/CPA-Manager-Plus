@@ -66,7 +66,6 @@ export type CodexInspectionStoredActionFilter =
   | 'disable'
   | 'enable'
   | 'reauth'
-  | 'http_401'
   | 'keep';
 
 export interface CodexInspectionSettings {

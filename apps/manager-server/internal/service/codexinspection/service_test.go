@@ -25,7 +25,7 @@ func TestRunPersistsLogsResultsAndDetail(t *testing.T) {
 		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"}]}`))
 		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
-			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"unauthorized"}}`))
+			_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -279,7 +279,7 @@ func TestRunAutoActionDisableExecutesDeleteSuggestionAsDisable(t *testing.T) {
 		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"}]}`))
 		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
-			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+			_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodPatch:
 			patchCalled = true
 			var payload struct {
@@ -342,7 +342,7 @@ func TestRunAutoActionSkipsDuplicateFileNameResults(t *testing.T) {
 		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"},{"name":"auth-a.json","auth_index":"auth-2","provider":"codex","account":"bob@example.com","status":"ok","state":"ready"}]}`))
 		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
-			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+			_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodDelete:
 			deleteCalls++
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -498,7 +498,7 @@ func TestRunClassifiesExpiredUnauthorizedAsReauth(t *testing.T) {
 	}
 }
 
-func TestRunClassifiesInvalidatedUnauthorizedAsDelete(t *testing.T) {
+func TestRunClassifiesInvalidatedUnauthorizedAsReauth(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
@@ -526,11 +526,11 @@ func TestRunClassifiesInvalidatedUnauthorizedAsDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run inspection: %v", err)
 	}
-	if result.Run.DeleteCount != 1 || result.Run.ReauthCount != 0 {
-		t.Fatalf("run counts delete=%d reauth=%d, want 1/0", result.Run.DeleteCount, result.Run.ReauthCount)
+	if result.Run.ReauthCount != 1 || result.Run.DeleteCount != 0 {
+		t.Fatalf("run counts reauth=%d delete=%d, want 1/0", result.Run.ReauthCount, result.Run.DeleteCount)
 	}
-	if len(result.Results) != 1 || result.Results[0].Action != "delete" {
-		t.Fatalf("result action = %#v, want delete", result.Results)
+	if len(result.Results) != 1 || result.Results[0].Action != "reauth" {
+		t.Fatalf("result action = %#v, want reauth", result.Results)
 	}
 }
 
@@ -799,7 +799,7 @@ func TestExecuteManualActionsRejectsChangedAuthIndex(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-2","provider":"codex","account":"bob@example.com","status":"ok","state":"ready"}]}`))
 		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
-			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+			_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodDelete:
 			deleteCalled = true
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -908,7 +908,7 @@ func TestExecuteManualActionsSkipsDuplicateFileNameSelections(t *testing.T) {
 		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"},{"name":"auth-a.json","auth_index":"auth-2","provider":"codex","account":"bob@example.com","status":"ok","state":"ready"}]}`))
 		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
-			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+			_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 		case strings.HasPrefix(r.URL.Path, "/v0/management/auth-files") && r.Method == http.MethodDelete:
 			deleteCalls++
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -1128,7 +1128,7 @@ func newMixedAutoActionServer(
 				}
 				_, _ = w.Write([]byte(`{"status_code":200,"body":{"ok":true}}`))
 			case "auth-2":
-				_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+				_, _ = w.Write([]byte(`{"status_code":402,"body":{"detail":{"code":"deactivated_workspace"}}}`))
 			default:
 				t.Fatalf("unexpected authIndex %q", payload.AuthIndex)
 			}

@@ -608,6 +608,23 @@
   max-width: 100%;
 }
 
+.segmentedGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.segmentedLabel {
+  flex: 0 0 auto;
+  color: var(--inspect-muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
 .segmentedControl {
   display: inline-flex;
   align-items: stretch;
@@ -895,6 +912,38 @@
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.rawDetail {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--inspect-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rawDetail summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.rawDetail pre {
+  max-height: 140px;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--inspect-red) 18%, var(--inspect-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--inspect-red) 5%, var(--inspect-surface));
+  color: var(--inspect-ink);
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .planBadge {

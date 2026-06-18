@@ -166,6 +166,44 @@ describe('inspectSingleAccount', () => {
     expect(result.errorDetail).toContain('deactivated_workspace');
   });
 
+  it('reauthenticates an account when the Codex token is invalidated', async () => {
+    mockRequestCodexUsageRaw.mockResolvedValue({
+      result: {
+        statusCode: 401,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '{"message":"Your authentication token has been invalidated."}',
+        body: { message: 'Your authentication token has been invalidated.' },
+      },
+      payload: null,
+    });
+
+    const result = await inspectSingleAccount(baseAccount, settings);
+
+    expect(result.action).toBe('reauth');
+    expect(result.actionReason).toBe('接口返回 401，认证令牌已失效，建议重新登录账号');
+    expect(result.errorKind).toBe('http_status');
+  });
+
+  it('reauthenticates an account for unknown 401 authentication failures', async () => {
+    mockRequestCodexUsageRaw.mockResolvedValue({
+      result: {
+        statusCode: 401,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '{"message":"unauthorized"}',
+        body: { message: 'unauthorized' },
+      },
+      payload: null,
+    });
+
+    const result = await inspectSingleAccount(baseAccount, settings);
+
+    expect(result.action).toBe('reauth');
+    expect(result.actionReason).toBe('接口返回 401，认证失败，建议重新登录账号');
+    expect(result.errorKind).toBe('http_status');
+  });
+
   it('keeps regular 402 quota responses as disable suggestions', async () => {
     mockRequestCodexUsageRaw.mockResolvedValue({
       result: {

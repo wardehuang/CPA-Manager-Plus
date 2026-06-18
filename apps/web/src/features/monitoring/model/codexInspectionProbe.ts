@@ -131,15 +131,15 @@ const resolveUnauthorizedProbeAction = (
       };
     case 'invalidated':
       return {
-        action: 'delete',
-        actionReason: '接口返回 401，认证令牌已失效，建议删除账号',
+        action: 'reauth',
+        actionReason: '接口返回 401，认证令牌已失效，建议重新登录账号',
         usedPercent,
         isQuota: false,
       };
     default:
       return {
-        action: 'delete',
-        actionReason: '接口返回 401，建议删除失效账号',
+        action: 'reauth',
+        actionReason: '接口返回 401，认证失败，建议重新登录账号',
         usedPercent,
         isQuota: false,
       };

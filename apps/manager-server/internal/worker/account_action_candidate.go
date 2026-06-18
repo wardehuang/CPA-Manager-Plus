@@ -247,7 +247,7 @@ func classifyAccountActionEvent(event usage.Event) (string, string, bool) {
 	}
 
 	if strings.Contains(text, "token_revoked") || strings.Contains(text, "invalidated_oauth_token") || strings.Contains(text, "invalidated oauth token") || strings.Contains(text, "oauth token revoked") {
-		return model.AccountActionTypeDelete, "OAuth token revoked / invalidated; review and delete the stale auth file if appropriate", true
+		return model.AccountActionTypeReauth, "OAuth token revoked / invalidated; reauthorize the account with OAuth", true
 	}
 	if strings.Contains(text, "invalid_grant") || strings.Contains(text, "reauth") || strings.Contains(text, "auth_unavailable") {
 		return model.AccountActionTypeReauth, "Authentication is unavailable or requires reauthorization", true

@@ -21,6 +21,8 @@ const { mocks } = vi.hoisted(() => {
       navigate: vi.fn(),
       loadExcluded: vi.fn(async () => undefined),
       loadModelAlias: vi.fn(async () => undefined),
+      listCodexInspectionRuns: vi.fn(),
+      getCodexInspectionRun: vi.fn(),
       deleteExcluded: vi.fn(async () => undefined),
       deleteModelAlias: vi.fn(async () => undefined),
       handleMappingUpdate: vi.fn(async () => undefined),
@@ -93,6 +95,13 @@ vi.mock('@/services/api', () => ({
     saveJsonObject: mocks.saveJsonObject,
     deleteFiles: mocks.deleteFiles,
     deleteAll: mocks.deleteAll,
+  },
+}));
+
+vi.mock('@/services/api/usageService', () => ({
+  usageServiceApi: {
+    listCodexInspectionRuns: mocks.listCodexInspectionRuns,
+    getCodexInspectionRun: mocks.getCodexInspectionRun,
   },
 }));
 
@@ -258,6 +267,8 @@ describe('AuthFilesPage real auth JSON paste flow', () => {
     mocks.showConfirmation.mockReset();
     mocks.loadExcluded.mockReset();
     mocks.loadModelAlias.mockReset();
+    mocks.listCodexInspectionRuns.mockReset();
+    mocks.getCodexInspectionRun.mockReset();
     mocks.connectionStatus = 'connected';
     mocks.lastCodexInspectionLastRun = null;
 
@@ -267,6 +278,8 @@ describe('AuthFilesPage real auth JSON paste flow', () => {
     mocks.deleteAll.mockResolvedValue(undefined);
     mocks.loadExcluded.mockResolvedValue(undefined);
     mocks.loadModelAlias.mockResolvedValue(undefined);
+    mocks.listCodexInspectionRuns.mockResolvedValue({ items: [] });
+    mocks.getCodexInspectionRun.mockResolvedValue({ run: { id: 1 }, results: [], logs: [] });
   });
 
   it('keeps Codex inspection status scoped to auth index for rows from the same file', async () => {
@@ -339,6 +352,63 @@ describe('AuthFilesPage real auth JSON paste flow', () => {
       expect(renderedCards.map((node) => node.props['data-auth-card'])).toEqual([
         'shared-codex.json::0',
       ]);
+    });
+
+    await act(async () => {
+      renderer!.unmount();
+    });
+  });
+
+  it('prefers server Codex inspection status over the local inspection cache', async () => {
+    mocks.list.mockResolvedValue({
+      files: [{ name: 'server-codex.json', type: 'codex', authIndex: 0 }],
+    });
+    mocks.lastCodexInspectionLastRun = {
+      result: {
+        results: [
+          {
+            fileName: 'server-codex.json',
+            authIndex: 0,
+            statusCode: 401,
+            action: 'reauth',
+            usedPercent: null,
+            isQuota: false,
+          },
+        ],
+      },
+    };
+    mocks.listCodexInspectionRuns.mockResolvedValue({ items: [{ id: 9 }] });
+    mocks.getCodexInspectionRun.mockResolvedValue({
+      run: { id: 9 },
+      results: [
+        {
+          fileName: 'server-codex.json',
+          authIndex: '0',
+          statusCode: 200,
+          action: 'keep',
+          usedPercent: null,
+          isQuota: false,
+        },
+      ],
+      logs: [],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<AuthFilesPage />);
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.getCodexInspectionRun).toHaveBeenCalledWith(
+        'http://manager.local:18317',
+        'test-key',
+        9
+      );
+      expect(
+        renderer!.root.findByProps({ 'data-auth-card': 'server-codex.json::0' }).props[
+          'data-codex-badges'
+        ]
+      ).not.toContain('reauth');
     });
 
     await act(async () => {

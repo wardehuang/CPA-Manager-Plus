@@ -1126,15 +1126,15 @@ func resolveUnauthorizedProbeAction(bodyText string, usedPercent *float64) inspe
 		}
 	case unauthorizedReasonInvalidated:
 		return inspectionDecision{
-			Action:       "delete",
-			ActionReason: "接口返回 401，认证令牌已失效，建议删除账号",
+			Action:       "reauth",
+			ActionReason: "接口返回 401，认证令牌已失效，建议重新登录账号",
 			UsedPercent:  usedPercent,
 			IsQuota:      false,
 		}
 	default:
 		return inspectionDecision{
-			Action:       "delete",
-			ActionReason: "接口返回 401，建议删除失效账号",
+			Action:       "reauth",
+			ActionReason: "接口返回 401，认证失败，建议重新登录账号",
 			UsedPercent:  usedPercent,
 			IsQuota:      false,
 		}

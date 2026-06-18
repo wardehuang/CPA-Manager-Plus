@@ -16,11 +16,15 @@ import {
   type CodexInspectionRunResult,
 } from './codexInspection';
 import {
+  ACTION_FILTERS,
   buildCodexInspectionPaginationState,
   buildConfigOverviewItems,
+  countHandlingStates,
   countActions,
+  filterInspectionResults,
   filterByAction,
   getCanonicalServerCodexInspectionActionIds,
+  normalizeActionFilter,
   getMixedServerCodexInspectionActionIds,
   isActionableServerCodexInspectionResult,
   normalizeServerCodexInspectionActionStatus,
@@ -312,7 +316,7 @@ describe('resolveCodexInspectionAutoActionItems', () => {
 });
 
 describe('Codex inspection action presentation', () => {
-  it('counts reauth suggestions and filters 401 results independently', () => {
+  it('counts reauth suggestions and separates handling status from action filters', () => {
     const items = [
       createResultItem('delete', { statusCode: 500 }),
       createResultItem('reauth', { statusCode: 401 }),
@@ -327,8 +331,17 @@ describe('Codex inspection action presentation', () => {
       http401: 2,
       keep: 1,
     });
+    expect(ACTION_FILTERS).not.toContain('http_401');
+    expect(normalizeActionFilter('http_401')).toBe('reauth');
+    expect(countHandlingStates(items)).toEqual({
+      all: 3,
+      pending: 3,
+      no_action: 0,
+    });
     expect(filterByAction(items, 'reauth').map((item) => item.action)).toEqual(['reauth']);
-    expect(filterByAction(items, 'http_401').map((item) => item.statusCode)).toEqual([401, 401]);
+    expect(filterInspectionResults(items, 'pending', 'reauth').map((item) => item.action)).toEqual([
+      'reauth',
+    ]);
     expect(filterByAction(items, 'keep').map((item) => item.action)).toEqual(['keep']);
   });
 
@@ -647,7 +660,7 @@ describe('Codex inspection last-run cache', () => {
     expect(loaded?.result.summary.deleteCount).toBe(1);
   });
 
-  it('stores and restores reauth suggestions and 401 filters', () => {
+  it('restores legacy 401 filters as reauth filters', () => {
     const storage = createStorage();
     vi.stubGlobal('localStorage', storage);
     const baseResult = createRunResult();
@@ -664,12 +677,12 @@ describe('Codex inspection last-run cache', () => {
 
     saveCodexInspectionLastRun({
       result: reauthResult,
-      actionFilter: 'http_401',
+      actionFilter: 'http_401' as never,
     });
 
     const loaded = loadCodexInspectionLastRun();
 
-    expect(loaded?.actionFilter).toBe('http_401');
+    expect(loaded?.actionFilter).toBe('reauth');
     expect(loaded?.result.results[0].action).toBe('reauth');
     expect(loaded?.result.summary.reauthCount).toBe(1);
   });
