@@ -292,8 +292,8 @@ func NormalizeAntigravityInspectionTimePoints(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
-		point := NormalizeCodexInspectionTimePoint(value)
-		if point == "" {
+		point, ok := NormalizeCodexInspectionTimePoint(value)
+		if !ok {
 			continue
 		}
 		if _, ok := seen[point]; ok {
