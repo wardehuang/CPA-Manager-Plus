@@ -9,6 +9,7 @@ import (
 	accountactionsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/accountaction"
 	adminauthsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/adminauth"
 	apikeyaliassvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/apikeyalias"
+	automationsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/automation"
 	bootstrapsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/bootstrap"
 	codexaccountstatussvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/codexaccountstatus"
 	codexinspectionsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/codexinspection"
@@ -37,21 +38,22 @@ type Context struct {
 	ServiceID string
 	Bootstrap bootstrapsvc.Result
 
-	CodexAccountStatusService *codexaccountstatussvc.Service
-	SetupService              *setupsvc.Service
-	AdminAuthService          *adminauthsvc.Service
-	ManagerConfigService      *managerconfigsvc.Service
-	CollectorService          *collectorsvc.Service
-	UsageService              *usagesvc.Service
-	DashboardService          *dashboardsvc.Service
-	CodexInspectionService    *codexinspectionsvc.Service
-	MonitoringService         *monitoringsvc.Service
-	ModelPriceService         *modelpricesvc.Service
-	APIKeyAliasService        *apikeyaliassvc.Service
-	AccountActionService      *accountactionsvc.Service
-	ProxyService              *proxysvc.Service
-	PanelService              *panelsvc.Service
-	AutomationRuntimeService  AutomationRuntimeService
+	CodexAccountStatusService      *codexaccountstatussvc.Service
+	SetupService                   *setupsvc.Service
+	AdminAuthService               *adminauthsvc.Service
+	ManagerConfigService           *managerconfigsvc.Service
+	CollectorService               *collectorsvc.Service
+	UsageService                   *usagesvc.Service
+	DashboardService               *dashboardsvc.Service
+	CodexInspectionService         *codexinspectionsvc.Service
+	MonitoringService              *monitoringsvc.Service
+	ModelPriceService              *modelpricesvc.Service
+	APIKeyAliasService             *apikeyaliassvc.Service
+	AccountActionService           *accountactionsvc.Service
+	AccountProcessingPolicyService *automationsvc.Service
+	ProxyService                   *proxysvc.Service
+	PanelService                   *panelsvc.Service
+	AutomationRuntimeService       AutomationRuntimeService
 }
 
 func FromExisting(
@@ -71,26 +73,28 @@ func FromExisting(
 	}
 	collectorService := collectorsvc.New(collectorManager)
 	managerConfigService := managerconfigsvc.New(cfg, st, collectorService)
+	accountProcessingPolicyService := automationsvc.New(cfg, st)
 	return &Context{
-		Config:                    cfg,
-		Store:                     st,
-		Collector:                 collectorManager,
-		StartedAt:                 startedAt,
-		ServiceID:                 serviceID,
-		CodexAccountStatusService: codexaccountstatussvc.New(st),
-		AdminAuthService:          adminauthsvc.New(cfg, st),
-		SetupService:              setupsvc.New(cfg, st, collectorService, managerConfigService, startedAt, serviceID),
-		ManagerConfigService:      managerConfigService,
-		CollectorService:          collectorService,
-		UsageService:              usagesvc.New(st),
-		DashboardService:          dashboardsvc.New(st),
-		CodexInspectionService:    codexinspectionsvc.New(st, managerConfigService),
-		MonitoringService:         monitoringsvc.New(st),
-		ModelPriceService:         modelpricesvc.NewMultiSource(st, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
-		APIKeyAliasService:        apikeyaliassvc.New(st),
-		AccountActionService:      accountactionsvc.New(st, managerConfigService),
-		ProxyService:              proxysvc.New(managerConfigService),
-		PanelService:              panelsvc.New(cfg.PanelPath, embeddedPanel),
-		AutomationRuntimeService:  runtimeService,
+		Config:                         cfg,
+		Store:                          st,
+		Collector:                      collectorManager,
+		StartedAt:                      startedAt,
+		ServiceID:                      serviceID,
+		CodexAccountStatusService:      codexaccountstatussvc.New(st),
+		AdminAuthService:               adminauthsvc.New(cfg, st),
+		SetupService:                   setupsvc.New(cfg, st, collectorService, managerConfigService, startedAt, serviceID),
+		ManagerConfigService:           managerConfigService,
+		CollectorService:               collectorService,
+		UsageService:                   usagesvc.New(st),
+		DashboardService:               dashboardsvc.New(st),
+		CodexInspectionService:         codexinspectionsvc.New(st, managerConfigService),
+		MonitoringService:              monitoringsvc.New(st),
+		ModelPriceService:              modelpricesvc.NewMultiSource(st, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
+		APIKeyAliasService:             apikeyaliassvc.New(st),
+		AccountActionService:           accountactionsvc.New(st, managerConfigService),
+		AccountProcessingPolicyService: accountProcessingPolicyService,
+		ProxyService:                   proxysvc.New(managerConfigService),
+		PanelService:                   panelsvc.New(cfg.PanelPath, embeddedPanel),
+		AutomationRuntimeService:       runtimeService,
 	}
 }
