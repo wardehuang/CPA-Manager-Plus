@@ -16,6 +16,7 @@ import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEd
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
 import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/pages/QuotaPage';
+import { UsageAnalyticsPage } from '@/pages/UsageAnalyticsPage';
 import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { AccountActionCandidatesPage } from '@/pages/AccountActionCandidatesPage';
 import { ModelPricesPage } from '@/pages/ModelPricesPage';
@@ -192,6 +193,14 @@ const mainRoutes = [
   { path: '/auth-files/oauth-model-alias', element: <AuthFilesOAuthModelAliasEditPage /> },
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
+  {
+    path: '/usage-analytics',
+    element: (
+      <FeatureGate feature="requestMonitoring">
+        <UsageAnalyticsPage />
+      </FeatureGate>
+    ),
+  },
   { path: '/codex-inspection/status', element: <CodexAccountStatusPage /> },
   { path: '/codex-inspection', element: <Navigate to="/codex-inspection/status" replace /> },
   { path: '/codex-inspection/local', element: <CodexInspectionPage /> },

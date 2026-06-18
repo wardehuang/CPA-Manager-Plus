@@ -579,12 +579,16 @@ export interface MonitoringAnalyticsFilters {
   models?: string[];
   providers?: string[];
   accounts?: string[];
+  auth_files?: string[];
   auth_indices?: string[];
   api_key_hashes?: string[];
   source_hashes?: string[];
+  project_ids?: string[];
+  request_types?: string[];
   include_failed?: boolean;
   failed_only?: boolean;
-  exclude_zero_token?: boolean;
+  min_latency_ms?: number;
+  cache_status?: string;
 }
 
 export interface MonitoringAnalyticsEventsPageRequest {
@@ -593,8 +597,15 @@ export interface MonitoringAnalyticsEventsPageRequest {
   before_id?: number | null;
 }
 
+export interface MonitoringAnalyticsDrilldownPreviewRequest {
+  from_ms: number;
+  to_ms: number;
+  limit?: number;
+}
+
 export interface MonitoringAnalyticsInclude {
   summary?: boolean;
+  summary_comparison?: boolean;
   timeline?: boolean;
   hourly_distribution?: boolean;
   model_share?: boolean;
@@ -602,11 +613,16 @@ export interface MonitoringAnalyticsInclude {
   model_stats?: boolean;
   failure_sources?: boolean;
   account_stats?: boolean;
+  credential_stats?: boolean;
+  credential_timeline?: boolean;
   api_key_stats?: boolean;
   filter_options?: boolean;
+  heatmap?: boolean;
+  anomaly_points?: boolean;
   task_buckets?: boolean;
   recent_failures?: number;
   events_page?: MonitoringAnalyticsEventsPageRequest;
+  drilldown_preview?: MonitoringAnalyticsDrilldownPreviewRequest;
   granularity?: 'hour' | 'day' | string;
 }
 
@@ -614,6 +630,7 @@ export interface MonitoringAnalyticsRequest {
   from_ms: number;
   to_ms: number;
   now_ms?: number;
+  time_zone?: string;
   search_query?: string;
   search_api_key_hash?: string;
   filters?: MonitoringAnalyticsFilters;
@@ -633,7 +650,10 @@ export interface MonitoringAnalyticsSummary {
   reasoning_tokens: number;
   total_tokens: number;
   total_cost: number;
+  average_cost_per_call?: number;
   average_latency_ms: number | null;
+  p95_latency_ms?: number | null;
+  p95_ttft_ms?: number | null;
   zero_token_calls: number;
   rpm_30m: number;
   tpm_30m: number;
@@ -645,19 +665,90 @@ export interface MonitoringAnalyticsSummary {
   zero_token_models: string[];
 }
 
+export interface MonitoringAnalyticsSummaryComparison {
+  from_ms: number;
+  to_ms: number;
+  total_calls: number;
+  success_calls: number;
+  failure_calls: number;
+  success_rate: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
 export interface MonitoringAnalyticsTimelinePoint {
   bucket_ms: number;
+  bucket_end_ms?: number;
   label: string;
   calls: number;
   tokens: number;
   success: number;
   failure: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+  total_tokens?: number;
+  cost?: number;
+  average_latency_ms?: number | null;
+  p95_latency_ms?: number | null;
+  p95_ttft_ms?: number | null;
+  success_rate?: number;
+  failure_rate?: number;
 }
 
 export interface MonitoringAnalyticsHourlyPoint {
   hour: number;
   calls: number;
   tokens: number;
+}
+
+export interface MonitoringAnalyticsHeatmapContributor {
+  key: string;
+  label?: string;
+  calls: number;
+  success: number;
+  failure: number;
+  tokens: number;
+  cost: number;
+  failure_rate: number;
+  share: number;
+}
+
+export interface MonitoringAnalyticsHeatmapPoint {
+  weekday: number;
+  hour: number;
+  calls: number;
+  success: number;
+  failure: number;
+  tokens: number;
+  cost: number;
+  failure_rate: number;
+  model_contributors?: MonitoringAnalyticsHeatmapContributor[];
+  api_key_contributors?: MonitoringAnalyticsHeatmapContributor[];
+  provider_contributors?: MonitoringAnalyticsHeatmapContributor[];
+}
+
+export type MonitoringAnalyticsAnomalySeverity = 'low' | 'medium' | 'high' | string;
+
+export interface MonitoringAnalyticsAnomalyPoint {
+  bucket_ms: number;
+  bucket_end_ms: number;
+  label: string;
+  severity: MonitoringAnalyticsAnomalySeverity;
+  metric_keys: string[];
+  calls: number;
+  total_tokens: number;
+  cost: number;
+  failure_rate: number;
+  request_change: number;
+  cost_change: number;
+  tokens_per_request_change: number;
+  cache_hit_rate_change: number;
+  failure_rate_change: number;
+  latency_p95_change: number;
 }
 
 export interface MonitoringAnalyticsModelShareRow {
@@ -749,6 +840,62 @@ export interface MonitoringAnalyticsAccountStatRow {
   models?: MonitoringAnalyticsAccountModelStatRow[];
 }
 
+export interface MonitoringAnalyticsCredentialStatRow {
+  id: string;
+  auth_file_snapshot?: string;
+  auth_index?: string;
+  source?: string;
+  source_hash?: string;
+  account_snapshot?: string;
+  auth_label_snapshot?: string;
+  auth_provider_snapshot?: string;
+  auth_project_id_snapshot?: string;
+  calls: number;
+  success_calls: number;
+  failure_calls: number;
+  success_rate: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  cost: number;
+  average_latency_ms: number | null;
+  last_seen_ms: number;
+  models?: MonitoringAnalyticsAccountModelStatRow[];
+}
+
+export interface MonitoringAnalyticsCredentialTimelinePoint {
+  id: string;
+  label?: string;
+  auth_file_snapshot?: string;
+  auth_index?: string;
+  source?: string;
+  source_hash?: string;
+  account_snapshot?: string;
+  auth_label_snapshot?: string;
+  auth_provider_snapshot?: string;
+  auth_project_id_snapshot?: string;
+  bucket_ms: number;
+  bucket_label?: string;
+  calls: number;
+  tokens: number;
+  success: number;
+  failure: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+  total_tokens?: number;
+  cost?: number;
+  average_latency_ms?: number | null;
+  success_rate?: number;
+  failure_rate?: number;
+}
+
 export interface MonitoringAnalyticsApiKeyStatRow {
   id: string;
   api_key_hash: string;
@@ -772,6 +919,26 @@ export interface MonitoringAnalyticsApiKeyStatRow {
   average_latency_ms: number | null;
   last_seen_ms: number;
   models?: MonitoringAnalyticsAccountModelStatRow[];
+  contexts?: MonitoringAnalyticsApiKeyContextRow[];
+}
+
+export interface MonitoringAnalyticsApiKeyContextRow {
+  id: string;
+  account_snapshot?: string;
+  auth_label_snapshot?: string;
+  auth_provider_snapshot?: string;
+  auth_index?: string;
+  source?: string;
+  source_hash?: string;
+  calls: number;
+  success_calls: number;
+  failure_calls: number;
+  success_rate: number;
+  failure_rate: number;
+  total_tokens: number;
+  cost: number;
+  average_latency_ms?: number | null;
+  last_seen_ms: number;
 }
 
 export interface MonitoringAnalyticsFilterOptions {
@@ -779,6 +946,10 @@ export interface MonitoringAnalyticsFilterOptions {
   api_key_stats?: MonitoringAnalyticsApiKeyStatRow[];
   channel_share?: MonitoringAnalyticsChannelShareRow[];
   model_stats?: MonitoringAnalyticsModelStat[];
+  providers?: string[];
+  auth_files?: string[];
+  project_ids?: string[];
+  request_types?: string[];
 }
 
 export interface MonitoringAnalyticsTaskBucketRow {
@@ -821,6 +992,7 @@ export interface MonitoringAnalyticsRecentFailure {
 }
 
 export interface MonitoringAnalyticsEventRow {
+  request_id?: string;
   event_hash: string;
   timestamp_ms: number;
   model: string;
@@ -833,6 +1005,7 @@ export interface MonitoringAnalyticsEventRow {
   api_key_hash: string;
   account_snapshot: string;
   auth_label_snapshot: string;
+  auth_file_snapshot?: string;
   auth_provider_snapshot: string;
   auth_project_id_snapshot?: string;
   resolved_model?: string;
@@ -865,18 +1038,24 @@ export interface MonitoringAnalyticsResponse {
   generated_at_ms: number;
   granularity: 'hour' | 'day' | string;
   summary?: MonitoringAnalyticsSummary;
+  summary_comparison?: MonitoringAnalyticsSummaryComparison;
   timeline?: MonitoringAnalyticsTimelinePoint[];
   hourly_distribution?: MonitoringAnalyticsHourlyPoint[];
+  heatmap?: MonitoringAnalyticsHeatmapPoint[];
+  anomaly_points?: MonitoringAnalyticsAnomalyPoint[];
   model_share?: MonitoringAnalyticsModelShareRow[];
   model_stats?: MonitoringAnalyticsModelStat[];
   channel_share?: MonitoringAnalyticsChannelShareRow[];
   failure_sources?: MonitoringAnalyticsFailureSourceRow[];
   account_stats?: MonitoringAnalyticsAccountStatRow[];
+  credential_stats?: MonitoringAnalyticsCredentialStatRow[];
+  credential_timeline?: MonitoringAnalyticsCredentialTimelinePoint[];
   api_key_stats?: MonitoringAnalyticsApiKeyStatRow[];
   filter_options?: MonitoringAnalyticsFilterOptions;
   task_buckets?: MonitoringAnalyticsTaskBucketRow[];
   recent_failures?: MonitoringAnalyticsRecentFailure[];
   events?: MonitoringAnalyticsEventsResponse;
+  drilldown_preview?: MonitoringAnalyticsEventsResponse;
 }
 
 export interface MonitoringRawEventRecord {
@@ -1246,7 +1425,10 @@ export const usageServiceApi = {
     });
   },
 
-  getAccountProcessingPolicy: async (base: string, managementKey?: string): Promise<AccountProcessingPolicy> => {
+  getAccountProcessingPolicy: async (
+    base: string,
+    managementKey?: string
+  ): Promise<AccountProcessingPolicy> => {
     return withUsageServiceError(async () => {
       const response = await axios.get<AccountProcessingPolicy>(
         buildUrl(base, '/usage-service/account-processing-policy'),
@@ -1407,7 +1589,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/ignore`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/ignore`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1425,7 +1610,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/resolve`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/resolve`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1443,7 +1631,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/enable`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/enable`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1461,7 +1652,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.delete<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/auth-file`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/auth-file`
+        ),
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
