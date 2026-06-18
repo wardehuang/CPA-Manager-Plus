@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"io/fs"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/collector"
@@ -22,6 +23,10 @@ import (
 	usagesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
+
+type AutomationRuntimeService interface {
+	Reload(ctx context.Context) error
+}
 
 type Context struct {
 	Config    config.Config
@@ -46,6 +51,7 @@ type Context struct {
 	AccountActionService      *accountactionsvc.Service
 	ProxyService              *proxysvc.Service
 	PanelService              *panelsvc.Service
+	AutomationRuntimeService  AutomationRuntimeService
 }
 
 func FromExisting(
@@ -57,7 +63,12 @@ func FromExisting(
 	modelPriceSyncURL *string,
 	openRouterModelPriceSyncURL *string,
 	serviceID string,
+	automationRuntimeService ...AutomationRuntimeService,
 ) *Context {
+	var runtimeService AutomationRuntimeService
+	if len(automationRuntimeService) > 0 {
+		runtimeService = automationRuntimeService[0]
+	}
 	collectorService := collectorsvc.New(collectorManager)
 	managerConfigService := managerconfigsvc.New(cfg, st, collectorService)
 	return &Context{
@@ -80,5 +91,6 @@ func FromExisting(
 		AccountActionService:      accountactionsvc.New(st, managerConfigService),
 		ProxyService:              proxysvc.New(managerConfigService),
 		PanelService:              panelsvc.New(cfg.PanelPath, embeddedPanel),
+		AutomationRuntimeService:  runtimeService,
 	}
 }

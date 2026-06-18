@@ -12,9 +12,10 @@ import {
   type CodexInspectionPaginationState,
   formatActionLabel,
   formatCurrentStateLabel,
-  formatPercent,
   type ActionFilter,
 } from '@/features/monitoring/model/codexInspectionPresentation';
+import { getCodexPlanLabel } from '@/features/monitoring/components/accountOverviewPresentation';
+import { CodexInspectionQuotaWindows } from '@/features/monitoring/components/CodexInspectionQuotaWindows';
 import { Panel } from '@/features/monitoring/components/CodexInspectionPanels';
 import styles from '../CodexInspectionPage.module.scss';
 
@@ -74,7 +75,7 @@ export function CodexInspectionResultsPanel({
       extra={
         <div className={styles.resultsHeaderActions}>
           <Button
-            variant={pendingActionCount > 0 ? 'danger' : 'primary'}
+            variant={pendingActionCount > 0 ? 'danger' : 'secondary'}
             size="sm"
             onClick={onExecutePlanned}
             loading={executing}
@@ -82,7 +83,9 @@ export function CodexInspectionResultsPanel({
           >
             {executing
               ? t('monitoring.codex_inspection_executing')
-              : t('monitoring.codex_inspection_execute_now')}
+              : pendingActionCount === 0
+                ? t('monitoring.codex_inspection_no_executable_actions')
+                : t('monitoring.codex_inspection_execute_now')}
           </Button>
         </div>
       }
@@ -131,61 +134,82 @@ export function CodexInspectionResultsPanel({
               </thead>
               <tbody>
                 {filteredResults.length > 0 ? (
-                  filteredResults.map((item) => (
-                    <tr key={item.key}>
-                      <td>
-                        <div className={styles.primaryCell}>
-                          <span className={styles.primaryAccount}>{item.displayAccount}</span>
-                          <small className={styles.primaryFile}>
-                            {item.fileName}
-                            {item.authIndex ? (
-                              <span className={styles.primaryIndex}>{` \u00b7 #${item.authIndex}`}</span>
+                  filteredResults.map((item) => {
+                    const planLabel = getCodexPlanLabel(item.planType, t);
+                    const quotaWindows = item.quotaWindows ?? [];
+                    const errorText = item.errorDetail || item.error;
+
+                    return (
+                      <tr key={item.key}>
+                        <td>
+                          <div className={styles.primaryCell}>
+                            <span className={styles.primaryAccount}>{item.displayAccount}</span>
+                            <small className={styles.primaryFile}>
+                              {item.fileName}
+                              {item.authIndex ? (
+                                <span className={styles.primaryIndex}>{` \u00b7 #${item.authIndex}`}</span>
+                              ) : null}
+                            </small>
+                            {planLabel ? (
+                              <span className={styles.planBadge}>
+                                {t('codex_quota.plan_label')}: {planLabel}
+                              </span>
                             ) : null}
-                          </small>
-                          {item.actionReason ? (
-                            <small className={styles.primaryReason}>{item.actionReason}</small>
-                          ) : null}
-                          {item.error ? (
-                            <small className={styles.primaryError}>{item.error}</small>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td>
-                        <span
-                          className={`${styles.stateChip} ${
-                            item.disabled ? styles.stateDisabled : styles.stateEnabled
-                          }`}
-                        >
-                          {formatCurrentStateLabel(item, t)}
-                        </span>
-                      </td>
-                      <td className={styles.monoCell}>
-                        {item.statusCode === null ? '--' : item.statusCode}
-                      </td>
-                      <td className={styles.monoCell}>{formatPercent(item.usedPercent)}</td>
-                      <td>
-                        <span className={`${styles.actionBadge} ${actionToneClass[item.action]}`}>
-                          {formatActionLabel(item.action, t)}
-                        </span>
-                      </td>
-                      <td>
-                        {isExecutableAction(item) ? (
-                          <Button
-                            size="sm"
-                            variant={item.action === 'delete' ? 'danger' : 'secondary'}
-                            onClick={() => onExecuteSingle(item)}
-                            disabled={isInspectionInFlight || executing}
+                            {item.actionReason ? (
+                              <small className={styles.primaryReason}>{item.actionReason}</small>
+                            ) : null}
+                            {errorText ? (
+                              <small className={styles.primaryError}>{errorText}</small>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`${styles.stateChip} ${
+                              item.disabled ? styles.stateDisabled : styles.stateEnabled
+                            }`}
                           >
-                            {formatActionLabel(item.action, t)}
-                          </Button>
-                        ) : (
-                          <span className={styles.primaryReason}>
-                            {t('monitoring.codex_inspection_manual_required')}
+                            {formatCurrentStateLabel(item, t)}
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className={styles.monoCell}>
+                          {item.statusCode === null ? '--' : item.statusCode}
+                        </td>
+                        <td>
+                          <CodexInspectionQuotaWindows
+                            windows={quotaWindows}
+                            fallbackUsedPercent={item.usedPercent}
+                            t={t}
+                          />
+                        </td>
+                        <td>
+                          <span className={`${styles.actionBadge} ${actionToneClass[item.action]}`}>
+                            {formatActionLabel(item.action, t)}
+                          </span>
+                        </td>
+                        <td>
+                          {isExecutableAction(item) ? (
+                            <Button
+                              size="sm"
+                              variant={item.action === 'delete' ? 'danger' : 'secondary'}
+                              onClick={() => onExecuteSingle(item)}
+                              disabled={isInspectionInFlight || executing}
+                            >
+                              {formatActionLabel(item.action, t)}
+                            </Button>
+                          ) : item.action === 'reauth' ? (
+                            <span className={styles.primaryReason}>
+                              {t('monitoring.codex_inspection_manual_required')}
+                            </span>
+                          ) : (
+                            <span className={styles.primaryReason}>
+                              {t('monitoring.codex_inspection_no_action')}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={6}>

@@ -16,8 +16,10 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { CodexInspectionConfigOverview } from '@/features/monitoring/components/CodexInspectionConfigOverview';
 import { CodexInspectionModeTabs } from '@/features/monitoring/components/CodexInspectionModeTabs';
 import { Panel } from '@/features/monitoring/components/CodexInspectionPanels';
+import { CodexInspectionQuotaWindows } from '@/features/monitoring/components/CodexInspectionQuotaWindows';
 import { InspectionConfigDrawer } from '@/features/monitoring/components/InspectionConfigDrawer';
 import { InspectionConfigFields } from '@/features/monitoring/components/InspectionConfigFields';
+import { getCodexPlanLabel } from '@/features/monitoring/components/accountOverviewPresentation';
 import {
   CODEX_INSPECTION_RESULT_PAGE_SIZE_OPTIONS,
   buildCodexInspectionPaginationState,
@@ -25,7 +27,6 @@ import {
   type CodexInspectionPaginationState,
   type CodexInspectionSummaryAccent,
   formatActionLabel,
-  formatPercent,
   formatTimestamp,
   getCanonicalServerCodexInspectionActionIds,
   getMixedServerCodexInspectionActionIds,
@@ -485,6 +486,33 @@ function formatServerActionStatusLabel(
     return t('monitoring.server_codex_inspection_action_status_pending');
   }
   return '';
+}
+
+function formatServerResultStateToken(
+  value: string | undefined,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'active') return t('monitoring.state_active');
+  if (normalized === 'disabled') return t('monitoring.state_disabled');
+  if (normalized === 'inactive') return t('monitoring.state_inactive');
+  if (normalized === 'enabled') return t('monitoring.codex_inspection_state_enabled');
+  return value?.trim() ?? '';
+}
+
+function formatServerResultStateDetail(
+  item: CodexInspectionResult,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  const errorText = item.actionError || item.errorDetail || item.error;
+  if (errorText) return errorText;
+
+  return (
+    formatServerResultStateToken(item.status, t) ||
+    formatServerResultStateToken(item.state, t) ||
+    '--'
+  );
 }
 
 function countServerResultActions(items: CodexInspectionResult[]) {
@@ -1433,7 +1461,13 @@ export function ServerCodexInspectionPage() {
               </div>
               <Button
                 size="sm"
-                variant={executableResults.some((item) => item.action === 'delete') ? 'danger' : 'primary'}
+                variant={
+                  executableResults.length === 0
+                    ? 'secondary'
+                    : executableResults.some((item) => item.action === 'delete')
+                      ? 'danger'
+                      : 'primary'
+                }
                 loading={executingAllActions}
                 disabled={
                   !canExecuteActions ||
@@ -1443,7 +1477,9 @@ export function ServerCodexInspectionPage() {
                 onClick={() => handleExecuteServerActions(executableResults, 'bulk')}
               >
                 <IconCheck size={14} />
-                {t('monitoring.server_codex_inspection_execute_all')}
+                {executableResults.length === 0
+                  ? t('monitoring.codex_inspection_no_executable_actions')
+                  : t('monitoring.server_codex_inspection_execute_all')}
               </Button>
             </div>
           ) : undefined
@@ -1474,6 +1510,9 @@ export function ServerCodexInspectionPage() {
                 <tbody>
                   {pagination.pageItems.map((item) => {
                     const actionStatus = normalizeServerCodexInspectionActionStatus(item);
+                    const planLabel = getCodexPlanLabel(item.planType, t);
+                    const quotaWindows = item.quotaWindows ?? [];
+                    const errorText = item.errorDetail || item.error;
                     return (
                     <tr key={item.id || item.accountKey}>
                       <td>
@@ -1485,8 +1524,16 @@ export function ServerCodexInspectionPage() {
                               <span className={styles.primaryIndex}>{` · #${item.authIndex}`}</span>
                             ) : null}
                           </small>
+                          {planLabel ? (
+                            <span className={styles.planBadge}>
+                              {t('codex_quota.plan_label')}: {planLabel}
+                            </span>
+                          ) : null}
                           {item.actionReason ? (
                             <small className={styles.primaryReason}>{item.actionReason}</small>
+                          ) : null}
+                          {errorText ? (
+                            <small className={styles.primaryError}>{errorText}</small>
                           ) : null}
                         </div>
                       </td>
@@ -1502,7 +1549,13 @@ export function ServerCodexInspectionPage() {
                         </span>
                       </td>
                       <td className={styles.monoCell}>{item.statusCode ?? '--'}</td>
-                      <td className={styles.monoCell}>{formatPercent(item.usedPercent ?? null)}</td>
+                      <td>
+                        <CodexInspectionQuotaWindows
+                          windows={quotaWindows}
+                          fallbackUsedPercent={item.usedPercent ?? null}
+                          t={t}
+                        />
+                      </td>
                       <td>
                         <span className={`${styles.actionBadge} ${actionToneClass[item.action] ?? styles.actionKeep}`}>
                           {resolveActionLabel(item.action, t)}
@@ -1512,12 +1565,14 @@ export function ServerCodexInspectionPage() {
                         <div className={styles.serverResultOperation}>
                           {(() => {
                             const statusLabel = formatServerActionStatusLabel(item, t);
-                            const detailText =
-                              item.actionError || item.error || item.status || item.state || '--';
+                            const detailText = formatServerResultStateDetail(item, t);
                             return (
                               <span
                                 className={
-                                  actionStatus === 'failed' || item.actionError || item.error
+                                  actionStatus === 'failed' ||
+                                  item.actionError ||
+                                  item.errorDetail ||
+                                  item.error
                                     ? styles.primaryError
                                     : styles.primaryReason
                                 }
@@ -1552,6 +1607,10 @@ export function ServerCodexInspectionPage() {
                           ) : item.action === 'reauth' ? (
                             <span className={styles.primaryReason}>
                               {t('monitoring.codex_inspection_manual_required')}
+                            </span>
+                          ) : item.action === 'keep' ? (
+                            <span className={styles.primaryReason}>
+                              {t('monitoring.codex_inspection_no_action')}
                             </span>
                           ) : null}
                         </div>

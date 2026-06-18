@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -9,14 +10,13 @@ import (
 	automationsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/automation"
 )
 
-// Handler 暴露自动化能力的只读状态。它不提供写入接口，因此 worker 行为不会被改变。
 type Handler struct {
 	App     *app.Context
 	service *automationsvc.Service
 }
 
 func New(appCtx *app.Context) *Handler {
-	return &Handler{App: appCtx, service: automationsvc.New(appCtx.Config)}
+	return &Handler{App: appCtx, service: automationsvc.New(appCtx.Config, appCtx.Store)}
 }
 
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -24,18 +24,56 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		if !h.authorizeRead(w, r) {
+			return
+		}
+		status, err := h.service.Status(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err)
+			return
+		}
+		response.JSON(w, http.StatusOK, status)
+	case http.MethodPatch:
+		if !h.authorizeWrite(w, r) {
+			return
+		}
+		var req automationsvc.UpdateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			response.Error(w, http.StatusBadRequest, err)
+			return
+		}
+		result, err := h.service.Update(r.Context(), req)
+		if err != nil {
+			response.Error(w, response.ManagerConfigErrorStatus(err), err)
+			return
+		}
+		if h.App.AutomationRuntimeService != nil {
+			if err := h.App.AutomationRuntimeService.Reload(r.Context()); err != nil {
+				response.Error(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		response.JSON(w, http.StatusOK, result)
+	default:
 		response.MethodNotAllowed(w)
-		return
 	}
-	if !h.authorizeRead(w, r) {
-		return
-	}
-	response.JSON(w, http.StatusOK, h.service.Status())
 }
 
-// authorizeRead 与 managerconfig handler 保持一致：
-// 配置了管理 key 时需要面板凭据；未配置 setup/management key 时允许读取。
+func (h *Handler) authorizeWrite(w http.ResponseWriter, r *http.Request) bool {
+	ok, err := h.App.AdminAuthService.VerifyHeader(r.Context(), r.Header.Get("Authorization"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return false
+	}
+	if ok {
+		return true
+	}
+	response.Error(w, http.StatusUnauthorized, errors.New("invalid admin key"))
+	return false
+}
+
 func (h *Handler) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
 	ok, err := h.App.AdminAuthService.VerifyPanelHeader(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {

@@ -69,6 +69,10 @@ const createResultItem = (
   usedPercent: overrides.usedPercent ?? null,
   isQuota: overrides.isQuota ?? false,
   error: overrides.error ?? '',
+  planType: overrides.planType ?? null,
+  quotaWindows: overrides.quotaWindows ?? [],
+  errorKind: overrides.errorKind ?? '',
+  errorDetail: overrides.errorDetail ?? '',
 });
 
 const createRunResult = (): CodexInspectionRunResult => {
@@ -321,9 +325,11 @@ describe('Codex inspection action presentation', () => {
       enable: 0,
       reauth: 1,
       http401: 2,
+      keep: 1,
     });
     expect(filterByAction(items, 'reauth').map((item) => item.action)).toEqual(['reauth']);
     expect(filterByAction(items, 'http_401').map((item) => item.statusCode)).toEqual([401, 401]);
+    expect(filterByAction(items, 'keep').map((item) => item.action)).toEqual(['keep']);
   });
 
   it('paginates inspection results and clamps out-of-range pages', () => {
@@ -577,6 +583,52 @@ describe('Codex inspection last-run cache', () => {
 
     expect(restored?.result.results).toEqual([]);
     expect(restored?.result.summary.sampledCount).toBe(0);
+  });
+
+  it('stores and restores quota windows and error details', () => {
+    const storage = createStorage();
+    vi.stubGlobal('localStorage', storage);
+    const baseResult = createRunResult();
+    const resultWithQuota: CodexInspectionRunResult = {
+      ...baseResult,
+      results: [
+        createResultItem('disable', {
+          statusCode: 402,
+          usedPercent: 87,
+          isQuota: true,
+          planType: 'team',
+          quotaWindows: [
+            {
+              id: 'monthly',
+              labelKey: 'codex_quota.monthly_window',
+              usedPercent: 87,
+              resetLabel: '06/18 12:00',
+              limitWindowSeconds: 2_592_000,
+            },
+          ],
+          error: 'HTTP 402',
+          errorKind: 'http_status',
+          errorDetail: '{"message":"limit reached"}',
+        }),
+      ],
+    };
+
+    saveCodexInspectionLastRun({ result: resultWithQuota });
+
+    const loaded = loadCodexInspectionLastRun();
+    expect(loaded?.result.results[0].planType).toBe('team');
+    expect(loaded?.result.results[0].quotaWindows).toEqual([
+      {
+        id: 'monthly',
+        labelKey: 'codex_quota.monthly_window',
+        labelParams: undefined,
+        usedPercent: 87,
+        resetLabel: '06/18 12:00',
+        limitWindowSeconds: 2_592_000,
+      },
+    ]);
+    expect(loaded?.result.results[0].errorKind).toBe('http_status');
+    expect(loaded?.result.results[0].errorDetail).toContain('limit reached');
   });
 
   it('loads sanitized last-run records from storage', () => {

@@ -48,7 +48,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/status", middleware.WithCORS(appCtx.Config, systemHandler.Status))
 	mux.HandleFunc("/usage-service/info", middleware.WithCORS(appCtx.Config, systemHandler.Info))
 	mux.HandleFunc("/usage-service/config", middleware.WithCORS(appCtx.Config, managerConfigHandler.Handle))
-	mux.HandleFunc("/usage-service/automation", middleware.WithCORS(appCtx.Config, automationHandler.Handle))
+	mux.HandleFunc("/usage-service/account-processing-policy", middleware.WithCORS(appCtx.Config, automationHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
 	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))

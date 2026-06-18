@@ -84,6 +84,91 @@ func TestRunPersistsLogsResultsAndDetail(t *testing.T) {
 	}
 }
 
+func TestRunPersistsPlanQuotaWindowsAndErrorDetail(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v0/management/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready","plan_type":"plus"}]}`))
+		case r.URL.Path == "/v0/management/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{
+				"status_code":402,
+				"body":{
+					"message":"short window exhausted but monthly quota remains",
+					"plan_type":"team",
+					"rate_limit":{
+						"primary_window":{"used_percent":100,"limit_window_seconds":18000,"reset_after_seconds":3600},
+						"secondary_window":{"used_percent":72,"limit_window_seconds":2592000,"reset_at":1782895966}
+					},
+					"code_review_rate_limit":{
+						"primary_window":{"used_percent":22,"limit_window_seconds":18000}
+					},
+					"additional_rate_limits":[{
+						"limit_name":"credits",
+						"rate_limit":{
+							"primary_window":{"used_percent":44,"limit_window_seconds":604800}
+						}
+					}]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{TriggerType: "manual", TriggerKey: "manual"})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("results = %#v, want 1", result.Results)
+	}
+	item := result.Results[0]
+	if item.PlanType != "team" {
+		t.Fatalf("plan type = %q, want team", item.PlanType)
+	}
+	if item.ErrorKind != "http_status" || !strings.Contains(item.ErrorDetail, "short window exhausted") {
+		t.Fatalf("error detail = kind %q detail %q, want HTTP detail", item.ErrorKind, item.ErrorDetail)
+	}
+	windowsByID := map[string]model.CodexInspectionQuotaWindow{}
+	for _, window := range item.QuotaWindows {
+		windowsByID[window.ID] = window
+	}
+	for _, id := range []string{"five-hour", "monthly", "code-review-five-hour", "credits-weekly-0"} {
+		if _, ok := windowsByID[id]; !ok {
+			t.Fatalf("quota windows missing %q: %#v", id, item.QuotaWindows)
+		}
+	}
+	if windowsByID["monthly"].UsedPercent == nil || *windowsByID["monthly"].UsedPercent != 72 {
+		t.Fatalf("monthly window = %#v, want used percent 72", windowsByID["monthly"])
+	}
+	if windowsByID["monthly"].ResetLabel == "" || windowsByID["monthly"].ResetLabel == "-" {
+		t.Fatalf("monthly reset label = %q, want concrete reset label", windowsByID["monthly"].ResetLabel)
+	}
+	if windowsByID["credits-weekly-0"].LabelParams["name"] != "credits" {
+		t.Fatalf("additional window params = %#v, want credits name", windowsByID["credits-weekly-0"].LabelParams)
+	}
+
+	stored, err := db.ListCodexInspectionResults(context.Background(), result.Run.ID)
+	if err != nil {
+		t.Fatalf("list stored results: %v", err)
+	}
+	if len(stored) != 1 || stored[0].PlanType != "team" || len(stored[0].QuotaWindows) != len(item.QuotaWindows) {
+		t.Fatalf("stored result = %#v, want persisted enhanced fields", stored)
+	}
+	if stored[0].ErrorKind != "http_status" || !strings.Contains(stored[0].ErrorDetail, "short window exhausted") {
+		t.Fatalf("stored error detail = %#v, want persisted HTTP detail", stored[0])
+	}
+}
+
 func TestRunAutoActionNoneDoesNotExecuteActions(t *testing.T) {
 	var patchCalled bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -594,7 +679,6 @@ func TestRunSuggestsDeleteForDeactivatedWorkspace(t *testing.T) {
 	}
 }
 
-
 func TestRunSendsDirectCodexAccountIDHeader(t *testing.T) {
 	var accountIDHeader string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -632,8 +716,6 @@ func TestRunSendsDirectCodexAccountIDHeader(t *testing.T) {
 		t.Fatalf("Chatgpt-Account-Id = %q, want %q", accountIDHeader, "acct-direct")
 	}
 }
-
-
 
 func TestExecuteManualActionsProcessesCompletedRunResults(t *testing.T) {
 	var patchCalled bool

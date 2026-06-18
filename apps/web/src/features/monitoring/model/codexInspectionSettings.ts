@@ -110,7 +110,7 @@ export const normalizeStoredActionFilter = (
   value: unknown
 ): CodexInspectionStoredActionFilter => {
   const normalized = readString(value).toLowerCase();
-  if (['all', 'delete', 'disable', 'enable', 'reauth', 'http_401'].includes(normalized)) {
+  if (['all', 'delete', 'disable', 'enable', 'reauth', 'http_401', 'keep'].includes(normalized)) {
     return normalized as CodexInspectionStoredActionFilter;
   }
   return 'all';

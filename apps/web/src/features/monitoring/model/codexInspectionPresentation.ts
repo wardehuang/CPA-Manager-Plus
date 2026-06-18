@@ -93,6 +93,7 @@ export const ACTION_FILTERS: ActionFilter[] = [
   'enable',
   'reauth',
   'http_401',
+  'keep',
 ];
 
 export const CODEX_INSPECTION_RESULT_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -236,6 +237,7 @@ export const countActions = (items: CodexInspectionResultItem[]) => {
     enable: 0,
     reauth: 0,
     http401: 0,
+    keep: 0,
   };
 
   items.forEach((item) => {
@@ -243,6 +245,7 @@ export const countActions = (items: CodexInspectionResultItem[]) => {
     if (item.action === 'disable') summary.disable += 1;
     if (item.action === 'enable') summary.enable += 1;
     if (item.action === 'reauth') summary.reauth += 1;
+    if (item.action === 'keep') summary.keep += 1;
     if (item.statusCode === 401) summary.http401 += 1;
   });
 

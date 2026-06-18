@@ -489,14 +489,16 @@ export function CodexInspectionPage() {
     [result]
   );
 
+  const displayResults = useMemo(() => (result ? result.results : []), [result]);
+
   const executableResults = useMemo(
     () => (result ? result.results.filter(isExecutableAction) : []),
     [result]
   );
 
   const filteredResults = useMemo(
-    () => filterByAction(suggestedResults, actionFilter),
-    [suggestedResults, actionFilter]
+    () => filterByAction(displayResults, actionFilter),
+    [displayResults, actionFilter]
   );
 
   const resultPagination = useMemo(
@@ -798,16 +800,17 @@ export function CodexInspectionPage() {
   }, [logsCollapsed, scrollLogsToBottom]);
 
   const filterCounts = useMemo(() => {
-    const counts = countActions(suggestedResults);
+    const counts = countActions(displayResults);
     return {
-      all: suggestedResults.length,
+      all: displayResults.length,
       delete: counts.delete,
       disable: counts.disable,
       enable: counts.enable,
       reauth: counts.reauth,
       http_401: counts.http401,
+      keep: counts.keep,
     };
-  }, [suggestedResults]);
+  }, [displayResults]);
 
   const filterLabel = (filter: ActionFilter) => {
     switch (filter) {
@@ -821,6 +824,8 @@ export function CodexInspectionPage() {
         return t('monitoring.codex_inspection_filter_reauth');
       case 'http_401':
         return t('monitoring.codex_inspection_filter_401');
+      case 'keep':
+        return t('monitoring.codex_inspection_action_keep');
       case 'all':
       default:
         return t('monitoring.codex_inspection_filter_all');
