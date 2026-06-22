@@ -19,6 +19,7 @@ import (
 	monitoringcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/monitoring"
 	panelcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/panel"
 	proxycontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/proxy"
+	quotacooldowncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/quotacooldown"
 	serverlogscontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/serverlogs"
 	setupcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/setup"
 	systemcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/system"
@@ -39,6 +40,7 @@ func New(appCtx *app.Context) http.Handler {
 	antigravityAccountStatusHandler := &antigravityaccountstatuscontroller.Handler{App: appCtx}
 	accountActionHandler := &accountactioncontroller.Handler{App: appCtx}
 	automationHandler := automationcontroller.New(appCtx)
+	quotaCooldownHandler := &quotacooldowncontroller.Handler{App: appCtx}
 	codexInspectionHandler := &codexinspectioncontroller.Handler{App: appCtx}
 	antigravityInspectionHandler := &antigravityinspectioncontroller.Handler{App: appCtx}
 	dashboardHandler := &dashboardcontroller.Handler{App: appCtx}
@@ -53,6 +55,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/usage-service/info", middleware.WithCORS(appCtx.Config, systemHandler.Info))
 	mux.HandleFunc("/usage-service/config", middleware.WithCORS(appCtx.Config, managerConfigHandler.Handle))
 	mux.HandleFunc("/usage-service/account-processing-policy", middleware.WithCORS(appCtx.Config, automationHandler.Handle))
+	mux.HandleFunc("/usage-service/quota-cooldowns", middleware.WithCORS(appCtx.Config, quotaCooldownHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
 	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, antigravityAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, antigravityInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))

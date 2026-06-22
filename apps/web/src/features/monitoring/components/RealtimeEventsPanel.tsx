@@ -222,8 +222,11 @@ const buildRealtimeTokenSummary = (row: MonitoringEventRow, t: TFunction) => {
   const parts = [
     `I ${formatCompactNumber(row.inputTokens)}`,
     `O ${formatCompactNumber(row.outputTokens)}`,
-    `C ${formatCompactNumber(row.cachedTokens)}`,
   ];
+  if (row.reasoningTokens > 0) {
+    parts.push(`R ${formatCompactNumber(row.reasoningTokens)}`);
+  }
+  parts.push(`C ${formatCompactNumber(row.cachedTokens)}`);
   if (row.cacheCreationTokens > 0) {
     parts.push(
       `${shortLabel(t, 'monitoring.cache_creation_tokens_short', 'monitoring.cache_creation_tokens', 'Create')} ${formatCompactNumber(row.cacheCreationTokens)}`
@@ -475,10 +478,19 @@ export function RealtimeEventsPanel({
                     </div>
                   </td>
                   <td>
-                    <div className={styles.primaryCell}>
-                      <span className={styles.monoCell}>{row.model}</span>
+                    <div
+                      className={`${styles.primaryCell} ${styles.realtimeModelCell}`}
+                      title={[row.model, showResolvedModel ? row.resolvedModel : '']
+                        .filter(Boolean)
+                        .join('\n')}
+                    >
+                      <span className={`${styles.monoCell} ${styles.realtimeModelText}`}>
+                        {row.model}
+                      </span>
                       {showResolvedModel ? (
-                        <small className={styles.monoCell}>{row.resolvedModel}</small>
+                        <small className={`${styles.monoCell} ${styles.realtimeModelText}`}>
+                          {row.resolvedModel}
+                        </small>
                       ) : null}
                     </div>
                   </td>
