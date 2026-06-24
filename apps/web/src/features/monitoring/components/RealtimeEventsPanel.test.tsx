@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountDisplayMode } from '@/features/monitoring/accountOverviewState';
 import type { MonitoringEventRow } from '@/features/monitoring/hooks/useMonitoringData';
+import styles from '../MonitoringCenterPage.module.scss';
 import { RealtimeEventsPanel } from './RealtimeEventsPanel';
 
 const t = ((key: string, options?: Record<string, unknown>) => {
@@ -204,6 +205,8 @@ describe('RealtimeEventsPanel', () => {
     expect(markup).toContain('20');
     expect(markup).toContain('I 10 · O 20 · R 3 · C 5 · Create 1 · Read 4');
     expect(markup).toContain('role="tooltip"');
+    expect(markup).toContain(styles.realtimeFailureTooltip);
+    expect(markup).toContain(styles.realtimeFailureTooltipBelow);
     expect(markup).toContain('aria-describedby=');
     expect(markup).toContain('aria-label="HTTP 429 · rate limit exceeded"');
     expect(markup).toContain('aria-label="Copy"');
