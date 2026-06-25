@@ -11,6 +11,10 @@ import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
+import {
+  getHighConfidenceUsageHeaderSnapshotForAuthFile,
+  type UsageHeaderSnapshotLookup,
+} from '@/utils/usageHeaderSnapshots';
 import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
 import { useQuotaLoader } from './useQuotaLoader';
@@ -118,6 +122,7 @@ interface QuotaSectionProps<TState extends QuotaStatusState, TData> {
   onReauthAccount?: (item: AuthFileItem) => void;
   accountDisplayMode?: QuotaAccountDisplayMode;
   onAccountDisplayModeChange?: (mode: QuotaAccountDisplayMode) => void;
+  headerSnapshotLookup?: UsageHeaderSnapshotLookup;
 }
 
 export function QuotaSection<TState extends QuotaStatusState, TData>({
@@ -132,6 +137,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   onReauthAccount,
   accountDisplayMode,
   onAccountDisplayModeChange,
+  headerSnapshotLookup,
 }: QuotaSectionProps<TState, TData>) {
   const { t } = useTranslation();
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -183,10 +189,32 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
 
   const { quota, loadQuota } = useQuotaLoader(config);
 
+  const getDisplayQuota = useCallback(
+    (file: AuthFileItem): TState | undefined => {
+      const activeQuota = quota[file.name];
+      if (activeQuota && activeQuota.status !== 'idle' && activeQuota.status !== 'error') {
+        return activeQuota;
+      }
+      if (
+        activeQuota?.status === 'error' &&
+        (activeQuota as { errorStatus?: number | null }).errorStatus === 401
+      ) {
+        return activeQuota;
+      }
+      const observedQuota = config.buildObservedState?.(
+        file,
+        getHighConfidenceUsageHeaderSnapshotForAuthFile(headerSnapshotLookup, file),
+        t
+      );
+      return observedQuota ?? activeQuota;
+    },
+    [config, headerSnapshotLookup, quota, t]
+  );
+
   const displayFiles = useMemo(() => {
     const matchesSearch = (file: AuthFileItem): boolean => {
       if (!normalizedSearchQuery) return true;
-      const fileQuota = quota[file.name];
+      const fileQuota = getDisplayQuota(file);
       const searchValues = [
         file.name,
         file.type,
@@ -216,8 +244,8 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
 
     if (sortMode === 'plan-asc' || sortMode === 'plan-desc') {
       sortedFiles.sort((left, right) => {
-        const leftRank = config.getPlanSortRank?.(left, quota[left.name]);
-        const rightRank = config.getPlanSortRank?.(right, quota[right.name]);
+        const leftRank = config.getPlanSortRank?.(left, getDisplayQuota(left));
+        const rightRank = config.getPlanSortRank?.(right, getDisplayQuota(right));
         const leftKnown = leftRank !== null && leftRank !== undefined;
         const rightKnown = rightRank !== null && rightRank !== undefined;
 
@@ -233,7 +261,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     }
 
     return sortedFiles;
-  }, [config, filteredFiles, normalizedSearchQuery, quota, sortMode, t]);
+  }, [config, filteredFiles, getDisplayQuota, normalizedSearchQuery, sortMode, t]);
 
   const showAllAllowed = displayFiles.length <= MAX_SHOW_ALL_THRESHOLD;
   const effectiveViewMode: QuotaSectionViewMode =
@@ -408,7 +436,16 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
         },
       });
     },
-    [config, disabled, getAccountDisplayName, quota, setQuota, showConfirmation, showNotification, t]
+    [
+      config,
+      disabled,
+      getAccountDisplayName,
+      quota,
+      setQuota,
+      showConfirmation,
+      showNotification,
+      t,
+    ]
   );
 
   const titleNode = (
@@ -517,6 +554,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
           <div ref={gridRef} className={config.gridClassName}>
             {pageItems.map((item) => {
               const itemQuota = quota[item.name];
+              const displayQuota = getDisplayQuota(item);
               const resetCount =
                 (itemQuota as { rateLimitResetCreditsAvailableCount?: number | null } | undefined)
                   ?.rateLimitResetCreditsAvailableCount ?? 0;
@@ -538,7 +576,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
                 <QuotaCard
                   key={item.name}
                   item={item}
-                  quota={itemQuota}
+                  quota={displayQuota}
                   resolvedTheme={resolvedTheme}
                   i18nPrefix={config.i18nPrefix}
                   cardIdleMessageKey={config.cardIdleMessageKey}

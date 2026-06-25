@@ -11,5 +11,6 @@ export {
   CODEX_CONFIG,
   KIMI_CONFIG,
   XAI_CONFIG,
+  buildObservedCodexQuotaState,
 } from './quotaConfigs';
 export type { QuotaConfig } from './quotaConfigs';

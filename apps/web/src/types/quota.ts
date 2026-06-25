@@ -304,10 +304,23 @@ export interface CodexQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   windows: CodexQuotaWindow[];
   planType?: string | null;
+  activeLimit?: string | null;
+  creditsHasCredits?: boolean | null;
+  creditsUnlimited?: boolean | null;
+  creditsBalance?: string | null;
+  rateLimitReachedType?: string | null;
+  primaryOverSecondaryLimitPercent?: number | null;
   subscriptionActiveUntil?: string | null;
   rateLimitResetCreditsAvailableCount?: number | null;
+  fetchedAtMs?: number;
   error?: string;
   errorStatus?: number;
+  observedFromUsageHeaders?: boolean;
+  observedResetCreditsUnknown?: boolean;
+  observedAtMs?: number;
+  observedTraceId?: string;
+  observedErrorKind?: string;
+  observedErrorCode?: string;
 }
 
 // Kimi API payload types

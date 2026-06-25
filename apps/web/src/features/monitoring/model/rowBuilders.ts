@@ -116,6 +116,10 @@ export const buildScopeFilteredRows = (
       ? scopeFilters.minLatencyMs
       : null;
   const cacheStatus = normalizeScopeValue(scopeFilters.cacheStatus);
+  const headerErrorKind = normalizeScopeValue(scopeFilters.headerErrorKind);
+  const headerErrorCode = normalizeScopeValue(scopeFilters.headerErrorCode);
+  const headerQuotaPlan = normalizeScopeValue(scopeFilters.headerQuotaPlan);
+  const headerTraceId = normalizeScopeValue(scopeFilters.headerTraceId);
 
   return rows.filter((row) => {
     if (isActiveScopeFilterValue(scopeFilters.account)) {
@@ -197,6 +201,30 @@ export const buildScopeFilteredRows = (
     if (
       (cacheStatus === 'read' || cacheStatus === 'creation') &&
       !hasCacheActivity(row, cacheStatus)
+    ) {
+      return false;
+    }
+    if (
+      isActiveScopeFilterValue(scopeFilters.headerErrorKind) &&
+      normalizeScopeValue(row.headerErrorKind) !== headerErrorKind
+    ) {
+      return false;
+    }
+    if (
+      isActiveScopeFilterValue(scopeFilters.headerErrorCode) &&
+      normalizeScopeValue(row.headerErrorCode) !== headerErrorCode
+    ) {
+      return false;
+    }
+    if (
+      isActiveScopeFilterValue(scopeFilters.headerQuotaPlan) &&
+      normalizeScopeValue(row.headerQuotaPlanType) !== headerQuotaPlan
+    ) {
+      return false;
+    }
+    if (
+      isActiveScopeFilterValue(scopeFilters.headerTraceId) &&
+      normalizeScopeValue(row.headerTraceId) !== headerTraceId
     ) {
       return false;
     }
@@ -289,6 +317,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
       accountMasked: string;
       authLabels: Set<string>;
       authIndices: Set<string>;
+      sourceKeys: Set<string>;
       apiKeyHashes: Set<string>;
       channels: Set<string>;
       modelMap: Map<
@@ -333,6 +362,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
       accountMasked: row.accountMasked,
       authLabels: new Set<string>(),
       authIndices: new Set<string>(),
+      sourceKeys: new Set<string>(),
       apiKeyHashes: new Set<string>(),
       channels: new Set<string>(),
       modelMap: new Map(),
@@ -355,6 +385,9 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
     existing.rows.push(row);
     existing.authLabels.add(row.authLabel);
     existing.authIndices.add(row.authIndex);
+    if (row.sourceKey) {
+      existing.sourceKeys.add(row.sourceKey);
+    }
     existing.apiKeyHashes.add(row.apiKeyHash);
     existing.channels.add(row.channel);
     existing.totalCalls += 1;
@@ -409,6 +442,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
     .map((item) => {
       const channels = Array.from(item.channels).sort();
       const authIndices = Array.from(item.authIndices).sort();
+      const sourceKeys = Array.from(item.sourceKeys).sort();
       const apiKeyHashes = Array.from(item.apiKeyHashes).sort();
       return {
         id: item.id,
@@ -423,6 +457,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
         accountMasked: item.accountMasked,
         authLabels: Array.from(item.authLabels).sort(),
         authIndices,
+        sourceKeys,
         channels,
         totalCalls: item.totalCalls,
         successCalls: item.successCalls,

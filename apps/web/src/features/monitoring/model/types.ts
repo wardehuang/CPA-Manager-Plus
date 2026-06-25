@@ -1,4 +1,5 @@
 import type { ApiKeyAlias } from '@/services/api/usageService';
+import type { ResponseHeaderMetadata } from '@/services/api/usageService';
 import type { AuthFileItem } from '@/types/authFile';
 import type { Config } from '@/types/config';
 import type { ModelPrice } from '@/utils/usage';
@@ -186,6 +187,13 @@ export type MonitoringEventRow = {
   executorType?: string;
   failStatusCode?: number | null;
   failSummary?: string;
+  responseMetadata?: ResponseHeaderMetadata;
+  headerQuotaRecoverAtMs?: number | null;
+  headerQuotaUsedPercent?: number | null;
+  headerQuotaPlanType?: string;
+  headerErrorKind?: string;
+  headerErrorCode?: string;
+  headerTraceId?: string;
   taskKey: string;
   searchText: string;
 };
@@ -239,6 +247,7 @@ export type MonitoringAccountRow = {
   accountMasked: string;
   authLabels: string[];
   authIndices: string[];
+  sourceKeys?: string[];
   channels: string[];
   totalCalls: number;
   successCalls: number;
@@ -290,6 +299,10 @@ export type MonitoringFilterOptions = {
   providers: string[];
   models: string[];
   channels: string[];
+  headerErrorKinds: string[];
+  headerErrorCodes: string[];
+  headerQuotaPlans: string[];
+  headerTraceIds: string[];
 };
 
 export type MonitoringRealtimeRow = {
@@ -343,6 +356,10 @@ export interface MonitoringScopeFilters {
   status?: 'all' | 'success' | 'failed';
   minLatencyMs?: number;
   cacheStatus?: string;
+  headerErrorKind?: string;
+  headerErrorCode?: string;
+  headerQuotaPlan?: string;
+  headerTraceId?: string;
 }
 
 export interface UseMonitoringDataParams {

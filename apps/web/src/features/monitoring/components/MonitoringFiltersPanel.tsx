@@ -14,6 +14,9 @@ type MonitoringFiltersPanelProps = {
   selectedModel: string;
   selectedChannel: string;
   selectedApiKeyHash: string;
+  selectedHeaderErrorKind: string;
+  selectedHeaderErrorCode: string;
+  selectedHeaderQuotaPlan: string;
   selectedStatus: string;
   searchInput: string;
   accountOptions: ReadonlyArray<SelectOption>;
@@ -21,6 +24,9 @@ type MonitoringFiltersPanelProps = {
   modelOptions: ReadonlyArray<SelectOption>;
   channelOptions: ReadonlyArray<SelectOption>;
   apiKeyOptions: ReadonlyArray<SelectOption>;
+  headerErrorKindOptions: ReadonlyArray<SelectOption>;
+  headerErrorCodeOptions: ReadonlyArray<SelectOption>;
+  headerQuotaPlanOptions: ReadonlyArray<SelectOption>;
   statusOptions: ReadonlyArray<SelectOption>;
   combinedError: string | null;
   usageStatisticsEnabled: boolean;
@@ -34,6 +40,9 @@ type MonitoringFiltersPanelProps = {
   onModelChange: (value: string) => void;
   onChannelChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
+  onHeaderErrorKindChange: (value: string) => void;
+  onHeaderErrorCodeChange: (value: string) => void;
+  onHeaderQuotaPlanChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   onClearFilters: () => void;
@@ -71,6 +80,9 @@ export function MonitoringFiltersPanel({
   selectedModel,
   selectedChannel,
   selectedApiKeyHash,
+  selectedHeaderErrorKind,
+  selectedHeaderErrorCode,
+  selectedHeaderQuotaPlan,
   selectedStatus,
   searchInput,
   accountOptions,
@@ -78,6 +90,9 @@ export function MonitoringFiltersPanel({
   modelOptions,
   channelOptions,
   apiKeyOptions,
+  headerErrorKindOptions,
+  headerErrorCodeOptions,
+  headerQuotaPlanOptions,
   statusOptions,
   combinedError,
   usageStatisticsEnabled,
@@ -91,6 +106,9 @@ export function MonitoringFiltersPanel({
   onModelChange,
   onChannelChange,
   onApiKeyChange,
+  onHeaderErrorKindChange,
+  onHeaderErrorCodeChange,
+  onHeaderQuotaPlanChange,
   onStatusChange,
   onSearchChange,
   onClearFilters,
@@ -216,6 +234,27 @@ export function MonitoringFiltersPanel({
             options={apiKeyOptions}
             onChange={onApiKeyChange}
             ariaLabel={t('monitoring.filter_api_key')}
+            triggerClassName={styles.filterSelectTrigger}
+          />
+          <Select
+            value={selectedHeaderErrorKind}
+            options={headerErrorKindOptions}
+            onChange={onHeaderErrorKindChange}
+            ariaLabel={t('monitoring.filter_header_error_kind')}
+            triggerClassName={styles.filterSelectTrigger}
+          />
+          <Select
+            value={selectedHeaderErrorCode}
+            options={headerErrorCodeOptions}
+            onChange={onHeaderErrorCodeChange}
+            ariaLabel={t('monitoring.filter_header_error_code')}
+            triggerClassName={styles.filterSelectTrigger}
+          />
+          <Select
+            value={selectedHeaderQuotaPlan}
+            options={headerQuotaPlanOptions}
+            onChange={onHeaderQuotaPlanChange}
+            ariaLabel={t('monitoring.filter_header_quota_plan')}
             triggerClassName={styles.filterSelectTrigger}
           />
           <Select

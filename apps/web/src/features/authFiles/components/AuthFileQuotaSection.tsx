@@ -33,10 +33,11 @@ export type AuthFileQuotaSectionProps = {
   file: AuthFileItem;
   quotaType: QuotaProviderType;
   disableControls: boolean;
+  quotaOverride?: QuotaState;
 };
 
 export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
-  const { file, quotaType, disableControls } = props;
+  const { file, quotaType, disableControls, quotaOverride } = props;
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
 
@@ -99,12 +100,13 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     renderQuotaItems: (quota: unknown, t: TFunction, helpers: unknown) => unknown;
   };
 
-  const quotaStatus = quota?.status ?? 'idle';
+  const displayQuota = quotaOverride ?? quota;
+  const quotaStatus = displayQuota?.status ?? 'idle';
   const canRefreshQuota = !disableControls && !file.disabled;
   const quotaErrorMessage = resolveQuotaErrorMessage(
     t,
-    quota?.errorStatus,
-    quota?.error || t('common.unknown_error')
+    displayQuota?.errorStatus,
+    displayQuota?.error || t('common.unknown_error')
   );
 
   return (
@@ -126,8 +128,8 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
             message: quotaErrorMessage
           })}
         </div>
-      ) : quota ? (
-        (config.renderQuotaItems(quota, t, { styles, QuotaProgressBar }) as ReactNode)
+      ) : displayQuota ? (
+        (config.renderQuotaItems(displayQuota, t, { styles, QuotaProgressBar }) as ReactNode)
       ) : (
         <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
       )}
