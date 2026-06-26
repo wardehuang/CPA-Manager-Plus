@@ -19,7 +19,7 @@ import type {
   XaiQuotaState,
 } from '@/types';
 import type { UsageHeaderSnapshot } from '@/services/api/usageService';
-import type { AntigravityQuotaData } from '@/utils/quota';
+import type { AntigravityQuotaData, CodexQuotaData } from '@/utils/quota';
 import { IconInfo } from '@/components/ui/icons';
 import { resetCodexQuota } from '@/services/api/codexQuota';
 import {
@@ -51,6 +51,7 @@ import {
   getHeaderSnapshotUsedPercent,
   hasUsageHeaderQuotaSignal,
 } from '@/utils/usageHeaderSnapshots';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import type { QuotaRenderHelpers } from './QuotaCard';
 import styles from '@/features/quota/QuotaPage.module.scss';
 
@@ -84,9 +85,11 @@ export interface QuotaConfig<TState, TData> {
   fetchQuota: (file: AuthFileItem, t: TFunction) => Promise<TData>;
   storeSelector: (state: QuotaStore) => Record<string, TState>;
   storeSetter: keyof QuotaStore;
-  buildLoadingState: () => TState;
-  buildSuccessState: (data: TData) => TState;
-  buildErrorState: (message: string, status?: number) => TState;
+  getStoreKey?: (file: AuthFileItem) => string;
+  buildLoadingState: (file?: AuthFileItem) => TState;
+  buildSuccessState: (data: TData, file?: AuthFileItem) => TState;
+  buildErrorState: (message: string, status?: number, file?: AuthFileItem) => TState;
+  scopeState?: (file: AuthFileItem, state: TState | undefined) => TState | undefined;
   cardClassName: string;
   controlsClassName: string;
   controlClassName: string;
@@ -102,6 +105,11 @@ export interface QuotaConfig<TState, TData> {
   canResetQuota?: (file: AuthFileItem, quota: TState | undefined) => boolean;
   renderQuotaItems: (quota: TState, t: TFunction, helpers: QuotaRenderHelpers) => ReactNode;
 }
+
+export const getQuotaStoreKey = <TState, TData>(
+  config: Pick<QuotaConfig<TState, TData>, 'getStoreKey'>,
+  file: AuthFileItem
+): string => config.getStoreKey?.(file) ?? file.name;
 
 const renderAntigravityItems = (
   quota: AntigravityQuotaState,
@@ -228,6 +236,61 @@ const getCodexSearchText = (
     quota?.primaryOverSecondaryLimitPercent,
     quota?.observedAtMs,
   ];
+};
+
+type DisplayQuotaState = {
+  status?: 'idle' | 'loading' | 'success' | 'error';
+  errorStatus?: number | null;
+  fetchedAtMs?: number;
+  observedAtMs?: number;
+};
+
+const readFiniteTimestamp = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const buildCodexQuotaAuthIdentity = (file: AuthFileItem | undefined) => {
+  if (!file?.name) return {};
+  const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex ?? file['auth-index']);
+  return {
+    authFileKey: `${file.name}::${authIndex ?? '-'}`,
+    authFileName: file.name,
+    authIndex,
+  };
+};
+
+export const getCodexQuotaStoreKey = (file: AuthFileItem): string =>
+  buildCodexQuotaAuthIdentity(file).authFileKey ?? file.name;
+
+const scopeCodexQuotaStateToAuthFile = (
+  file: AuthFileItem,
+  state: CodexQuotaState | undefined
+): CodexQuotaState | undefined => {
+  if (!state) return undefined;
+  const identity = buildCodexQuotaAuthIdentity(file);
+  if (!state.authFileKey) return identity.authIndex === null ? state : undefined;
+  return state.authFileKey === identity.authFileKey ? state : undefined;
+};
+
+export const resolveQuotaDisplayState = <TState extends DisplayQuotaState>(
+  activeQuota: TState | undefined,
+  observedQuota: TState | undefined
+): TState | undefined => {
+  if (activeQuota && activeQuota.status !== 'idle' && activeQuota.status !== 'error') {
+    if (activeQuota.status === 'success' && observedQuota?.status === 'success') {
+      const fetchedAtMs = readFiniteTimestamp(activeQuota.fetchedAtMs);
+      const observedAtMs = readFiniteTimestamp(observedQuota.observedAtMs);
+      if (fetchedAtMs !== null && observedAtMs !== null && observedAtMs > fetchedAtMs) {
+        return observedQuota;
+      }
+    }
+    return activeQuota;
+  }
+
+  if (activeQuota?.status === 'error' && activeQuota.errorStatus === 401) {
+    return activeQuota;
+  }
+
+  return observedQuota ?? activeQuota;
 };
 
 export const buildObservedCodexQuotaState = (
@@ -666,12 +729,7 @@ export const ANTIGRAVITY_CONFIG: QuotaConfig<AntigravityQuotaState, AntigravityQ
 
 export const CODEX_CONFIG: QuotaConfig<
   CodexQuotaState,
-  {
-    planType: string | null;
-    windows: CodexQuotaWindow[];
-    subscriptionActiveUntil: string | null;
-    rateLimitResetCreditsAvailableCount: number | null;
-  }
+  CodexQuotaData
 > = {
   type: 'codex',
   i18nPrefix: 'codex_quota',
@@ -680,21 +738,31 @@ export const CODEX_CONFIG: QuotaConfig<
   fetchQuota: fetchCodexQuota,
   storeSelector: (state) => state.codexQuota,
   storeSetter: 'setCodexQuota',
-  buildLoadingState: () => ({ status: 'loading', windows: [] }),
-  buildSuccessState: (data) => ({
+  getStoreKey: getCodexQuotaStoreKey,
+  buildLoadingState: (file) => ({
+    status: 'loading',
+    windows: [],
+    ...buildCodexQuotaAuthIdentity(file),
+  }),
+  buildSuccessState: (data, file) => ({
     status: 'success',
     windows: data.windows,
     planType: data.planType,
     subscriptionActiveUntil: data.subscriptionActiveUntil,
     rateLimitResetCreditsAvailableCount: data.rateLimitResetCreditsAvailableCount,
+    rateLimitResetCredits: data.rateLimitResetCredits,
+    rateLimitResetCreditsError: data.rateLimitResetCreditsError,
+    ...buildCodexQuotaAuthIdentity(file),
     fetchedAtMs: Date.now(),
   }),
-  buildErrorState: (message, status) => ({
+  buildErrorState: (message, status, file) => ({
     status: 'error',
     windows: [],
     error: message,
     errorStatus: status,
+    ...buildCodexQuotaAuthIdentity(file),
   }),
+  scopeState: scopeCodexQuotaStateToAuthFile,
   cardClassName: styles.codexCard,
   controlsClassName: styles.codexControls,
   controlClassName: styles.codexControl,

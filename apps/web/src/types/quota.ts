@@ -173,6 +173,19 @@ export interface CodexRateLimitResetCreditsInfo {
   availableCount?: number | string;
 }
 
+export interface CodexRateLimitResetCredit {
+  id: string;
+  status: string;
+  grantedAt: string;
+  expiresAt: string;
+}
+
+export interface CodexResetCreditsSummary {
+  availableCount: number | null;
+  credits: CodexRateLimitResetCredit[];
+  invalidPayload: boolean;
+}
+
 export interface CodexUsagePayload {
   user_id?: string;
   userId?: string;
@@ -312,6 +325,11 @@ export interface CodexQuotaState {
   primaryOverSecondaryLimitPercent?: number | null;
   subscriptionActiveUntil?: string | null;
   rateLimitResetCreditsAvailableCount?: number | null;
+  rateLimitResetCredits?: CodexRateLimitResetCredit[];
+  rateLimitResetCreditsError?: string | null;
+  authFileKey?: string;
+  authFileName?: string;
+  authIndex?: string | null;
   fetchedAtMs?: number;
   error?: string;
   errorStatus?: number;
