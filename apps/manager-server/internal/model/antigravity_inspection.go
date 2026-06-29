@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -87,6 +88,7 @@ type AntigravityInspectionQuotaWindow struct {
 	LabelKey           string         `json:"labelKey"`
 	LabelParams        map[string]any `json:"labelParams,omitempty"`
 	UsedPercent        *float64       `json:"usedPercent,omitempty"`
+	ResetAtMS          int64          `json:"resetAtMs,omitempty"`
 	ResetLabel         string         `json:"resetLabel"`
 	LimitWindowSeconds *float64       `json:"limitWindowSeconds,omitempty"`
 }
@@ -151,6 +153,9 @@ type AntigravityAccountWindowCost struct {
 	WindowStartAtMS  int64   `json:"windowStartAtMs"`
 	WindowResetAtMS  int64   `json:"windowResetAtMs"`
 	EstimatedCost    float64 `json:"estimatedCost"`
+	InputTokens      int64   `json:"inputTokens"`
+	OutputTokens     int64   `json:"outputTokens"`
+	CachedTokens     int64   `json:"cachedTokens"`
 	IsQuotaExhausted bool    `json:"isQuotaExhausted"`
 	CalculatedAtMS   int64   `json:"calculatedAtMs"`
 	CreatedAtMS      int64   `json:"createdAtMs"`
@@ -171,34 +176,42 @@ type AntigravityPriorityAdjustment struct {
 }
 
 type AntigravityAccountStatusItem struct {
-	ID                int64                          `json:"id"`
-	RunID             int64                          `json:"runId"`
-	AccountKey        string                         `json:"accountKey"`
-	FileName          string                         `json:"fileName"`
-	DisplayAccount    string                         `json:"displayAccount"`
-	AuthIndex         string                         `json:"authIndex,omitempty"`
-	AccountID         string                         `json:"accountId,omitempty"`
-	Provider          string                         `json:"provider"`
-	TargetProvider    string                         `json:"targetProvider"`
-	Disabled          bool                           `json:"disabled"`
-	Status            string                         `json:"status,omitempty"`
-	State             string                         `json:"state,omitempty"`
-	Action            string                         `json:"action"`
-	ActionReason      string                         `json:"actionReason"`
-	ActionStatus      string                         `json:"actionStatus,omitempty"`
-	ExecutedAction    string                         `json:"executedAction,omitempty"`
-	ActionError       string                         `json:"actionError,omitempty"`
-	StatusCode        *int                           `json:"statusCode,omitempty"`
-	UsedPercent       *float64                       `json:"usedPercent,omitempty"`
-	IsQuota           bool                           `json:"isQuota"`
-	Error             string                         `json:"error,omitempty"`
-	ResultCreatedAtMS int64                          `json:"resultCreatedAtMs"`
-	Priority          *int                           `json:"priority,omitempty"`
-	AccountType       string                         `json:"accountType,omitempty"`
-	ResetAtMS         int64                          `json:"resetAtMs,omitempty"`
-	CheckedAtMS       int64                          `json:"checkedAtMs,omitempty"`
-	OriginalPriority  *int                           `json:"originalPriority,omitempty"`
-	WindowCosts       []AntigravityAccountWindowCost `json:"windowCosts,omitempty"`
+	ID                                  int64                              `json:"id"`
+	RunID                               int64                              `json:"runId"`
+	AccountKey                          string                             `json:"accountKey"`
+	FileName                            string                             `json:"fileName"`
+	DisplayAccount                      string                             `json:"displayAccount"`
+	AuthIndex                           string                             `json:"authIndex,omitempty"`
+	AccountID                           string                             `json:"accountId,omitempty"`
+	Provider                            string                             `json:"provider"`
+	TargetProvider                      string                             `json:"targetProvider"`
+	Disabled                            bool                               `json:"disabled"`
+	Status                              string                             `json:"status,omitempty"`
+	State                               string                             `json:"state,omitempty"`
+	Action                              string                             `json:"action"`
+	ActionReason                        string                             `json:"actionReason"`
+	ActionStatus                        string                             `json:"actionStatus,omitempty"`
+	ExecutedAction                      string                             `json:"executedAction,omitempty"`
+	ActionError                         string                             `json:"actionError,omitempty"`
+	StatusCode                          *int                               `json:"statusCode,omitempty"`
+	UsedPercent                         *float64                           `json:"usedPercent,omitempty"`
+	IsQuota                             bool                               `json:"isQuota"`
+	Error                               string                             `json:"error,omitempty"`
+	ResultCreatedAtMS                   int64                              `json:"resultCreatedAtMs"`
+	Priority                            *int                               `json:"priority,omitempty"`
+	AccountType                         string                             `json:"accountType,omitempty"`
+	FiveHourUsedPercent                 *float64                           `json:"fiveHourUsedPercent,omitempty"`
+	FiveHourResetAtMS                   int64                              `json:"fiveHourResetAtMs,omitempty"`
+	WeeklyUsedPercent                   *float64                           `json:"weeklyUsedPercent,omitempty"`
+	WeeklyResetAtMS                     int64                              `json:"weeklyResetAtMs,omitempty"`
+	MonthlyUsedPercent                  *float64                           `json:"monthlyUsedPercent,omitempty"`
+	MonthlyResetAtMS                    int64                              `json:"monthlyResetAtMs,omitempty"`
+	RateLimitResetCreditsAvailableCount *int                               `json:"rateLimitResetCreditsAvailableCount,omitempty"`
+	ResetAtMS                           int64                              `json:"resetAtMs,omitempty"`
+	CheckedAtMS                         int64                              `json:"checkedAtMs,omitempty"`
+	OriginalPriority                    *int                               `json:"originalPriority,omitempty"`
+	QuotaWindows                        []AntigravityInspectionQuotaWindow `json:"quotaWindows,omitempty"`
+	WindowCosts                         []AntigravityAccountWindowCost     `json:"windowCosts,omitempty"`
 }
 
 type AntigravityAccountStatusResponse struct {
@@ -304,6 +317,48 @@ func NormalizeAntigravityInspectionTimePoints(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func AntigravityInspectionTriggerKey(now time.Time, cfg ManagerAntigravityInspectionConfig) string {
+	schedule := cfg.Schedule
+	switch schedule.Mode {
+	case AntigravityInspectionScheduleModeTimePoints:
+		return now.In(ResolveCodexInspectionLocation(schedule.TimeZone)).Format("2006-01-02 15:04")
+	case AntigravityInspectionScheduleModeInterval:
+		if schedule.IntervalMinutes <= 0 {
+			return now.Format("2006-01-02T15:04")
+		}
+		bucket := now.Unix() / int64(schedule.IntervalMinutes*60)
+		return fmt.Sprintf("interval:%d:%d", schedule.IntervalMinutes, bucket)
+	default:
+		return now.Format("2006-01-02T15:04")
+	}
+}
+
+func AntigravityInspectionScheduleDue(now time.Time, lastRun time.Time, cfg ManagerAntigravityInspectionConfig) bool {
+	if cfg.Enabled == nil || !*cfg.Enabled {
+		return false
+	}
+	switch cfg.Schedule.Mode {
+	case AntigravityInspectionScheduleModeTimePoints:
+		current := now.In(ResolveCodexInspectionLocation(cfg.Schedule.TimeZone)).Format("15:04")
+		for _, point := range cfg.Schedule.TimePoints {
+			if point == current {
+				return true
+			}
+		}
+		return false
+	case AntigravityInspectionScheduleModeInterval:
+		if cfg.Schedule.IntervalMinutes <= 0 {
+			return false
+		}
+		if lastRun.IsZero() {
+			return true
+		}
+		return now.Sub(lastRun) >= time.Duration(cfg.Schedule.IntervalMinutes)*time.Minute
+	default:
+		return false
+	}
 }
 
 func NormalizeAntigravityTargetProvider(value string, fallback string) string {

@@ -40,7 +40,10 @@ const getDescription = (activeMode: AgyInspectionMode) => {
   if (activeMode === 'server') {
     return '由 Manager Server 独立巡检 Antigravity 授权文件，结果写入 antigravity 专用表。';
   }
-  return '查看 Antigravity 账号状态，按 priority_claude / priority_gemini 独立展示。';
+  if (activeMode === 'gemini') {
+    return '查看 Antigravity Gemini 额度状态';
+  }
+  return '查看 Antigravity Claude 额度状态';
 };
 
 export function AgyInspectionModeTabs({ activeMode, showDescription = true }: AgyInspectionModeTabsProps) {

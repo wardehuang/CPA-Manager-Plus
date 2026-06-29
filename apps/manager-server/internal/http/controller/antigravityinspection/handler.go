@@ -11,6 +11,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/app"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/middleware"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/response"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 	antigravitysvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/antigravityinspection"
 )
 
@@ -24,6 +25,40 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.Trim(strings.TrimRight(r.URL.Path, "/"), " ")
 	switch {
+	case path == "/v0/management/antigravity-inspection/settings":
+		provider := r.URL.Query().Get("provider")
+		if r.Method == http.MethodGet {
+			result, err := h.App.AntigravityInspectionService.GetSettings(r.Context(), provider)
+			if err != nil {
+				response.Error(w, antigravityInspectionErrorStatus(err), err)
+				return
+			}
+			response.JSON(w, http.StatusOK, result)
+			return
+		}
+		if r.Method == http.MethodPut {
+			var payload struct {
+				Settings map[string]any `json:"settings"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				response.Error(w, http.StatusBadRequest, err)
+				return
+			}
+			data, _ := json.Marshal(payload.Settings)
+			var settings model.ManagerAntigravityInspectionConfig
+			if err := json.Unmarshal(data, &settings); err != nil {
+				response.Error(w, http.StatusBadRequest, err)
+				return
+			}
+			result, err := h.App.AntigravityInspectionService.SaveSettings(r.Context(), provider, settings)
+			if err != nil {
+				response.Error(w, antigravityInspectionErrorStatus(err), err)
+				return
+			}
+			response.JSON(w, http.StatusOK, result)
+			return
+		}
+		response.MethodNotAllowed(w)
 	case path == "/v0/management/antigravity-inspection/manual-refresh":
 		if r.Method != http.MethodPost {
 			response.MethodNotAllowed(w)

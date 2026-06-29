@@ -21,6 +21,8 @@ type Repository interface {
 	GetLatestRunByProvider(ctx context.Context, targetProvider string) (model.AntigravityInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.AntigravityInspectionResult, error)
 	ListLogs(ctx context.Context, runID int64) ([]model.AntigravityInspectionLog, error)
+	GetSettings(ctx context.Context, targetProvider string) (model.ManagerAntigravityInspectionConfig, bool, error)
+	SaveSettings(ctx context.Context, targetProvider string, settings model.ManagerAntigravityInspectionConfig) (model.ManagerAntigravityInspectionConfig, error)
 }
 
 type repository struct {
@@ -352,6 +354,43 @@ func (r *repository) ListLogs(ctx context.Context, runID int64) ([]model.Antigra
 		logs = append(logs, entry)
 	}
 	return logs, rows.Err()
+}
+
+func (r *repository) GetSettings(ctx context.Context, targetProvider string) (model.ManagerAntigravityInspectionConfig, bool, error) {
+	targetProvider = model.NormalizeAntigravityTargetProvider(targetProvider, model.AntigravityTargetProviderServer)
+	row := r.db.QueryRowContext(ctx, `select settings_json from antigravity_inspection_settings where target_provider = ?`, targetProvider)
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ManagerAntigravityInspectionConfig{}, false, nil
+		}
+		return model.ManagerAntigravityInspectionConfig{}, false, err
+	}
+	settings := model.UnmarshalAntigravityInspectionSettings(raw)
+	settings.TargetProvider = targetProvider
+	return settings, true, nil
+}
+
+func (r *repository) SaveSettings(ctx context.Context, targetProvider string, settings model.ManagerAntigravityInspectionConfig) (model.ManagerAntigravityInspectionConfig, error) {
+	targetProvider = model.NormalizeAntigravityTargetProvider(targetProvider, model.AntigravityTargetProviderServer)
+	settings.TargetProvider = targetProvider
+	settings = model.NormalizeAntigravityInspectionConfig(settings, model.DefaultAntigravityInspectionConfig())
+	settings.TargetProvider = targetProvider
+	now := time.Now().UnixMilli()
+	_, err := r.db.ExecContext(
+		ctx,
+		`insert into antigravity_inspection_settings(target_provider, settings_json, created_at_ms, updated_at_ms)
+		 values(?, ?, ?, ?)
+		 on conflict(target_provider) do update set settings_json = excluded.settings_json, updated_at_ms = excluded.updated_at_ms`,
+		targetProvider,
+		model.MarshalAntigravityInspectionSettings(settings),
+		now,
+		now,
+	)
+	if err != nil {
+		return model.ManagerAntigravityInspectionConfig{}, err
+	}
+	return settings, nil
 }
 
 func runSelectSQL() string {

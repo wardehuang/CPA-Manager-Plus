@@ -44,11 +44,15 @@ func (r *repository) Upsert(ctx context.Context, cost model.CodexAccountWindowCo
 		ctx,
 		`insert into codex_account_window_costs (
 			account_key, window_type, window_start_at_ms, window_reset_at_ms,
-			estimated_cost, is_quota_exhausted, calculated_at_ms, created_at_ms, updated_at_ms
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			estimated_cost, input_tokens, output_tokens, cached_tokens,
+			is_quota_exhausted, calculated_at_ms, created_at_ms, updated_at_ms
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(account_key, window_type, window_reset_at_ms) do update set
 			window_start_at_ms = excluded.window_start_at_ms,
 			estimated_cost = excluded.estimated_cost,
+			input_tokens = excluded.input_tokens,
+			output_tokens = excluded.output_tokens,
+			cached_tokens = excluded.cached_tokens,
 			is_quota_exhausted = excluded.is_quota_exhausted,
 			calculated_at_ms = excluded.calculated_at_ms,
 			updated_at_ms = excluded.updated_at_ms`,
@@ -57,6 +61,9 @@ func (r *repository) Upsert(ctx context.Context, cost model.CodexAccountWindowCo
 		cost.WindowStartAtMS,
 		cost.WindowResetAtMS,
 		cost.EstimatedCost,
+		cost.InputTokens,
+		cost.OutputTokens,
+		cost.CachedTokens,
 		exhausted,
 		cost.CalculatedAtMS,
 		cost.CreatedAtMS,
@@ -70,7 +77,8 @@ func (r *repository) ListByRun(ctx context.Context, runID int64) ([]model.CodexA
 		ctx,
 		`select distinct
 			c.account_key, c.window_type, c.window_start_at_ms, c.window_reset_at_ms,
-			c.estimated_cost, c.is_quota_exhausted, c.calculated_at_ms, c.created_at_ms, c.updated_at_ms
+			c.estimated_cost, c.input_tokens, c.output_tokens, c.cached_tokens,
+			c.is_quota_exhausted, c.calculated_at_ms, c.created_at_ms, c.updated_at_ms
 		from codex_account_status_details d
 		join codex_account_window_costs c on c.account_key = d.account_key and (
 			(c.window_type = 'five_hour' and c.window_reset_at_ms = d.five_hour_reset_at_ms) or
@@ -146,16 +154,24 @@ func (r *repository) SumUsageByWindow(ctx context.Context, target model.CodexAcc
 }
 
 func accountWindowUsageIdentityFilter(target model.CodexAccountWindowCostTarget) (string, []any) {
+	filters := make([]string, 0, 3)
+	args := make([]any, 0, 4)
 	if authIndex := strings.TrimSpace(target.AuthIndex); authIndex != "" {
-		return "auth_index = ?", []any{authIndex}
+		filters = append(filters, "auth_index = ?")
+		args = append(args, authIndex)
 	}
 	if fileName := strings.TrimSpace(target.FileName); fileName != "" {
-		return "auth_file_snapshot = ?", []any{fileName}
+		filters = append(filters, "auth_file_snapshot = ?")
+		args = append(args, fileName)
 	}
 	if displayAccount := strings.TrimSpace(target.DisplayAccount); displayAccount != "" {
-		return "(account_snapshot = ? or auth_label_snapshot = ?)", []any{displayAccount, displayAccount}
+		filters = append(filters, "(account_snapshot = ? or auth_label_snapshot = ?)")
+		args = append(args, displayAccount, displayAccount)
 	}
-	return "", nil
+	if len(filters) == 0 {
+		return "", nil
+	}
+	return "(" + strings.Join(filters, " or ") + ")", args
 }
 
 func scanCost(row interface{ Scan(dest ...any) error }) (model.CodexAccountWindowCost, error) {
@@ -167,6 +183,9 @@ func scanCost(row interface{ Scan(dest ...any) error }) (model.CodexAccountWindo
 		&item.WindowStartAtMS,
 		&item.WindowResetAtMS,
 		&item.EstimatedCost,
+		&item.InputTokens,
+		&item.OutputTokens,
+		&item.CachedTokens,
 		&exhausted,
 		&item.CalculatedAtMS,
 		&item.CreatedAtMS,

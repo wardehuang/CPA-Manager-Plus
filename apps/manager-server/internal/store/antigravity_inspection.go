@@ -50,6 +50,10 @@ func (s *Store) GetAntigravityInspectionRun(ctx context.Context, id int64) (mode
 	return s.antigravityInspections().GetRun(ctx, id)
 }
 
+func (s *Store) GetLatestAntigravityInspectionRunByTrigger(ctx context.Context, triggerType string, triggerKey string) (model.AntigravityInspectionRun, bool, error) {
+	return s.antigravityInspections().GetLatestRunByTrigger(ctx, triggerType, triggerKey)
+}
+
 func (s *Store) GetLatestAntigravityInspectionRunByProvider(ctx context.Context, targetProvider string) (model.AntigravityInspectionRun, bool, error) {
 	return s.antigravityInspections().GetLatestRunByProvider(ctx, targetProvider)
 }
@@ -62,12 +66,24 @@ func (s *Store) ListAntigravityInspectionLogs(ctx context.Context, runID int64) 
 	return s.antigravityInspections().ListLogs(ctx, runID)
 }
 
+func (s *Store) GetAntigravityInspectionSettings(ctx context.Context, targetProvider string) (model.ManagerAntigravityInspectionConfig, bool, error) {
+	return s.antigravityInspections().GetSettings(ctx, targetProvider)
+}
+
+func (s *Store) SaveAntigravityInspectionSettings(ctx context.Context, targetProvider string, settings model.ManagerAntigravityInspectionConfig) (model.ManagerAntigravityInspectionConfig, error) {
+	return s.antigravityInspections().SaveSettings(ctx, targetProvider, settings)
+}
+
 func (s *Store) UpsertAntigravityAccountStatusDetail(ctx context.Context, detail model.AntigravityAccountStatusDetail) error {
 	return s.antigravityAccountStatus().UpsertDetail(ctx, detail)
 }
 
 func (s *Store) ListAntigravityAccountStatusItems(ctx context.Context, runID int64, targetProvider string) ([]model.AntigravityAccountStatusItem, error) {
 	return s.antigravityAccountStatus().ListItemsByRun(ctx, runID, targetProvider)
+}
+
+func (s *Store) ListAntigravityAccountStatusItemsWithDetailProvider(ctx context.Context, runID int64, resultProvider string, detailProvider string) ([]model.AntigravityAccountStatusItem, error) {
+	return s.antigravityAccountStatus().ListItemsByRunWithDetailProvider(ctx, runID, resultProvider, detailProvider)
 }
 
 func (s *Store) ListAntigravityAccountWindowCostsByRun(ctx context.Context, runID int64, targetProvider string) ([]model.AntigravityAccountWindowCost, error) {
@@ -84,6 +100,10 @@ func (s *Store) GetAntigravityPriorityAdjustment(ctx context.Context, accountKey
 
 func (s *Store) UpsertAntigravityPriorityAdjustment(ctx context.Context, adjustment model.AntigravityPriorityAdjustment) error {
 	return s.antigravityPriorityAdjustments().Upsert(ctx, adjustment)
+}
+
+func (s *Store) ListDueAntigravityPriorityAdjustments(ctx context.Context, nowMS int64) ([]model.AntigravityPriorityAdjustment, error) {
+	return s.antigravityPriorityAdjustments().ListDue(ctx, nowMS)
 }
 
 func (s *Store) DeleteAntigravityPriorityAdjustment(ctx context.Context, accountKey string, targetProvider string) error {

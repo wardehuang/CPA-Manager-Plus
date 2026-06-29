@@ -198,6 +198,7 @@ export interface CodexAccountStatusItem extends Omit<CodexInspectionResult, 'cre
   monthlyUsedPercent?: number;
   monthlyResetAtMs?: number;
   rateLimitResetCreditsAvailableCount?: number;
+  subscriptionActiveUntilMs?: number;
   checkedAtMs?: number;
   originalPriority?: number;
   windowCosts?: CodexAccountWindowCost[];
@@ -209,6 +210,9 @@ export interface CodexAccountWindowCost {
   windowStartAtMs: number;
   windowResetAtMs: number;
   estimatedCost: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedTokens?: number;
   isQuotaExhausted?: boolean;
   calculatedAtMs?: number;
 }

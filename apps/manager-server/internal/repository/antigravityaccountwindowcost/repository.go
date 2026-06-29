@@ -41,11 +41,15 @@ func (r *repository) Upsert(ctx context.Context, cost model.AntigravityAccountWi
 		ctx,
 		`insert into antigravity_account_window_costs (
 			account_key, target_provider, window_type, window_start_at_ms, window_reset_at_ms,
-			estimated_cost, is_quota_exhausted, calculated_at_ms, created_at_ms, updated_at_ms
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			estimated_cost, input_tokens, output_tokens, cached_tokens,
+			is_quota_exhausted, calculated_at_ms, created_at_ms, updated_at_ms
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(account_key, target_provider, window_type, window_reset_at_ms) do update set
 			window_start_at_ms = excluded.window_start_at_ms,
 			estimated_cost = excluded.estimated_cost,
+			input_tokens = excluded.input_tokens,
+			output_tokens = excluded.output_tokens,
+			cached_tokens = excluded.cached_tokens,
 			is_quota_exhausted = excluded.is_quota_exhausted,
 			calculated_at_ms = excluded.calculated_at_ms,
 			updated_at_ms = excluded.updated_at_ms`,
@@ -55,6 +59,9 @@ func (r *repository) Upsert(ctx context.Context, cost model.AntigravityAccountWi
 		cost.WindowStartAtMS,
 		cost.WindowResetAtMS,
 		cost.EstimatedCost,
+		cost.InputTokens,
+		cost.OutputTokens,
+		cost.CachedTokens,
 		exhausted,
 		cost.CalculatedAtMS,
 		cost.CreatedAtMS,
@@ -69,11 +76,11 @@ func (r *repository) ListByRun(ctx context.Context, runID int64, targetProvider 
 		ctx,
 		`select distinct
 			c.account_key, c.target_provider, c.window_type, c.window_start_at_ms, c.window_reset_at_ms,
-			c.estimated_cost, c.is_quota_exhausted, c.calculated_at_ms, c.created_at_ms, c.updated_at_ms
+			c.estimated_cost, c.input_tokens, c.output_tokens, c.cached_tokens,
+			c.is_quota_exhausted, c.calculated_at_ms, c.created_at_ms, c.updated_at_ms
 		from antigravity_account_status_details d
 		join antigravity_account_window_costs c on c.account_key = d.account_key
 			and c.target_provider = d.target_provider
-			and c.window_reset_at_ms = d.reset_at_ms
 		where d.run_id = ? and d.target_provider = ?
 		order by c.account_key asc, c.window_type asc`,
 		runID,
@@ -104,6 +111,9 @@ func scanCost(row interface{ Scan(dest ...any) error }) (model.AntigravityAccoun
 		&item.WindowStartAtMS,
 		&item.WindowResetAtMS,
 		&item.EstimatedCost,
+		&item.InputTokens,
+		&item.OutputTokens,
+		&item.CachedTokens,
 		&exhausted,
 		&item.CalculatedAtMS,
 		&item.CreatedAtMS,

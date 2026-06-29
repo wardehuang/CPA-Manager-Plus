@@ -3,6 +3,7 @@ package antigravityaccountstatus
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
@@ -11,6 +12,7 @@ import (
 type Repository interface {
 	UpsertDetail(ctx context.Context, detail model.AntigravityAccountStatusDetail) error
 	ListItemsByRun(ctx context.Context, runID int64, targetProvider string) ([]model.AntigravityAccountStatusItem, error)
+	ListItemsByRunWithDetailProvider(ctx context.Context, runID int64, resultProvider string, detailProvider string) ([]model.AntigravityAccountStatusItem, error)
 }
 
 type repository struct {
@@ -58,22 +60,28 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.AntigravityA
 }
 
 func (r *repository) ListItemsByRun(ctx context.Context, runID int64, targetProvider string) ([]model.AntigravityAccountStatusItem, error) {
-	targetProvider = model.NormalizeAntigravityTargetProvider(targetProvider, model.AntigravityTargetProviderClaude)
+	return r.ListItemsByRunWithDetailProvider(ctx, runID, targetProvider, targetProvider)
+}
+
+func (r *repository) ListItemsByRunWithDetailProvider(ctx context.Context, runID int64, resultProvider string, detailProvider string) ([]model.AntigravityAccountStatusItem, error) {
+	resultProvider = model.NormalizeAntigravityTargetProvider(resultProvider, model.AntigravityTargetProviderClaude)
+	detailProvider = model.NormalizeAntigravityTargetProvider(detailProvider, resultProvider)
 	rows, err := r.db.QueryContext(
 		ctx,
 		`select
 			r.id, r.run_id, r.account_key, r.file_name, r.display_account, r.auth_index, r.account_id,
 			r.provider, r.target_provider, r.disabled, r.status, r.state, r.action, r.action_reason,
 			r.status_code, r.used_percent, r.is_quota, r.error, r.action_status, r.executed_action,
-			r.action_error, r.created_at_ms,
+			r.action_error, r.created_at_ms, r.quota_windows_json,
 			d.priority, d.account_type, d.used_percent, d.reset_at_ms, d.checked_at_ms
 		from antigravity_inspection_results r
 		left join antigravity_account_status_details d
-			on d.run_id = r.run_id and d.account_key = r.account_key and d.target_provider = r.target_provider
+			on d.run_id = r.run_id and d.account_key = r.account_key and d.target_provider = ?
 		where r.run_id = ? and r.target_provider = ?
 		order by r.file_name asc, r.display_account asc, r.id asc`,
+		detailProvider,
 		runID,
-		targetProvider,
+		resultProvider,
 	)
 	if err != nil {
 		return nil, err
@@ -94,7 +102,7 @@ func (r *repository) ListItemsByRun(ctx context.Context, runID int64, targetProv
 func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccountStatusItem, error) {
 	var item model.AntigravityAccountStatusItem
 	var authIndex, accountID, provider, targetProvider, status, state, actionReason, errorText sql.NullString
-	var actionStatus, executedAction, actionError, accountType sql.NullString
+	var actionStatus, executedAction, actionError, accountType, quotaWindowsJSON sql.NullString
 	var statusCode, priority, resetAt, checkedAt sql.NullInt64
 	var usedPercent, detailUsedPercent sql.NullFloat64
 	var disabled, isQuota int
@@ -121,6 +129,7 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccoun
 		&executedAction,
 		&actionError,
 		&item.ResultCreatedAtMS,
+		&quotaWindowsJSON,
 		&priority,
 		&accountType,
 		&detailUsedPercent,
@@ -165,7 +174,37 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccoun
 	if checkedAt.Valid {
 		item.CheckedAtMS = checkedAt.Int64
 	}
+	if quotaWindowsJSON.Valid && strings.TrimSpace(quotaWindowsJSON.String) != "" {
+		if windows := model.UnmarshalAntigravityInspectionQuotaWindows(quotaWindowsJSON.String); len(windows) > 0 {
+			item.QuotaWindows = windows
+			applyAntigravityQuotaWindowsToStatusItem(&item, windows)
+		}
+	}
 	return item, nil
+}
+
+func applyAntigravityQuotaWindowsToStatusItem(item *model.AntigravityAccountStatusItem, windows []model.AntigravityInspectionQuotaWindow) {
+	for _, window := range windows {
+		id := strings.ToLower(strings.TrimSpace(window.ID))
+		label := strings.ToLower(strings.TrimSpace(window.LabelKey + " " + window.ResetLabel))
+		target := id + " " + label
+		switch {
+		case strings.Contains(target, "five") || strings.Contains(target, "5") || strings.Contains(target, "hour"):
+			item.FiveHourUsedPercent = window.UsedPercent
+			item.FiveHourResetAtMS = window.ResetAtMS
+		case strings.Contains(target, "month") || strings.Contains(target, "monthly") || strings.Contains(target, "gemini"):
+			item.MonthlyUsedPercent = window.UsedPercent
+			item.MonthlyResetAtMS = window.ResetAtMS
+		case strings.Contains(target, "week") || strings.Contains(target, "weekly") || strings.Contains(target, "claude"):
+			item.WeeklyUsedPercent = window.UsedPercent
+			item.WeeklyResetAtMS = window.ResetAtMS
+		default:
+			if item.WeeklyUsedPercent == nil {
+				item.WeeklyUsedPercent = window.UsedPercent
+				item.WeeklyResetAtMS = window.ResetAtMS
+			}
+		}
+	}
 }
 
 func nullString(value string) any {

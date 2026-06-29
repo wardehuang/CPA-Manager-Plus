@@ -658,7 +658,8 @@ func (s *Service) inspectSingleAccount(
 	if adjustedPriority != nil {
 		detailPriority = adjustedPriority
 	}
-	s.captureCodexAccountStatusDetail(ctx, runID, base.AccountKey, detailPriority, payload, planType, logger)
+	subscriptionActiveUntilMS := resolveCodexSubscriptionActiveUntilMS(item.File)
+	s.captureCodexAccountStatusDetail(ctx, runID, base.AccountKey, detailPriority, payload, planType, subscriptionActiveUntilMS, logger)
 	s.captureCodexAccountWindowCosts(ctx, item, payload, planType, logger)
 
 	base.Action = decision.Action
@@ -1686,6 +1687,68 @@ func extractCodexPlanTypeFromToken(value any) string {
 		return ""
 	}
 	return readCodexPlanTypeCandidate(payload)
+}
+
+func resolveCodexSubscriptionActiveUntilMS(file authFile) int64 {
+	metadata := readMap(file, "metadata")
+	attributes := readMap(file, "attributes")
+	candidates := []any{
+		file["chatgpt_subscription_active_until"],
+		file["chatgptSubscriptionActiveUntil"],
+		file["subscription_active_until"],
+		file["subscriptionActiveUntil"],
+		extractCodexSubscriptionActiveUntilFromToken(file["id_token"]),
+		readMap(file, "id_token"),
+		metadata["chatgpt_subscription_active_until"],
+		metadata["chatgptSubscriptionActiveUntil"],
+		metadata["subscription_active_until"],
+		metadata["subscriptionActiveUntil"],
+		extractCodexSubscriptionActiveUntilFromToken(metadata["id_token"]),
+		readMap(metadata, "id_token"),
+		attributes["chatgpt_subscription_active_until"],
+		attributes["chatgptSubscriptionActiveUntil"],
+		attributes["subscription_active_until"],
+		attributes["subscriptionActiveUntil"],
+		extractCodexSubscriptionActiveUntilFromToken(attributes["id_token"]),
+		readMap(attributes, "id_token"),
+	}
+	for _, candidate := range candidates {
+		if value := readCodexSubscriptionActiveUntilCandidate(candidate); value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func extractCodexSubscriptionActiveUntilFromToken(value any) any {
+	payload := parseIDTokenPayload(value)
+	if payload == nil {
+		return nil
+	}
+	return payload
+}
+
+func readCodexSubscriptionActiveUntilCandidate(value any) int64 {
+	if value == nil {
+		return 0
+	}
+	if record, ok := value.(map[string]any); ok {
+		return readCodexSubscriptionActiveUntilCandidate(firstNonEmpty(
+			readString(record, "chatgpt_subscription_active_until", "chatgptSubscriptionActiveUntil"),
+			readString(record, "subscription_active_until", "subscriptionActiveUntil"),
+		))
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return 0
+	}
+	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+		return parsed.UnixMilli()
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		return parsed.UnixMilli()
+	}
+	return 0
 }
 
 func readCodexPlanTypeCandidate(value any) string {

@@ -12,6 +12,7 @@ type CodexAccountStatusDetail struct {
 	MonthlyUsedPercent                  *float64 `json:"monthlyUsedPercent,omitempty"`
 	MonthlyResetAtMS                    int64    `json:"monthlyResetAtMs,omitempty"`
 	RateLimitResetCreditsAvailableCount *int     `json:"rateLimitResetCreditsAvailableCount,omitempty"`
+	SubscriptionActiveUntilMS           int64    `json:"subscriptionActiveUntilMs,omitempty"`
 	CheckedAtMS                         int64    `json:"checkedAtMs,omitempty"`
 	CreatedAtMS                         int64    `json:"createdAtMs"`
 	UpdatedAtMS                         int64    `json:"updatedAtMs"`
@@ -48,6 +49,7 @@ type CodexAccountStatusItem struct {
 	MonthlyUsedPercent                  *float64                 `json:"monthlyUsedPercent,omitempty"`
 	MonthlyResetAtMS                    int64                    `json:"monthlyResetAtMs,omitempty"`
 	RateLimitResetCreditsAvailableCount *int                     `json:"rateLimitResetCreditsAvailableCount,omitempty"`
+	SubscriptionActiveUntilMS           int64                    `json:"subscriptionActiveUntilMs,omitempty"`
 	CheckedAtMS                         int64                    `json:"checkedAtMs,omitempty"`
 	OriginalPriority                    *int                     `json:"originalPriority,omitempty"`
 	WindowCosts                         []CodexAccountWindowCost `json:"windowCosts,omitempty"`

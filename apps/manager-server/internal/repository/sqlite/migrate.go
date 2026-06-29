@@ -194,6 +194,7 @@ func Migrate(db *sql.DB) error {
 			monthly_used_percent real,
 			monthly_reset_at_ms integer,
 			rate_limit_reset_credits_available_count integer,
+			subscription_active_until_ms integer,
 			checked_at_ms integer,
 			created_at_ms integer not null,
 			updated_at_ms integer not null,
@@ -207,6 +208,9 @@ func Migrate(db *sql.DB) error {
 			window_start_at_ms integer not null,
 			window_reset_at_ms integer not null,
 			estimated_cost real not null default 0,
+			input_tokens integer not null default 0,
+			output_tokens integer not null default 0,
+			cached_tokens integer not null default 0,
 			is_quota_exhausted integer not null default 0,
 			calculated_at_ms integer not null,
 			created_at_ms integer not null,
@@ -274,6 +278,9 @@ func Migrate(db *sql.DB) error {
 	if err := ensureCodexAccountStatusDetailColumns(db); err != nil {
 		return err
 	}
+	if err := ensureCodexAccountWindowCostColumns(db); err != nil {
+		return err
+	}
 	if err := ensureAccountActionCandidateColumns(db); err != nil {
 		return err
 	}
@@ -307,11 +314,65 @@ func ensureCodexAccountStatusDetailColumns(db *sql.DB) error {
 		return err
 	}
 
-	if _, ok := existing["priority"]; ok {
-		return nil
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "priority", definition: "integer"},
+		{name: "subscription_active_until_ms", definition: "integer"},
 	}
-	_, err = db.Exec(`alter table codex_account_status_details add column priority integer`)
-	return err
+	for _, column := range columns {
+		if _, ok := existing[column.name]; ok {
+			continue
+		}
+		if _, err := db.Exec(`alter table codex_account_status_details add column ` + column.name + ` ` + column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureCodexAccountWindowCostColumns(db *sql.DB) error {
+	rows, err := db.Query(`pragma table_info(codex_account_window_costs)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "input_tokens", definition: "integer not null default 0"},
+		{name: "output_tokens", definition: "integer not null default 0"},
+		{name: "cached_tokens", definition: "integer not null default 0"},
+	}
+	for _, column := range columns {
+		if _, ok := existing[column.name]; ok {
+			continue
+		}
+		if _, err := db.Exec(fmt.Sprintf(`alter table codex_account_window_costs add column %s %s`, column.name, column.definition)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureAccountActionCandidateColumns(db *sql.DB) error {

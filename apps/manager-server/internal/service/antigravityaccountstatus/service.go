@@ -20,17 +20,43 @@ func New(st *store.Store) *Service {
 
 func (s *Service) Latest(ctx context.Context, targetProvider string) (model.AntigravityAccountStatusResponse, error) {
 	targetProvider = model.NormalizeAntigravityTargetProvider(targetProvider, model.AntigravityTargetProviderClaude)
-	run, ok, err := s.store.GetLatestAntigravityInspectionRunByProvider(ctx, targetProvider)
+	resultProvider := model.AntigravityTargetProviderServer
+	run, ok, err := s.store.GetLatestAntigravityInspectionRunByProvider(ctx, resultProvider)
 	if err != nil {
 		return model.AntigravityAccountStatusResponse{}, err
 	}
 	if !ok {
-		return model.AntigravityAccountStatusResponse{}, ErrNoAntigravityInspectionRun
+		resultProvider = targetProvider
+		run, ok, err = s.store.GetLatestAntigravityInspectionRunByProvider(ctx, resultProvider)
+		if err != nil {
+			return model.AntigravityAccountStatusResponse{}, err
+		}
 	}
-	items, err := s.store.ListAntigravityAccountStatusItems(ctx, run.ID, targetProvider)
+	if !ok {
+		return model.AntigravityAccountStatusResponse{Items: []model.AntigravityAccountStatusItem{}}, nil
+	}
+	items, err := s.store.ListAntigravityAccountStatusItemsWithDetailProvider(ctx, run.ID, resultProvider, targetProvider)
 	if err != nil {
 		return model.AntigravityAccountStatusResponse{}, err
 	}
+	if len(items) == 0 && resultProvider == model.AntigravityTargetProviderServer {
+		providerRun, providerOK, err := s.store.GetLatestAntigravityInspectionRunByProvider(ctx, targetProvider)
+		if err != nil {
+			return model.AntigravityAccountStatusResponse{}, err
+		}
+		if providerOK {
+			providerItems, err := s.store.ListAntigravityAccountStatusItemsWithDetailProvider(ctx, providerRun.ID, targetProvider, targetProvider)
+			if err != nil {
+				return model.AntigravityAccountStatusResponse{}, err
+			}
+			if len(providerItems) > 0 {
+				run = providerRun
+				resultProvider = targetProvider
+				items = providerItems
+			}
+		}
+	}
+	s.refreshAntigravityAccountWindowCosts(ctx, items, targetProvider)
 	costs, err := s.store.ListAntigravityAccountWindowCostsByRun(ctx, run.ID, targetProvider)
 	if err != nil {
 		return model.AntigravityAccountStatusResponse{}, err
@@ -40,7 +66,8 @@ func (s *Service) Latest(ctx context.Context, targetProvider string) (model.Anti
 		costsByAccount[cost.AccountKey] = append(costsByAccount[cost.AccountKey], cost)
 	}
 	for index := range items {
-		items[index].WindowCosts = costsByAccount[items[index].AccountKey]
+		items[index].TargetProvider = targetProvider
+		items[index].WindowCosts = filterAntigravityWindowCosts(items[index], costsByAccount[items[index].AccountKey], targetProvider)
 		if adjustment, ok, err := s.store.GetAntigravityPriorityAdjustment(ctx, items[index].AccountKey, targetProvider); err == nil && ok {
 			items[index].OriginalPriority = adjustment.OriginalPriority
 		}

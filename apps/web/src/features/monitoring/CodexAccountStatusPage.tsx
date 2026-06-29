@@ -39,6 +39,7 @@ type CodexAccountStatusRow = {
   monthlyUsedPercent: number | null;
   monthlyResetAtMs: number | null;
   rateLimitResetCreditsAvailableCount: number | null;
+  subscriptionActiveUntilMs: number | null;
   checkedAtMs: number | null;
   originalPriority: number | null;
   windowCosts: CodexAccountWindowCost[];
@@ -70,6 +71,23 @@ const formatUsd = (value: number | null | undefined) => {
   return `$${value.toFixed(2)}`;
 };
 
+const formatTokenCount = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}K`;
+  return String(Math.round(value));
+};
+
+const formatWindowCostTokenBreakdown = (cost: CodexAccountWindowCost) =>
+  [cost.inputTokens, cost.outputTokens, cost.cachedTokens].map((value) => formatTokenCount(value)).join(' / ');
+
+const formatWindowCostCachePercent = (cost: CodexAccountWindowCost) => {
+  const inputTokens = typeof cost.inputTokens === 'number' && Number.isFinite(cost.inputTokens) ? cost.inputTokens : 0;
+  const cachedTokens = typeof cost.cachedTokens === 'number' && Number.isFinite(cost.cachedTokens) ? cost.cachedTokens : 0;
+  if (inputTokens <= 0 || cachedTokens <= 0) return '0%';
+  return `${((cachedTokens / inputTokens) * 100).toFixed(1)}%`;
+};
+
 const formatDateTime = (value: number | null, language: string) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -96,6 +114,13 @@ const formatFullDateTime = (value: number | null | undefined, language: string) 
     second: '2-digit',
     hour12: false,
   });
+};
+
+const formatSubscriptionDateTime = (value: number | null, language: string) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString(language);
 };
 
 const hasQuotaValue = (usedPercent: number | null, resetAtMs: number | null) =>
@@ -180,6 +205,8 @@ const buildRow = (item: CodexAccountStatusItem): CodexAccountStatusRow => ({
     typeof item.rateLimitResetCreditsAvailableCount === 'number'
       ? item.rateLimitResetCreditsAvailableCount
       : null,
+  subscriptionActiveUntilMs:
+    typeof item.subscriptionActiveUntilMs === 'number' ? item.subscriptionActiveUntilMs : null,
   checkedAtMs: typeof item.checkedAtMs === 'number' ? item.checkedAtMs : item.resultCreatedAtMs,
   originalPriority: typeof item.originalPriority === 'number' ? item.originalPriority : null,
   windowCosts: Array.isArray(item.windowCosts) ? item.windowCosts : [],
@@ -224,6 +251,13 @@ const getFixedBadgeTextSize = (value: string) => {
 const sortWindowCosts = (costs: CodexAccountWindowCost[]) => {
   const order: Record<string, number> = { five_hour: 1, weekly: 2, monthly: 3 };
   return [...costs].sort((left, right) => (order[left.windowType] ?? 9) - (order[right.windowType] ?? 9));
+};
+
+const getWindowCostLabel = (windowType: string, t: TFunction) => {
+  if (windowType === 'five_hour') return tr(t, 'monitoring.codex_account_status_window_5h', '5h');
+  if (windowType === 'weekly') return tr(t, 'monitoring.codex_account_status_window_weekly', '周');
+  if (windowType === 'monthly') return tr(t, 'monitoring.codex_account_status_window_monthly', '月');
+  return windowType;
 };
 
 const formatDetailValue = (value: unknown, empty = '-') => {
@@ -792,15 +826,6 @@ function SummaryCard({
   );
 }
 
-function CostIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 2v12" />
-      <path d="M11.2 4.2H6.7a2 2 0 0 0 0 4h2.6a2 2 0 0 1 0 4H4.8" />
-    </svg>
-  );
-}
-
 function AccountStatusTableRow({
   row,
   t,
@@ -860,6 +885,11 @@ function AccountStatusTableRow({
       <td>
         <div className={styles.accountStatusAccountCell} title={maskMode === 'masked' ? row.name : undefined}>
           <strong style={{ fontSize: getAccountTextSize(displayName) }}>{displayName}</strong>
+          {row.subscriptionActiveUntilMs ? (
+            <span className={styles.accountStatusSubscriptionText}>
+              {tr(t, 'monitoring.codex_account_status_subscription_until', '续期时间')} {formatSubscriptionDateTime(row.subscriptionActiveUntilMs, language)}
+            </span>
+          ) : null}
         </div>
       </td>
       <td>
@@ -915,12 +945,32 @@ function AccountStatusTableRow({
         <div className={styles.accountStatusCostList}>
           {row.windowCosts.length === 0 ? (
             <span className={styles.accountStatusMutedText}>-</span>
-          ) : sortWindowCosts(row.windowCosts).map((cost) => (
-            <span key={`${cost.windowType}-${cost.windowResetAtMs}`} className={styles.accountStatusCostBadge}>
-              <span className={styles.accountStatusCostIcon} aria-hidden="true"><CostIcon /></span>
-              <strong>{formatUsd(cost.estimatedCost).slice(1)}</strong>
-            </span>
-          ))}
+          ) : sortWindowCosts(row.windowCosts).map((cost) => {
+            const tokenBreakdown = formatWindowCostTokenBreakdown(cost);
+            const cachePercent = formatWindowCostCachePercent(cost);
+            return (
+              <span
+                key={`${cost.windowType}-${cost.windowResetAtMs}`}
+                className={styles.accountStatusCostBadge}
+                aria-label={`${getWindowCostLabel(cost.windowType, t)} Token ${tokenBreakdown} ${formatUsd(cost.estimatedCost)}`}
+              >
+                <span className={styles.accountStatusCostMetric}>
+                  <small>
+                    {tr(t, 'monitoring.codex_account_status_tokens_label', 'Token')}
+                    <span className={styles.accountStatusCostMetricHint}> (I/O/C)</span>
+                  </small>
+                  <strong>{tokenBreakdown}</strong>
+                  <span className={styles.accountStatusCostMetricSubline}>
+                    {tr(t, 'monitoring.codex_account_status_cache_percent_label', '缓存')} {cachePercent}
+                  </span>
+                </span>
+                <span className={styles.accountStatusCostMetric}>
+                  <small>{tr(t, 'monitoring.codex_account_status_cost_label', '费用')}</small>
+                  <strong>{formatUsd(cost.estimatedCost)}</strong>
+                </span>
+              </span>
+            );
+          })}
         </div>
       </td>
       <td>

@@ -79,7 +79,13 @@ func (s *Service) captureCodexAccountWindowCosts(ctx context.Context, item accou
 		}
 
 		estimatedCost := 0.0
+		var inputTokens int64
+		var outputTokens int64
+		var cachedTokens int64
 		for _, aggregate := range aggregates {
+			inputTokens += aggregate.InputTokens
+			outputTokens += aggregate.OutputTokens
+			cachedTokens += aggregate.CachedTokens
 			estimatedCost += pricing.CostForModelWithServiceTier(aggregate.Model, aggregate.ServiceTier, pricing.ModelTokens{
 				InputTokens:         aggregate.InputTokens,
 				OutputTokens:        aggregate.OutputTokens,
@@ -96,6 +102,9 @@ func (s *Service) captureCodexAccountWindowCosts(ctx context.Context, item accou
 			WindowStartAtMS:  windowStartAtMS,
 			WindowResetAtMS:  spec.window.ResetAtMS,
 			EstimatedCost:    estimatedCost,
+			InputTokens:      inputTokens,
+			OutputTokens:     outputTokens,
+			CachedTokens:     cachedTokens,
 			IsQuotaExhausted: exhausted,
 			CalculatedAtMS:   now,
 		}); err != nil {

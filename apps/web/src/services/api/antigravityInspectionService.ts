@@ -5,6 +5,30 @@ const REQUEST_TIMEOUT_MS = 15000;
 const RUN_TIMEOUT_MS = 120000;
 
 export type AntigravityTargetProvider = 'claude' | 'gemini' | 'server';
+export type ManagerAntigravityInspectionScheduleMode = 'interval' | 'time_points';
+export type ManagerAntigravityInspectionAutoActionMode = 'none' | 'enable' | 'disable' | 'delete';
+
+export interface ManagerAntigravityInspectionScheduleConfig {
+  mode?: ManagerAntigravityInspectionScheduleMode | string;
+  timePoints?: string[];
+  intervalMinutes?: number;
+  timeZone?: string;
+}
+
+export interface ManagerAntigravityInspectionConfig {
+  enabled?: boolean;
+  schedule?: ManagerAntigravityInspectionScheduleConfig;
+  targetType?: string;
+  targetProvider?: AntigravityTargetProvider | string;
+  workers?: number;
+  deleteWorkers?: number;
+  timeout?: number;
+  retries?: number;
+  userAgent?: string;
+  usedPercentThreshold?: number;
+  sampleSize?: number;
+  autoActionMode?: ManagerAntigravityInspectionAutoActionMode | string;
+}
 
 export interface AntigravityInspectionRun {
   id: number;
@@ -51,7 +75,21 @@ export interface AntigravityInspectionResult {
   usedPercent?: number;
   isQuota: boolean;
   error?: string;
+  planType?: string | null;
+  quotaWindows?: AntigravityInspectionQuotaWindow[];
+  errorKind?: string;
+  errorDetail?: string;
   createdAtMs: number;
+}
+
+export interface AntigravityInspectionQuotaWindow {
+  id: string;
+  labelKey: string;
+  labelParams?: Record<string, string | number>;
+  usedPercent?: number | null;
+  resetAtMs?: number;
+  resetLabel?: string;
+  limitWindowSeconds?: number | null;
 }
 
 export interface AntigravityInspectionLog {
@@ -76,6 +114,9 @@ export interface AntigravityAccountWindowCost {
   windowStartAtMs: number;
   windowResetAtMs: number;
   estimatedCost: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedTokens?: number;
   isQuotaExhausted: boolean;
   calculatedAtMs: number;
 }
@@ -84,9 +125,17 @@ export interface AntigravityAccountStatusItem extends AntigravityInspectionResul
   resultCreatedAtMs: number;
   priority?: number;
   accountType?: string;
+  fiveHourUsedPercent?: number;
+  fiveHourResetAtMs?: number;
+  weeklyUsedPercent?: number;
+  weeklyResetAtMs?: number;
+  monthlyUsedPercent?: number;
+  monthlyResetAtMs?: number;
+  rateLimitResetCreditsAvailableCount?: number;
   resetAtMs?: number;
   checkedAtMs?: number;
   originalPriority?: number;
+  quotaWindows?: AntigravityInspectionQuotaWindow[];
   windowCosts?: AntigravityAccountWindowCost[];
 }
 
@@ -97,6 +146,35 @@ export interface AntigravityAccountStatusResponse {
 
 export interface AntigravityInspectionRunsResponse {
   items: AntigravityInspectionRun[];
+}
+
+export interface AntigravityInspectionActionOutcome {
+  resultId?: number;
+  accountKey?: string;
+  fileName: string;
+  displayAccount: string;
+  action: string;
+  status: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface AntigravityManualRefreshRequest {
+  accountKey?: string;
+  fileName?: string;
+  authIndex?: string;
+  targetProvider?: AntigravityTargetProvider;
+  reason?: string;
+}
+
+export interface AntigravityInspectionActionsResponse {
+  outcomes: AntigravityInspectionActionOutcome[];
+  detail: AntigravityInspectionRunDetail;
+}
+
+export interface AntigravityInspectionSettingsResponse {
+  settings: ManagerAntigravityInspectionConfig;
+  exists: boolean;
 }
 
 const buildUrl = (base: string, path: string): string => {
@@ -124,6 +202,57 @@ export const antigravityInspectionApi = {
     return response.data;
   },
 
+  getSettings: async (
+    base: string,
+    managementKey: string | undefined,
+    provider: AntigravityTargetProvider = 'server'
+  ): Promise<AntigravityInspectionSettingsResponse> => {
+    const response = await axios.get<AntigravityInspectionSettingsResponse>(
+      buildUrl(base, '/v0/management/antigravity-inspection/settings'),
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey), params: { provider } }
+    );
+    return response.data;
+  },
+
+  saveSettings: async (
+    base: string,
+    managementKey: string | undefined,
+    settings: ManagerAntigravityInspectionConfig,
+    provider: AntigravityTargetProvider = 'server'
+  ): Promise<AntigravityInspectionSettingsResponse> => {
+    const response = await axios.put<AntigravityInspectionSettingsResponse>(
+      buildUrl(base, '/v0/management/antigravity-inspection/settings'),
+      { settings },
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey), params: { provider } }
+    );
+    return response.data;
+  },
+
+  patchAuthFileFields: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: Record<string, unknown>
+  ): Promise<unknown> => {
+    const response = await axios.patch(buildUrl(base, '/v0/management/auth-files/fields'), payload, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: authHeaders(managementKey),
+    });
+    return response.data;
+  },
+
+  refreshAccount: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: AntigravityManualRefreshRequest
+  ): Promise<AntigravityInspectionRunDetail> => {
+    const response = await axios.post<AntigravityInspectionRunDetail>(
+      buildUrl(base, '/v0/management/antigravity-inspection/manual-refresh'),
+      payload,
+      { timeout: RUN_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
   listRuns: async (
     base: string,
     managementKey: string | undefined,
@@ -136,6 +265,18 @@ export const antigravityInspectionApi = {
     return response.data;
   },
 
+  getRun: async (
+    base: string,
+    managementKey: string | undefined,
+    id: number
+  ): Promise<AntigravityInspectionRunDetail> => {
+    const response = await axios.get<AntigravityInspectionRunDetail>(
+      buildUrl(base, `/v0/management/antigravity-inspection/runs/${id}`),
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
   run: async (
     base: string,
     managementKey: string | undefined,
@@ -144,6 +285,20 @@ export const antigravityInspectionApi = {
     const response = await axios.post<AntigravityInspectionRunDetail>(
       buildUrl(base, '/v0/management/antigravity-inspection/run'),
       { targetProvider: provider },
+      { timeout: RUN_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
+  executeActions: async (
+    base: string,
+    managementKey: string | undefined,
+    runId: number,
+    resultIds: number[]
+  ): Promise<AntigravityInspectionActionsResponse> => {
+    const response = await axios.post<AntigravityInspectionActionsResponse>(
+      buildUrl(base, `/v0/management/antigravity-inspection/runs/${runId}/actions`),
+      { resultIds },
       { timeout: RUN_TIMEOUT_MS, headers: authHeaders(managementKey) }
     );
     return response.data;

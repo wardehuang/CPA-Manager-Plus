@@ -36,9 +36,9 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.CodexAccount
 			five_hour_used_percent, five_hour_reset_at_ms,
 			weekly_used_percent, weekly_reset_at_ms,
 			monthly_used_percent, monthly_reset_at_ms,
-			rate_limit_reset_credits_available_count, checked_at_ms,
+			rate_limit_reset_credits_available_count, subscription_active_until_ms, checked_at_ms,
 			created_at_ms, updated_at_ms
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(run_id, account_key) do update set
 			priority = excluded.priority,
 			account_type = excluded.account_type,
@@ -49,6 +49,7 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.CodexAccount
 			monthly_used_percent = excluded.monthly_used_percent,
 			monthly_reset_at_ms = excluded.monthly_reset_at_ms,
 			rate_limit_reset_credits_available_count = excluded.rate_limit_reset_credits_available_count,
+			subscription_active_until_ms = excluded.subscription_active_until_ms,
 			checked_at_ms = excluded.checked_at_ms,
 			updated_at_ms = excluded.updated_at_ms`,
 		detail.RunID,
@@ -62,6 +63,7 @@ func (r *repository) UpsertDetail(ctx context.Context, detail model.CodexAccount
 		nullFloat(detail.MonthlyUsedPercent),
 		nullPositiveInt64(detail.MonthlyResetAtMS),
 		nullInt(detail.RateLimitResetCreditsAvailableCount),
+		nullPositiveInt64(detail.SubscriptionActiveUntilMS),
 		nullPositiveInt64(detail.CheckedAtMS),
 		detail.CreatedAtMS,
 		detail.UpdatedAtMS,
@@ -80,7 +82,7 @@ func (r *repository) ListItemsByRun(ctx context.Context, runID int64) ([]model.C
 			d.priority, d.account_type, d.five_hour_used_percent, d.five_hour_reset_at_ms,
 			d.weekly_used_percent, d.weekly_reset_at_ms,
 			d.monthly_used_percent, d.monthly_reset_at_ms,
-			d.rate_limit_reset_credits_available_count, d.checked_at_ms
+			d.rate_limit_reset_credits_available_count, d.subscription_active_until_ms, d.checked_at_ms
 		from codex_inspection_results r
 		left join codex_account_status_details d on d.run_id = r.run_id and d.account_key = r.account_key
 		where r.run_id = ?
@@ -107,7 +109,7 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 	var item model.CodexAccountStatusItem
 	var authIndex, accountID, provider, status, state, actionReason, errorText sql.NullString
 	var actionStatus, executedAction, actionError, accountType sql.NullString
-	var statusCode, priority, fiveHourResetAt, weeklyResetAt, monthlyResetAt, resetCredits, checkedAt sql.NullInt64
+	var statusCode, priority, fiveHourResetAt, weeklyResetAt, monthlyResetAt, resetCredits, subscriptionActiveUntil, checkedAt sql.NullInt64
 	var usedPercent, fiveHourUsedPercent, weeklyUsedPercent, monthlyUsedPercent sql.NullFloat64
 	var disabled, isQuota int
 	if err := row.Scan(
@@ -141,6 +143,7 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 		&monthlyUsedPercent,
 		&monthlyResetAt,
 		&resetCredits,
+		&subscriptionActiveUntil,
 		&checkedAt,
 	); err != nil {
 		return model.CodexAccountStatusItem{}, err
@@ -194,6 +197,9 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.CodexAccountStatu
 	if resetCredits.Valid {
 		value := int(resetCredits.Int64)
 		item.RateLimitResetCreditsAvailableCount = &value
+	}
+	if subscriptionActiveUntil.Valid {
+		item.SubscriptionActiveUntilMS = subscriptionActiveUntil.Int64
 	}
 	if checkedAt.Valid {
 		item.CheckedAtMS = checkedAt.Int64

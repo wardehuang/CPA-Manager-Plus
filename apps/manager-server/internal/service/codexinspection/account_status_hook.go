@@ -15,7 +15,7 @@ type accountStatusWindow struct {
 	ResetAtMS          int64
 }
 
-func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int64, accountKey string, priority *int, payload map[string]any, planType string, logger runLogger) {
+func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int64, accountKey string, priority *int, payload map[string]any, planType string, subscriptionActiveUntilMS int64, logger runLogger) {
 	if runID <= 0 || accountKey == "" || payload == nil {
 		logger.warning(ctx, "跳过写入账号状态详情", map[string]any{
 			"runId":      runID,
@@ -35,6 +35,7 @@ func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int
 		Priority:                            priority,
 		AccountType:                         normalizeCodexPlanType(planType),
 		RateLimitResetCreditsAvailableCount: readAccountStatusIntPtr(readMap(payload, "rate_limit_reset_credits", "rateLimitResetCredits"), "available_count", "availableCount"),
+		SubscriptionActiveUntilMS:           subscriptionActiveUntilMS,
 		CheckedAtMS:                         time.Now().UnixMilli(),
 	}
 	if fiveHour != nil {
@@ -62,6 +63,7 @@ func (s *Service) captureCodexAccountStatusDetail(ctx context.Context, runID int
 			"weeklyResetAtMs":       detail.WeeklyResetAtMS,
 			"monthlyResetAtMs":      detail.MonthlyResetAtMS,
 			"resetCreditsAvailable": detail.RateLimitResetCreditsAvailableCount,
+			"subscriptionUntilMs":   detail.SubscriptionActiveUntilMS,
 			"error":                 err.Error(),
 		})
 		log.Printf("[codex-inspection] write account status detail failed run_id=%d account_key=%q error=%v", runID, accountKey, err)

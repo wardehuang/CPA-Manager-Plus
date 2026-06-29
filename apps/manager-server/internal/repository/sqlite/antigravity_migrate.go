@@ -1,6 +1,9 @@
 package sqlite
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 func migrateAntigravityInspection(db *sql.DB) error {
 	statements := []string{
@@ -93,6 +96,9 @@ func migrateAntigravityInspection(db *sql.DB) error {
 			window_start_at_ms integer not null,
 			window_reset_at_ms integer not null,
 			estimated_cost real not null default 0,
+			input_tokens integer not null default 0,
+			output_tokens integer not null default 0,
+			cached_tokens integer not null default 0,
 			is_quota_exhausted integer not null default 0,
 			calculated_at_ms integer not null,
 			created_at_ms integer not null,
@@ -123,6 +129,49 @@ func migrateAntigravityInspection(db *sql.DB) error {
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return ensureAntigravityAccountWindowCostColumns(db)
+}
+
+func ensureAntigravityAccountWindowCostColumns(db *sql.DB) error {
+	rows, err := db.Query(`pragma table_info(antigravity_account_window_costs)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "input_tokens", definition: "integer not null default 0"},
+		{name: "output_tokens", definition: "integer not null default 0"},
+		{name: "cached_tokens", definition: "integer not null default 0"},
+	}
+	for _, column := range columns {
+		if _, ok := existing[column.name]; ok {
+			continue
+		}
+		if _, err := db.Exec(fmt.Sprintf(`alter table antigravity_account_window_costs add column %s %s`, column.name, column.definition)); err != nil {
 			return err
 		}
 	}

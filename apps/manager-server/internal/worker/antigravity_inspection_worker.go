@@ -51,15 +51,16 @@ func (w *AntigravityInspectionWorker) tick(ctx context.Context) {
 		return
 	}
 	now := time.Now()
-	last := w.lastScheduledRunTime(ctx, cfg.TargetProvider)
-	interval := time.Duration(cfg.Schedule.IntervalMinutes) * time.Minute
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	if !last.IsZero() && now.Sub(last) < interval {
+	triggerKey := model.AntigravityInspectionTriggerKey(now, cfg)
+	if triggerKey == "" || !model.AntigravityInspectionScheduleDue(now, w.lastScheduledRunTime(ctx, cfg.TargetProvider), cfg) {
 		return
 	}
-	triggerKey := now.Format("200601021504")
+	if _, ok, err := w.store.GetLatestAntigravityInspectionRunByTrigger(ctx, model.AntigravityInspectionTriggerScheduled, triggerKey); err != nil {
+		log.Printf("load antigravity inspection trigger: %v", err)
+		return
+	} else if ok {
+		return
+	}
 	go func() {
 		if _, err := w.service.Run(ctx, antigravityinspectionservice.RunRequest{
 			TriggerType:    model.AntigravityInspectionTriggerScheduled,
