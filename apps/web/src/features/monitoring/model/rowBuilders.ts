@@ -116,9 +116,6 @@ export const buildScopeFilteredRows = (
       ? scopeFilters.minLatencyMs
       : null;
   const cacheStatus = normalizeScopeValue(scopeFilters.cacheStatus);
-  const headerErrorKind = normalizeScopeValue(scopeFilters.headerErrorKind);
-  const headerErrorCode = normalizeScopeValue(scopeFilters.headerErrorCode);
-  const headerQuotaPlan = normalizeScopeValue(scopeFilters.headerQuotaPlan);
   const headerTraceId = normalizeScopeValue(scopeFilters.headerTraceId);
 
   return rows.filter((row) => {
@@ -201,24 +198,6 @@ export const buildScopeFilteredRows = (
     if (
       (cacheStatus === 'read' || cacheStatus === 'creation') &&
       !hasCacheActivity(row, cacheStatus)
-    ) {
-      return false;
-    }
-    if (
-      isActiveScopeFilterValue(scopeFilters.headerErrorKind) &&
-      normalizeScopeValue(row.headerErrorKind) !== headerErrorKind
-    ) {
-      return false;
-    }
-    if (
-      isActiveScopeFilterValue(scopeFilters.headerErrorCode) &&
-      normalizeScopeValue(row.headerErrorCode) !== headerErrorCode
-    ) {
-      return false;
-    }
-    if (
-      isActiveScopeFilterValue(scopeFilters.headerQuotaPlan) &&
-      normalizeScopeValue(row.headerQuotaPlanType) !== headerQuotaPlan
     ) {
       return false;
     }

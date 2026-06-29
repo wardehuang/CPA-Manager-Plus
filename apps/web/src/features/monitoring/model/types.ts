@@ -299,9 +299,6 @@ export type MonitoringFilterOptions = {
   providers: string[];
   models: string[];
   channels: string[];
-  headerErrorKinds: string[];
-  headerErrorCodes: string[];
-  headerQuotaPlans: string[];
   headerTraceIds: string[];
 };
 
@@ -356,9 +353,6 @@ export interface MonitoringScopeFilters {
   status?: 'all' | 'success' | 'failed';
   minLatencyMs?: number;
   cacheStatus?: string;
-  headerErrorKind?: string;
-  headerErrorCode?: string;
-  headerQuotaPlan?: string;
   headerTraceId?: string;
 }
 

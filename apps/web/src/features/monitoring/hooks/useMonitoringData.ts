@@ -741,9 +741,6 @@ export function useMonitoringData({
       providers: uniqueOptionValues(rangeFilteredRows.map((row) => row.provider)),
       models: uniqueOptionValues(rangeFilteredRows.map((row) => row.model)),
       channels: uniqueOptionValues(rangeFilteredRows.map((row) => row.channel)),
-      headerErrorKinds: uniqueOptionValues(rangeFilteredRows.map((row) => row.headerErrorKind)),
-      headerErrorCodes: uniqueOptionValues(rangeFilteredRows.map((row) => row.headerErrorCode)),
-      headerQuotaPlans: uniqueOptionValues(rangeFilteredRows.map((row) => row.headerQuotaPlanType)),
       headerTraceIds: uniqueOptionValues(rangeFilteredRows.map((row) => row.headerTraceId)),
     }),
     [rangeFilteredRows]

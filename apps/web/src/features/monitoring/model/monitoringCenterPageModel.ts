@@ -72,9 +72,6 @@ export type FocusSnapshot = {
   selectedChannel: string;
   selectedApiKeyHash: string;
   selectedStatus: StatusFilter;
-  selectedHeaderErrorKind: string;
-  selectedHeaderErrorCode: string;
-  selectedHeaderQuotaPlan: string;
   selectedHeaderTraceId: string;
 };
 
@@ -165,9 +162,6 @@ export const buildMonitoringInitialStateFromQuery = (
   const searchQuery = params.get('search')?.trim();
   const minLatencyMs = params.get('min_latency_ms')?.trim();
   const cacheStatus = params.get('cache_status')?.trim();
-  const headerErrorKind = params.get('header_error_kind')?.trim();
-  const headerErrorCode = params.get('header_error_code')?.trim();
-  const headerQuotaPlan = params.get('header_quota_plan')?.trim();
   const headerTraceId = params.get('header_trace_id')?.trim();
   const hasRange = fromMs !== null && toMs !== null && fromMs < toMs;
   const hasStructuredScopeFilter = Boolean(
@@ -176,9 +170,6 @@ export const buildMonitoringInitialStateFromQuery = (
     requestType ||
     minLatencyMs ||
     cacheStatus ||
-    headerErrorKind ||
-    headerErrorCode ||
-    headerQuotaPlan ||
     headerTraceId
   );
 
@@ -192,9 +183,6 @@ export const buildMonitoringInitialStateFromQuery = (
     selectedModel: model || state.selectedModel,
     selectedProvider: provider || state.selectedProvider,
     selectedApiKeyHash: apiKeyHash || state.selectedApiKeyHash,
-    selectedHeaderErrorKind: headerErrorKind || state.selectedHeaderErrorKind,
-    selectedHeaderErrorCode: headerErrorCode || state.selectedHeaderErrorCode,
-    selectedHeaderQuotaPlan: headerQuotaPlan || state.selectedHeaderQuotaPlan,
     selectedHeaderTraceId: headerTraceId || state.selectedHeaderTraceId,
     selectedStatus:
       status === 'success' || status === 'failed' || status === 'all'
@@ -434,24 +422,6 @@ export const buildStatusOptions = (t: TFunction): MonitoringOption[] => [
     ),
   },
 ];
-
-export const buildHeaderValueOptionsFromValues = (
-  values: string[],
-  selectedValue: string,
-  t: TFunction,
-  allLabelKey: string,
-  allShortLabelKey: string
-) =>
-  ensureSelectedOption(
-    [
-      {
-        value: 'all',
-        label: shortLabel(t, allShortLabelKey, allLabelKey),
-      },
-      ...buildSortedValueOptions(values),
-    ],
-    selectedValue
-  );
 
 export const buildSyncPriceModels = (
   rows: MonitoringEventRow[],

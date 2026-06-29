@@ -321,15 +321,6 @@ export const buildAnalyticsFilters = (
   if (isActiveFilterValue(scopeFilters.cacheStatus)) {
     filters.cache_status = scopeFilters.cacheStatus!.trim();
   }
-  if (isActiveFilterValue(scopeFilters.headerErrorKind)) {
-    filters.header_error_kinds = [scopeFilters.headerErrorKind!.trim()];
-  }
-  if (isActiveFilterValue(scopeFilters.headerErrorCode)) {
-    filters.header_error_codes = [scopeFilters.headerErrorCode!.trim()];
-  }
-  if (isActiveFilterValue(scopeFilters.headerQuotaPlan)) {
-    filters.header_quota_plans = [scopeFilters.headerQuotaPlan!.trim()];
-  }
   if (isActiveFilterValue(scopeFilters.headerTraceId)) {
     filters.header_trace_ids = [scopeFilters.headerTraceId!.trim()];
   }
@@ -757,9 +748,6 @@ export const buildFilterOptionsFromAnalytics = (
       providers: [],
       models: [],
       channels: [],
-      headerErrorKinds: [],
-      headerErrorCodes: [],
-      headerQuotaPlans: [],
       headerTraceIds: [],
     };
   }
@@ -801,9 +789,6 @@ export const buildFilterOptionsFromAnalytics = (
         );
       })
     ),
-    headerErrorKinds: uniqueReadableValues(options.header_error_kinds || []),
-    headerErrorCodes: uniqueReadableValues(options.header_error_codes || []),
-    headerQuotaPlans: uniqueReadableValues(options.header_quota_plans || []),
     headerTraceIds: uniqueReadableValues(options.header_trace_ids || []),
   };
 };
