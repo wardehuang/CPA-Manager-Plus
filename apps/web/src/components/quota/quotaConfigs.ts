@@ -90,6 +90,13 @@ export interface QuotaConfig<TState, TData> {
   buildLoadingState: (file?: AuthFileItem) => TState;
   buildSuccessState: (data: TData, file?: AuthFileItem) => TState;
   buildErrorState: (message: string, status?: number, file?: AuthFileItem) => TState;
+  buildFailureState?: (
+    message: string,
+    status: number | undefined,
+    file: AuthFileItem | undefined,
+    activeState: TState | undefined,
+    failedAtMs: number
+  ) => TState;
   scopeState?: (file: AuthFileItem, state: TState | undefined) => TState | undefined;
   cardClassName: string;
   controlsClassName: string;
@@ -111,6 +118,31 @@ export const getQuotaStoreKey = <TState, TData>(
   config: Pick<QuotaConfig<TState, TData>, 'getStoreKey'>,
   file: AuthFileItem
 ): string => config.getStoreKey?.(file) ?? file.name;
+
+export const getScopedQuotaState = <TState, TData>(
+  config: Pick<QuotaConfig<TState, TData>, 'getStoreKey' | 'scopeState'>,
+  states: Record<string, TState>,
+  file: AuthFileItem
+): TState | undefined => {
+  const storeKey = getQuotaStoreKey(config, file);
+  const activeQuota = states[storeKey];
+  const scopedQuota = config.scopeState ? config.scopeState(file, activeQuota) : activeQuota;
+  if (scopedQuota || storeKey === file.name) return scopedQuota;
+  const legacyQuota = states[file.name];
+  return config.scopeState ? config.scopeState(file, legacyQuota) : legacyQuota;
+};
+
+export const buildQuotaFailureState = <TState, TData>(
+  config: Pick<QuotaConfig<TState, TData>, 'buildErrorState' | 'buildFailureState'>,
+  message: string,
+  status: number | undefined,
+  file: AuthFileItem | undefined,
+  activeState: TState | undefined,
+  failedAtMs = Date.now()
+): TState =>
+  config.buildFailureState
+    ? config.buildFailureState(message, status, file, activeState, failedAtMs)
+    : config.buildErrorState(message, status, file);
 
 const renderAntigravityItems = (
   quota: AntigravityQuotaState,
@@ -241,13 +273,139 @@ const getCodexSearchText = (
 
 type DisplayQuotaState = {
   status?: 'idle' | 'loading' | 'success' | 'error';
+  error?: string;
   errorStatus?: number | null;
   fetchedAtMs?: number;
+  failedAtMs?: number;
   observedAtMs?: number;
 };
 
+type CodexQuotaMergeState = DisplayQuotaState & Partial<CodexQuotaState>;
+
 const readFiniteTimestamp = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const hasHeaderValue = (value: unknown): boolean => {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (typeof value === 'number') return Number.isFinite(value);
+  return true;
+};
+
+const hasKnownResetLabel = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return trimmed !== '' && trimmed !== '-';
+};
+
+const mergeCodexQuotaWindow = (
+  activeWindow: CodexQuotaWindow,
+  observedWindow: CodexQuotaWindow
+): CodexQuotaWindow => ({
+  ...activeWindow,
+  ...(hasHeaderValue(observedWindow.label) ? { label: observedWindow.label } : {}),
+  ...(hasHeaderValue(observedWindow.labelKey) ? { labelKey: observedWindow.labelKey } : {}),
+  ...(observedWindow.labelParams && Object.keys(observedWindow.labelParams).length > 0
+    ? { labelParams: observedWindow.labelParams }
+    : {}),
+  ...(observedWindow.usedPercent !== null &&
+  observedWindow.usedPercent !== undefined &&
+  Number.isFinite(observedWindow.usedPercent)
+    ? { usedPercent: observedWindow.usedPercent }
+    : {}),
+  ...(hasKnownResetLabel(observedWindow.resetLabel)
+    ? { resetLabel: observedWindow.resetLabel }
+    : {}),
+  ...(observedWindow.limitWindowSeconds !== null &&
+  observedWindow.limitWindowSeconds !== undefined &&
+  observedWindow.limitWindowSeconds > 0
+    ? { limitWindowSeconds: observedWindow.limitWindowSeconds }
+    : {}),
+});
+
+const mergeCodexQuotaWindows = (
+  activeWindows: CodexQuotaWindow[] | undefined,
+  observedWindows: CodexQuotaWindow[] | undefined
+): CodexQuotaWindow[] | undefined => {
+  if (!observedWindows || observedWindows.length === 0) return activeWindows;
+  if (!activeWindows || activeWindows.length === 0) return observedWindows;
+
+  const observedById = new Map(observedWindows.map((window) => [window.id, window]));
+  const mergedWindows = activeWindows.map((window) => {
+    const observedWindow = observedById.get(window.id);
+    if (!observedWindow) return window;
+    observedById.delete(window.id);
+    return mergeCodexQuotaWindow(window, observedWindow);
+  });
+
+  return [...mergedWindows, ...observedById.values()];
+};
+
+const hasKnownResetCreditCount = (quota: CodexQuotaMergeState): boolean => {
+  const value = quota.rateLimitResetCreditsAvailableCount;
+  return typeof value === 'number' && Number.isFinite(value);
+};
+
+const mergeObservedQuotaIntoActive = <TState extends DisplayQuotaState>(
+  activeQuota: TState,
+  observedQuota: TState
+): TState => {
+  const active = activeQuota as CodexQuotaMergeState;
+  const observed = observedQuota as CodexQuotaMergeState;
+  const merged: CodexQuotaMergeState = { ...active };
+
+  const scalarKeys: Array<keyof CodexQuotaMergeState> = [
+    'status',
+    'planType',
+    'activeLimit',
+    'creditsHasCredits',
+    'creditsUnlimited',
+    'creditsBalance',
+    'rateLimitReachedType',
+    'primaryOverSecondaryLimitPercent',
+    'observedAtMs',
+    'observedTraceId',
+    'observedErrorKind',
+    'observedErrorCode',
+  ];
+
+  scalarKeys.forEach((key) => {
+    const value = observed[key];
+    if (hasHeaderValue(value)) {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  });
+
+  merged.windows = mergeCodexQuotaWindows(active.windows, observed.windows);
+  if (observed.observedFromUsageHeaders === true) {
+    merged.observedFromUsageHeaders = true;
+  }
+  if (observed.observedResetCreditsUnknown === true && !hasKnownResetCreditCount(active)) {
+    merged.observedResetCreditsUnknown = true;
+  }
+
+  return merged as TState;
+};
+
+const clearQuotaFailureForObservedRecovery = <TState extends DisplayQuotaState>(
+  quota: TState
+): TState => {
+  const recovered = { ...quota };
+  delete recovered.error;
+  delete recovered.errorStatus;
+  delete recovered.failedAtMs;
+  return recovered;
+};
+
+const isObservedQuotaNewerThanFailure = <TState extends DisplayQuotaState>(
+  activeQuota: TState,
+  observedQuota: TState | undefined
+): observedQuota is TState => {
+  if (observedQuota?.status !== 'success') return false;
+  const failedAtMs = readFiniteTimestamp(activeQuota.failedAtMs);
+  const observedAtMs = readFiniteTimestamp(observedQuota.observedAtMs);
+  return failedAtMs !== null && observedAtMs !== null && observedAtMs > failedAtMs;
+};
 
 const buildCodexQuotaAuthIdentity = (file: AuthFileItem | undefined) => {
   if (!file?.name) return {};
@@ -272,22 +430,46 @@ const scopeCodexQuotaStateToAuthFile = (
   return state.authFileKey === identity.authFileKey ? state : undefined;
 };
 
+const buildCodexQuotaFailureState = (
+  message: string,
+  status: number | undefined,
+  file: AuthFileItem | undefined,
+  activeState: CodexQuotaState | undefined,
+  failedAtMs: number
+): CodexQuotaState => {
+  const preservedState = activeState ? { ...activeState } : null;
+  return {
+    ...(preservedState ?? { windows: [] }),
+    status: 'error',
+    windows: preservedState?.windows ?? [],
+    error: message,
+    errorStatus: status,
+    failedAtMs,
+    ...buildCodexQuotaAuthIdentity(file),
+  };
+};
+
 export const resolveQuotaDisplayState = <TState extends DisplayQuotaState>(
   activeQuota: TState | undefined,
   observedQuota: TState | undefined
 ): TState | undefined => {
-  if (activeQuota && activeQuota.status !== 'idle' && activeQuota.status !== 'error') {
-    if (activeQuota.status === 'success' && observedQuota?.status === 'success') {
-      const fetchedAtMs = readFiniteTimestamp(activeQuota.fetchedAtMs);
-      const observedAtMs = readFiniteTimestamp(observedQuota.observedAtMs);
-      if (fetchedAtMs !== null && observedAtMs !== null && observedAtMs > fetchedAtMs) {
-        return observedQuota;
-      }
+  if (activeQuota?.status === 'error') {
+    if (isObservedQuotaNewerThanFailure(activeQuota, observedQuota)) {
+      return clearQuotaFailureForObservedRecovery(
+        mergeObservedQuotaIntoActive(activeQuota, observedQuota)
+      );
     }
     return activeQuota;
   }
 
-  if (activeQuota?.status === 'error' && activeQuota.errorStatus === 401) {
+  if (activeQuota && activeQuota.status !== 'idle') {
+    if (activeQuota.status === 'success' && observedQuota?.status === 'success') {
+      const fetchedAtMs = readFiniteTimestamp(activeQuota.fetchedAtMs);
+      const observedAtMs = readFiniteTimestamp(observedQuota.observedAtMs);
+      if (fetchedAtMs !== null && observedAtMs !== null && observedAtMs > fetchedAtMs) {
+        return mergeObservedQuotaIntoActive(activeQuota, observedQuota);
+      }
+    }
     return activeQuota;
   }
 
@@ -854,8 +1036,10 @@ export const CODEX_CONFIG: QuotaConfig<
     windows: [],
     error: message,
     errorStatus: status,
+    failedAtMs: Date.now(),
     ...buildCodexQuotaAuthIdentity(file),
   }),
+  buildFailureState: buildCodexQuotaFailureState,
   scopeState: scopeCodexQuotaStateToAuthFile,
   cardClassName: styles.codexCard,
   controlsClassName: styles.codexControls,

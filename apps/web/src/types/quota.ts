@@ -331,6 +331,7 @@ export interface CodexQuotaState {
   authFileName?: string;
   authIndex?: string | null;
   fetchedAtMs?: number;
+  failedAtMs?: number;
   error?: string;
   errorStatus?: number;
   observedFromUsageHeaders?: boolean;

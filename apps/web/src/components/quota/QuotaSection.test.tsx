@@ -11,6 +11,7 @@ type TestQuotaState = {
   windows: unknown[];
   error?: string;
   errorStatus?: number;
+  failedAtMs?: number;
   rateLimitResetCreditsAvailableCount?: number | null;
   authFileKey?: string;
 };
@@ -102,6 +103,14 @@ const testConfig: QuotaConfig<TestQuotaState, TestQuotaData> = {
     windows: [],
     error: message,
     errorStatus: status,
+  }),
+  buildFailureState: (message, status, _file, activeState) => ({
+    ...(activeState ?? { windows: [] }),
+    status: 'error',
+    windows: activeState?.windows ?? [],
+    error: message,
+    errorStatus: status,
+    failedAtMs: 1234,
   }),
   cardClassName: 'codex-card',
   controlsClassName: 'codex-controls',
@@ -238,6 +247,33 @@ describe('QuotaSection account display mode', () => {
     expect(message).not.toContain(FULL_FILE_NAME);
   });
 
+  it('keeps previous quota data when a single quota refresh fails', async () => {
+    mocks.fetchQuota.mockRejectedValue(new Error('network failed'));
+    mocks.quotaStoreState.codexQuota = {
+      [FULL_FILE_NAME]: {
+        ...successQuota,
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+      },
+    };
+    const renderer = renderSection();
+
+    await act(async () => {
+      findButtonByText(renderer, 'codex_quota.refresh_button').props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mocks.quotaStoreState.codexQuota).toMatchObject({
+      [FULL_FILE_NAME]: {
+        status: 'error',
+        error: 'network failed',
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+        failedAtMs: 1234,
+      },
+    });
+  });
+
   it('uses masked names in quota reset confirmation and success notification', async () => {
     mocks.resetQuota.mockResolvedValue({ resetCredits: 1 });
     const renderer = renderSection();
@@ -281,6 +317,40 @@ describe('QuotaSection account display mode', () => {
     const message = String(mocks.showNotification.mock.calls[0]?.[0] ?? '');
     expect(message).toContain(MASKED_FILE_NAME);
     expect(message).not.toContain(FULL_FILE_NAME);
+  });
+
+  it('keeps previous quota data when quota reset fails', async () => {
+    mocks.resetQuota.mockRejectedValue(new Error('reset failed'));
+    mocks.quotaStoreState.codexQuota = {
+      [FULL_FILE_NAME]: {
+        ...successQuota,
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+      },
+    };
+    const renderer = renderSection();
+
+    act(() => {
+      findButtonByText(renderer, 'codex_quota.reset_action_button').props.onClick();
+    });
+
+    const confirmation = mocks.showConfirmation.mock.calls[0]?.[0] as {
+      onConfirm: () => Promise<void>;
+    };
+
+    await act(async () => {
+      await confirmation.onConfirm();
+    });
+
+    expect(mocks.quotaStoreState.codexQuota).toMatchObject({
+      [FULL_FILE_NAME]: {
+        status: 'error',
+        error: 'reset failed',
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+        failedAtMs: 1234,
+      },
+    });
   });
 
   it('scopes same-name quota cache by auth file identity', () => {
@@ -344,6 +414,50 @@ describe('QuotaSection account display mode', () => {
     expect(
       (mocks.quotaStoreState.codexQuota as Record<string, unknown>)[FULL_FILE_NAME]
     ).toBeUndefined();
+
+    act(() => {
+      renderer.unmount();
+    });
+  });
+
+  it('keeps previous scoped quota data when bulk quota refresh fails', async () => {
+    const scopedConfig = createScopedTestConfig();
+    const files: AuthFileItem[] = [{ ...testFile, authIndex: 0 }];
+    const storeKey = getTestAuthFileKey(files[0]);
+    mocks.quotaStoreState.codexQuota = {
+      [storeKey]: {
+        ...authScopedSuccessQuota,
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+      },
+    };
+    mocks.fetchQuota.mockRejectedValue(new Error('bulk failed'));
+
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = create(
+        <QuotaLoaderHarness
+          config={scopedConfig}
+          onLoadQuota={(nextLoadQuota) => {
+            runLoadQuota = nextLoadQuota;
+          }}
+        />
+      );
+    });
+
+    await act(async () => {
+      await runLoadQuota?.(files);
+    });
+
+    expect(mocks.quotaStoreState.codexQuota).toMatchObject({
+      [storeKey]: {
+        status: 'error',
+        error: 'bulk failed',
+        windows: ['api-only-window'],
+        rateLimitResetCreditsAvailableCount: 2,
+        failedAtMs: 1234,
+      },
+    });
 
     act(() => {
       renderer.unmount();

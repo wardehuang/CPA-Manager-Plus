@@ -7,7 +7,12 @@ import { useTranslation } from 'react-i18next';
 import type { AuthFileItem } from '@/types';
 import { useQuotaStore } from '@/stores';
 import { getStatusFromError } from '@/utils/quota';
-import { getQuotaStoreKey, type QuotaConfig } from './quotaConfigs';
+import {
+  buildQuotaFailureState,
+  getQuotaStoreKey,
+  getScopedQuotaState,
+  type QuotaConfig,
+} from './quotaConfigs';
 
 type QuotaScope = 'page' | 'all';
 
@@ -48,10 +53,13 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
       try {
         if (targets.length === 0) return;
 
+        const previousStateByStoreKey = new Map<string, TState | undefined>();
         setQuota((prev) => {
           const nextState = { ...prev };
           targets.forEach((file) => {
-            nextState[getQuotaStoreKey(config, file)] = config.buildLoadingState(file);
+            const storeKey = getQuotaStoreKey(config, file);
+            previousStateByStoreKey.set(storeKey, getScopedQuotaState(config, prev, file));
+            nextState[storeKey] = config.buildLoadingState(file);
           });
           return nextState;
         });
@@ -81,10 +89,12 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
                 result.file
               );
             } else {
-              nextState[result.storeKey] = config.buildErrorState(
+              nextState[result.storeKey] = buildQuotaFailureState(
+                config,
                 result.error || t('common.unknown_error'),
                 result.errorStatus,
-                result.file
+                result.file,
+                previousStateByStoreKey.get(result.storeKey)
               );
             }
           });
