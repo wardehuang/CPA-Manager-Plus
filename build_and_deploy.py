@@ -5,7 +5,7 @@ The script keeps all output in build_and_deploy.log, refreshes upstream before
 building, merges upstream/main into my-feature, increments a local build number
 based on the latest upstream tag, injects it as the Docker build VERSION,
 uploads the local working tree, and recreates the Docker service on Oracle 01
-bound to 127.0.0.1 for SSH tunnel access.
+bound to 0.0.0.0 for public access on wcpap.edmundvps.site:18317.
 """
 
 from __future__ import annotations
@@ -37,10 +37,12 @@ UPSTREAM_URL = "https://github.com/seakee/CPA-Manager-Plus.git"
 UPSTREAM_REF = "upstream/main"
 
 SSH_KEY = Path("E:/Files/SSH Key/oracle-ssh-key-2026-05-16.key")
-SSH_PORT = "28922"
+SSH_PORT = "27312"
 REMOTE = "ubuntu@163.192.9.157"
 REMOTE_DEPLOY_DIR = "/opt/cpa-manager-plus"
 REMOTE_TARBALL = "/tmp/cpa-manager-plus-my-feature.tar.gz"
+PUBLIC_HOST = "wcpap.edmundvps.site"
+SERVICE_PORT = "18317"
 
 
 class Logger:
@@ -289,6 +291,10 @@ if ! command -v docker >/dev/null 2>&1; then
   sudo systemctl enable --now docker
 fi
 
+if command -v ufw >/dev/null 2>&1; then
+  sudo ufw allow {SERVICE_PORT}/tcp
+fi
+
 sudo rm -rf "$NEW_DIR"
 sudo mkdir -p "$NEW_DIR"
 sudo tar -xzf "$TARBALL" -C "$NEW_DIR"
@@ -320,7 +326,7 @@ services:
     restart: unless-stopped
     network_mode: "host"
     environment:
-      HTTP_ADDR: "127.0.0.1:18317"
+      HTTP_ADDR: "0.0.0.0:{SERVICE_PORT}"
       USAGE_DB_PATH: "/data/usage.sqlite"
       CPA_MANAGER_DATA_KEY_PATH: "/data/data.key"
       CPA_MANAGER_ADMIN_KEY: "${{CPA_MANAGER_ADMIN_KEY}}"
@@ -336,7 +342,7 @@ services:
       - cpa-manager-plus-data:/data
       - /opt/cli-proxy-api/logs:/opt/cli-proxy-api/logs:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18317/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:{SERVICE_PORT}/health"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -360,7 +366,7 @@ docker compose -f docker-compose.deploy.yml up -d --build
 
 for i in $(seq 1 60); do
   HEALTH=$(docker inspect --format '{{{{.State.Health.Status}}}}' cpa-manager-plus-cpa-manager-plus-1 2>/dev/null || true)
-  if wget -qO- http://127.0.0.1:18317/health >/tmp/cpa-manager-plus-health.json 2>/dev/null && [ "$HEALTH" = "healthy" ]; then
+  if wget -qO- http://127.0.0.1:{SERVICE_PORT}/health >/tmp/cpa-manager-plus-health.json 2>/dev/null && [ "$HEALTH" = "healthy" ]; then
     cat /tmp/cpa-manager-plus-health.json
     break
   fi
@@ -377,9 +383,12 @@ fi
 printf '\n--- compose ps ---\n'
 docker compose -f docker-compose.deploy.yml ps
 printf '\n--- listeners ---\n'
-(ss -ltnp 2>/dev/null || true) | awk 'NR==1 || /:18317|:8317/'
+(ss -ltnp 2>/dev/null || true) | awk 'NR==1 || /:{SERVICE_PORT}|:8317/'
+printf '\n--- firewall ---\n'
+(sudo ufw status 2>/dev/null || true) | sed -n '1,20p'
 printf '\n--- deployed ---\n'
 printf 'version: %s\n' "$VERSION"
+printf 'public url: http://{PUBLIC_HOST}:{SERVICE_PORT}\n'
 printf 'admin key: %s\n' "$(sed -n 's/^CPA_MANAGER_ADMIN_KEY=//p' .env | tail -1)"
 """
 
@@ -429,8 +438,9 @@ def main() -> int:
 
         logger.section("Done")
         logger.write(f"Deployed version: {version}")
-        logger.write("Service listens on server 127.0.0.1:18317")
-        logger.write("Local tunnel: ssh -i \"E:/Files/SSH Key/oracle-ssh-key-2026-05-16.key\" -p 28922 -L 18317:127.0.0.1:18317 ubuntu@163.192.9.157")
+        logger.write(f"Service listens on server 0.0.0.0:{SERVICE_PORT}")
+        logger.write(f"Public URL: http://{PUBLIC_HOST}:{SERVICE_PORT}")
+        logger.write(f"Health check: http://{PUBLIC_HOST}:{SERVICE_PORT}/health")
         logger.write(f"Log file: {LOG_PATH}")
         return 0
     except Exception as exc:

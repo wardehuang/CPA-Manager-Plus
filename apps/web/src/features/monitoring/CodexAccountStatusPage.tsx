@@ -235,6 +235,19 @@ const compareAccountType = (left: CodexAccountStatusRow, right: CodexAccountStat
   return leftType.localeCompare(rightType, undefined, { numeric: true });
 };
 
+const compareCpaAuthIDOrder = (left: string, right: string) => {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+};
+
+const getCpaAuthIDSortKey = (row: CodexAccountStatusRow) =>
+  row.name || row.raw.fileName || row.raw.accountKey;
+
+const compareCpaAccountTieBreak = (left: CodexAccountStatusRow, right: CodexAccountStatusRow) =>
+  compareCpaAuthIDOrder(getCpaAuthIDSortKey(left), getCpaAuthIDSortKey(right)) ||
+  compareCpaAuthIDOrder(left.name, right.name) ||
+  left.id - right.id;
+
 const getAccountTextSize = (value: string) => {
   if (value.length >= 42) return 10;
   if (value.length >= 34) return 11;
@@ -353,7 +366,7 @@ export function CodexAccountStatusPage() {
       .sort((left, right) => {
         const base = sortKey === 'priority' ? comparePriority(left, right) : compareAccountType(left, right);
         if (base !== 0) return sortDirection === 'asc' ? base : -base;
-        return left.name.localeCompare(right.name, undefined, { numeric: true });
+        return compareCpaAccountTieBreak(left, right);
       });
   }, [keyword, rows, sortDirection, sortKey, statusFilter]);
 

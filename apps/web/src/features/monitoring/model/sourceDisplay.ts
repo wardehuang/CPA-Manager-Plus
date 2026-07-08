@@ -5,6 +5,7 @@ import { maskEmailLike, readString } from './base';
 import type { MonitoringAuthMeta, MonitoringChannelMeta } from './types';
 
 const GENERIC_PROVIDER_LABELS = new Set([
+  'antigravity',
   'codex',
   'openai',
   'openai-compatibility',
@@ -131,14 +132,17 @@ export const buildMonitoringSourceDisplay = (
   const sourceMasked = maskEmailLike(sourceLabel || sourceMeta.displayName);
   const accountMasked = maskEmailLike(account || sourceLabel);
   const fallbackId = shortHash(input.sourceHash || input.apiKeyHash || authIndex);
+  const primarySourceMasked =
+    sourceMasked && !isGenericMonitoringProviderLabel(sourceMasked) ? sourceMasked : '';
   const primary =
     firstReadable(
       channel && !isGenericMonitoringProviderLabel(channel) ? channel : '',
       channelHost,
-      sourceMasked,
+      primarySourceMasked,
       provider && !isGenericMonitoringProviderLabel(provider) ? provider : '',
       accountMasked,
       apiKeyAlias,
+      sourceMasked,
       channel,
       provider,
       fallbackId

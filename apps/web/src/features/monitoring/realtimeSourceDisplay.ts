@@ -32,8 +32,19 @@ export const buildRealtimeSourceDisplay = (
   const fullAccount = firstReadable(row.account, row.authLabel, row.accountMasked);
   const maskedAccount = firstReadable(row.accountMasked, row.authLabel, row.account);
   const account = accountDisplayMode === 'full' ? fullAccount : maskedAccount;
-  const fullSource = firstReadable(row.source, row.account, row.authLabel, row.sourceMasked);
-  const maskedSource = firstReadable(row.sourceMasked, row.accountMasked, row.authLabel, row.source);
+  const rawFullSource = firstReadable(row.source, row.account, row.authLabel, row.sourceMasked);
+  const rawMaskedSource = firstReadable(
+    row.sourceMasked,
+    row.accountMasked,
+    row.authLabel,
+    row.source
+  );
+  const fullSource = isGenericMonitoringProviderLabel(rawFullSource)
+    ? firstReadable(row.account, row.authLabel, row.sourceMasked, rawFullSource)
+    : rawFullSource;
+  const maskedSource = isGenericMonitoringProviderLabel(rawMaskedSource)
+    ? firstReadable(row.accountMasked, row.authLabel, row.account, rawMaskedSource)
+    : rawMaskedSource;
   const source = accountDisplayMode === 'full' ? fullSource : maskedSource;
   const primary =
     firstReadable(
