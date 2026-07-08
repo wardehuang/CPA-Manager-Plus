@@ -7,6 +7,8 @@ import {
   fetchKimiQuota,
   fetchXaiQuota,
 } from '@/utils/quota';
+import zhCN from '@/i18n/locales/zh-CN.json';
+import zhTW from '@/i18n/locales/zh-TW.json';
 import type { MonitoringAccountQuotaTarget } from '@/features/monitoring/accountOverviewQuotaTargets';
 import type {
   MonitoringAccountRow,
@@ -142,6 +144,36 @@ const createApiKeyRow = (apiKeyHash: string, label: string): MonitoringApiKeyRow
 });
 
 describe('monitoringCenterPageModel filter options', () => {
+  it('keeps Chinese compact all-filter labels contextual', () => {
+    const keys = [
+      'filter_all_accounts_short',
+      'filter_all_providers_short',
+      'filter_all_models_short',
+      'filter_all_channels_short',
+      'filter_all_api_keys_short',
+      'filter_all_statuses_short',
+    ] as const;
+
+    expect(keys.map((key) => zhCN.monitoring[key])).toEqual([
+      '全部账号',
+      '全部提供方',
+      '全部模型',
+      '全部渠道',
+      '全部调用方密钥',
+      '全部状态',
+    ]);
+    expect(keys.map((key) => zhTW.monitoring[key])).toEqual([
+      '全部帳號',
+      '全部提供方',
+      '全部模型',
+      '全部渠道',
+      '全部呼叫方密鑰',
+      '全部狀態',
+    ]);
+    expect(new Set(keys.map((key) => zhCN.monitoring[key])).size).toBe(keys.length);
+    expect(new Set(keys.map((key) => zhTW.monitoring[key])).size).toBe(keys.length);
+  });
+
   it('maps usage analytics drilldown query into initial realtime filters', () => {
     const initialState = {
       ...getDefaultMonitoringCenterUiState(),

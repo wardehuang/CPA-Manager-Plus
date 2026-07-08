@@ -691,9 +691,6 @@ const formatCodexResetCreditExpiryTime = (expiresAt: string): string => {
   });
 };
 
-const formatCodexTooltipPercent = (value: number | null): string | null =>
-  value === null ? null : `${Math.round(value)}%`;
-
 const renderCodexResetCreditExpiryInfo = (
   quota: CodexQuotaState,
   t: TFunction,
@@ -751,101 +748,40 @@ const renderCodexResetCreditExpiryInfo = (
 
 const buildCodexWindowTooltipRows = (
   quota: CodexQuotaState,
-  window: CodexQuotaWindow,
-  windowLabel: string,
-  usedPercent: number | null,
-  remainingPercent: number | null,
   t: TFunction
 ): CodexQuotaTooltipRow[] => {
-  const rows: CodexQuotaTooltipRow[] = [];
-  const usedLabel = formatCodexTooltipPercent(usedPercent);
-  const remainingLabel = formatCodexTooltipPercent(remainingPercent);
+  const fromUsageHeaders = quota.observedFromUsageHeaders === true;
+  const timestampMs = fromUsageHeaders ? quota.observedAtMs : quota.fetchedAtMs;
+  const fetchedAt =
+    timestampMs && Number.isFinite(timestampMs) ? new Date(timestampMs).toLocaleString() : '--';
 
-  if (quota.observedFromUsageHeaders) {
-    rows.push({
+  return [
+    {
       key: 'source',
       label: t('codex_quota.tooltip_source_label'),
-      value: t('codex_quota.tooltip_source_header'),
-    });
-
-    if (quota.observedAtMs && Number.isFinite(quota.observedAtMs)) {
-      rows.push({
-        key: 'recorded-at',
-        label: t('codex_quota.tooltip_recorded_at_label'),
-        value: new Date(quota.observedAtMs).toLocaleString(),
-      });
-    }
-  } else {
-    rows.push({
-      key: 'source',
-      label: t('codex_quota.tooltip_source_label'),
-      value: t('codex_quota.tooltip_source_api'),
-    });
-
-    if (quota.fetchedAtMs && Number.isFinite(quota.fetchedAtMs)) {
-      rows.push({
-        key: 'fetched-at',
-        label: t('codex_quota.tooltip_fetched_at_label'),
-        value: new Date(quota.fetchedAtMs).toLocaleString(),
-      });
-    }
-  }
-
-  if (usedLabel) {
-    rows.push({
-      key: 'used',
-      label: t('codex_quota.tooltip_used_label'),
-      value: usedLabel,
-    });
-  }
-
-  if (remainingLabel) {
-    rows.push({
-      key: 'remaining',
-      label: t('codex_quota.tooltip_remaining_label'),
-      value: remainingLabel,
-    });
-  }
-
-  if (window.resetLabel && window.resetLabel !== '-') {
-    rows.push({
-      key: 'reset',
-      label: t('codex_quota.tooltip_reset_label'),
-      value: window.resetLabel,
-    });
-  }
-
-  return rows.length > 0
-    ? rows
-    : [
-        {
-          key: 'window',
-          label: t('codex_quota.tooltip_window_label'),
-          value: windowLabel,
-        },
-      ];
+      value: fromUsageHeaders
+        ? t('codex_quota.tooltip_source_header')
+        : t('codex_quota.tooltip_source_api'),
+    },
+    {
+      key: 'fetched-at',
+      label: t('codex_quota.tooltip_fetched_at_label'),
+      value: fetchedAt,
+    },
+  ];
 };
 
 const renderCodexWindowInfo = (
   quota: CodexQuotaState,
   window: CodexQuotaWindow,
   windowLabel: string,
-  usedPercent: number | null,
-  remainingPercent: number | null,
   t: TFunction,
   styleMap: QuotaRenderHelpers['styles']
 ): ReactNode => {
   if (!CODEX_INFO_WINDOW_IDS.has(window.id)) return null;
 
   const { createElement: h } = React;
-  const rows = buildCodexWindowTooltipRows(
-    quota,
-    window,
-    windowLabel,
-    usedPercent,
-    remainingPercent,
-    t
-  );
+  const rows = buildCodexWindowTooltipRows(quota, t);
 
   return h(
     'span',
@@ -953,8 +889,6 @@ const renderCodexItems = (
         quota,
         window,
         windowLabel,
-        clampedUsed,
-        remaining,
         t,
         styleMap
       );

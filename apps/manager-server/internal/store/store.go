@@ -18,6 +18,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/setting"
 	sqliterepo "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageevent"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagerollup"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 )
@@ -71,6 +72,9 @@ type EventsPage = usageevent.EventsPage
 type RawEvent = usageevent.RawEvent
 type ConditionalAccountStat = usageevent.ConditionalAccountStat
 type HeaderSnapshot = usageevent.HeaderSnapshot
+type UsageRollupCheckpoint = usagerollup.Checkpoint
+type UsageRollupCatchUpResult = usagerollup.CatchUpResult
+type AccountHistoryRollupRow = usagerollup.AccountHistoryRow
 
 type Store struct {
 	db *sql.DB
@@ -86,6 +90,7 @@ type Store struct {
 	AccountActions           accountaction.Repository
 	CodexInspections         codexinspection.Repository
 	QuotaCooldowns           quotacooldown.Repository
+	UsageRollups             usagerollup.Repository
 }
 
 func Open(path string, protector ...*security.Protector) (*Store, error) {
@@ -110,6 +115,7 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		AccountActions:           accountaction.New(db),
 		CodexInspections:         codexinspection.New(db),
 		QuotaCooldowns:           quotacooldown.New(db),
+		UsageRollups:             usagerollup.New(db),
 	}
 }
 
@@ -298,6 +304,26 @@ func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertR
 
 func (s *Store) GetRawEventByHash(ctx context.Context, eventHash string) (RawEvent, bool, error) {
 	return s.UsageEvents.GetRawEventByHash(ctx, eventHash)
+}
+
+func (s *Store) CatchUpAccountHistoryRollups(ctx context.Context, limit int, nowMS int64) (UsageRollupCatchUpResult, error) {
+	return s.UsageRollups.CatchUpAccountHistory(ctx, limit, nowMS)
+}
+
+func (s *Store) AccountHistoryRollupCheckpoint(ctx context.Context) (UsageRollupCheckpoint, error) {
+	return s.UsageRollups.Checkpoint(ctx, usagerollup.AccountHistoryCheckpointName)
+}
+
+func (s *Store) LatestUsageEventID(ctx context.Context) (int64, error) {
+	return s.UsageRollups.LatestEventID(ctx)
+}
+
+func (s *Store) AccountHistoryRollupRows(ctx context.Context, accountKeys []string) ([]AccountHistoryRollupRow, error) {
+	return s.UsageRollups.AccountHistoryRows(ctx, accountKeys)
+}
+
+func AccountHistoryKey(accountSnapshot, authLabelSnapshot, source, authIndex string) string {
+	return usagerollup.AccountKey(accountSnapshot, authLabelSnapshot, source, authIndex)
 }
 
 func (s *Store) UpsertQuotaCooldown(ctx context.Context, cooldown QuotaCooldownUpsert) (QuotaCooldown, error) {

@@ -30,6 +30,8 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.rawEvent(w, r)
 	case "/v0/management/monitoring/header-snapshots":
 		h.handleHeaderSnapshots(w, r)
+	case "/v0/management/monitoring/account-history":
+		h.handleAccountHistory(w, r)
 	default:
 		response.MethodNotAllowed(w)
 	}
@@ -83,6 +85,30 @@ func (h *Handler) rawEvent(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, result)
 }
 
+func (h *Handler) handleAccountHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	var req monitoringsvc.AccountHistoryRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateAccountHistoryRequest(req); err != nil {
+		response.Error(w, http.StatusBadRequest, err)
+		return
+	}
+	result, err := h.App.MonitoringService.AccountHistory(r.Context(), req)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) handleHeaderSnapshots(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.MethodNotAllowed(w)
@@ -116,6 +142,16 @@ func validateRequest(req monitoringsvc.Request) error {
 	}
 	if req.Include.EventsPage != nil && req.Include.EventsPage.Limit > 50000 {
 		return errors.New("events_page.limit must be less than or equal to 50000")
+	}
+	return nil
+}
+
+func validateAccountHistoryRequest(req monitoringsvc.AccountHistoryRequest) error {
+	if len(req.Accounts) == 0 {
+		return errors.New("accounts are required")
+	}
+	if len(req.Accounts) > 200 {
+		return errors.New("accounts must be less than or equal to 200")
 	}
 	return nil
 }

@@ -890,6 +890,7 @@ export const mergeObservedAccountQuotaEntry = (
     planType: observedEntry.planType ?? mergeableActiveEntry.planType,
     metaLabels: mergeAccountQuotaEntryMetaLabels(mergeableActiveEntry, observedEntry),
     windows: mergeAccountQuotaWindows(mergeableActiveEntry.windows, observedEntry.windows),
+    fetchedAtMs: mergeableActiveEntry.fetchedAtMs,
     observedAtMs: observedEntry.observedAtMs ?? mergeableActiveEntry.observedAtMs,
     observedFromUsageHeaders:
       observedEntry.observedFromUsageHeaders ?? mergeableActiveEntry.observedFromUsageHeaders,
@@ -1158,6 +1159,11 @@ const buildBaseAccountQuotaEntry = (
   };
 };
 
+const stampAccountQuotaFetchTime = <T extends AccountQuotaEntry>(entry: T): T => ({
+  ...entry,
+  fetchedAtMs: Date.now(),
+});
+
 export const buildAccountQuotaErrorEntry = (
   target: MonitoringAccountQuotaTarget,
   error: string,
@@ -1246,10 +1252,10 @@ export const requestAccountQuota = async (
   switch (target.provider) {
     case 'antigravity': {
       const { groups } = await fetchAntigravityQuota(target.file, t);
-      return {
+      return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(target, t),
         windows: buildAntigravityAccountQuotaWindows(groups),
-      };
+      });
     }
     case 'claude': {
       const quota = await fetchClaudeQuota(target.file, t);
@@ -1262,18 +1268,18 @@ export const requestAccountQuota = async (
           `${t('claude_quota.extra_usage_label')}: $${(quota.extraUsage.used_credits / 100).toFixed(2)} / $${(quota.extraUsage.monthly_limit / 100).toFixed(2)}`
         );
       }
-      return {
+      return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(target, t, metaLabels),
         planType: quota.planType ?? target.planType,
         windows: buildClaudeAccountQuotaWindows(quota.windows, t),
-      };
+      });
     }
     case 'kimi': {
       const rows = await fetchKimiQuota(target.file, t);
-      return {
+      return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(target, t),
         windows: buildKimiAccountQuotaWindows(rows, t),
-      };
+      });
     }
     case 'xai': {
       const billing = await fetchXaiQuota(target.file, t);
@@ -1281,16 +1287,16 @@ export const requestAccountQuota = async (
         billing.onDemandCapCents !== null
           ? [`${t('xai_quota.on_demand_cap')}: ${formatXaiCurrency(billing.onDemandCapCents)}`]
           : [];
-      return {
+      return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(target, t, metaLabels),
         windows: buildXaiAccountQuotaWindows(billing, t),
-      };
+      });
     }
     case 'codex':
     default: {
       const quota = await fetchCodexQuota(target.file, t);
       const planLabel = getCodexPlanLabel(quota.planType ?? target.planType, t);
-      return {
+      return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(
           {
             ...target,
@@ -1301,7 +1307,7 @@ export const requestAccountQuota = async (
         ),
         planType: quota.planType ?? target.planType,
         windows: buildCodexAccountQuotaWindows(quota.windows, t),
-      };
+      });
     }
   }
 };
