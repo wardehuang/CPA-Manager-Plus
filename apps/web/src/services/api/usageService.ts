@@ -9,6 +9,7 @@ import {
   getDemoDashboardSummary,
   getDemoHeaderSnapshots,
   getDemoManagerConfig,
+  getDemoModelPriceUsageSummary,
   getDemoModelPrices,
   getDemoMonitoringAnalytics,
   getDemoQuotaCooldowns,
@@ -345,6 +346,20 @@ export interface ModelPricesResponse {
   prices: Record<string, ModelPrice>;
 }
 
+export interface ModelPriceUsageStat {
+  model: string;
+  calls: number;
+  requested_calls: number;
+  resolved_calls: number;
+}
+
+export interface ModelPriceUsageSummaryResponse {
+  sampled_events: number;
+  total_events: number;
+  truncated: boolean;
+  models: ModelPriceUsageStat[];
+}
+
 export interface ModelPriceSyncCandidate {
   sourceModelId: string;
   score: number;
@@ -663,6 +678,7 @@ export interface MonitoringAnalyticsInclude {
   credential_timeline?: boolean;
   api_key_stats?: boolean;
   filter_options?: boolean;
+  filter_selectors?: boolean;
   heatmap?: boolean;
   anomaly_points?: boolean;
   task_buckets?: boolean;
@@ -693,6 +709,7 @@ export interface MonitoringAnalyticsSummary {
   cached_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  cache_hit_rate?: number;
   reasoning_tokens: number;
   total_tokens: number;
   total_cost: number;
@@ -735,6 +752,7 @@ export interface MonitoringAnalyticsTimelinePoint {
   cached_tokens?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  cache_hit_rate?: number;
   reasoning_tokens?: number;
   total_tokens?: number;
   cost?: number;
@@ -815,6 +833,9 @@ export interface MonitoringAnalyticsModelStat {
   cached_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  cache_hit_tokens?: number;
+  cache_hit_input_tokens?: number;
+  cache_hit_rate?: number;
   total_tokens: number;
   cost: number;
 }
@@ -857,6 +878,9 @@ export interface MonitoringAnalyticsAccountModelStatRow {
   cached_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  cache_hit_tokens?: number;
+  cache_hit_input_tokens?: number;
+  cache_hit_rate?: number;
   total_tokens: number;
   cost: number;
   last_seen_ms: number;
@@ -992,6 +1016,8 @@ export interface MonitoringAnalyticsFilterOptions {
   api_key_stats?: MonitoringAnalyticsApiKeyStatRow[];
   channel_share?: MonitoringAnalyticsChannelShareRow[];
   model_stats?: MonitoringAnalyticsModelStat[];
+  models?: string[];
+  api_key_hashes?: string[];
   providers?: string[];
   auth_files?: string[];
   project_ids?: string[];
@@ -1490,9 +1516,7 @@ const getDemoModelPriceSyncResponse = (models?: string[]): ModelPriceSyncRespons
   const selectedModels = new Set((models || []).map((model) => model.trim()).filter(Boolean));
   const selectedPrices =
     selectedModels.size > 0
-      ? Object.fromEntries(
-          Object.entries(prices).filter(([model]) => selectedModels.has(model))
-        )
+      ? Object.fromEntries(Object.entries(prices).filter(([model]) => selectedModels.has(model)))
       : prices;
 
   return {
@@ -1823,6 +1847,28 @@ export const usageServiceApi = {
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+  getModelPriceUsageSummary: async (
+    base: string,
+    managementKey?: string,
+    signal?: AbortSignal
+  ): Promise<ModelPriceUsageSummaryResponse> => {
+    if (__DEMO_SITE__ && isDemoMode()) {
+      return getDemoModelPriceUsageSummary();
+    }
+
+    return withUsageServiceError(async () => {
+      const response = await axios.get<ModelPriceUsageSummaryResponse>(
+        buildUrl(base, '/v0/management/model-prices/usage-summary'),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+          signal,
         }
       );
       return response.data;
@@ -2173,7 +2219,8 @@ export const monitoringAnalyticsApi = {
   getAnalytics: async (
     base: string,
     managementKey: string | undefined,
-    request: MonitoringAnalyticsRequest
+    request: MonitoringAnalyticsRequest,
+    signal?: AbortSignal
   ): Promise<MonitoringAnalyticsResponse> => {
     if (__DEMO_SITE__ && isDemoMode()) {
       return getDemoMonitoringAnalytics(request);
@@ -2186,6 +2233,7 @@ export const monitoringAnalyticsApi = {
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
+          signal,
         }
       );
       return response.data;

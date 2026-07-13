@@ -11,6 +11,10 @@ export interface ModelPrice {
   cache: number;
   cacheRead?: number;
   cacheCreation?: number;
+  promptConfigured?: boolean;
+  completionConfigured?: boolean;
+  cacheReadConfigured?: boolean;
+  cacheCreationConfigured?: boolean;
   source?: string;
   sourceModelId?: string;
   rawJson?: string;
@@ -30,10 +34,14 @@ export interface UsageTokens {
   cache_creation_tokens?: number;
   cache_creation_input_tokens?: number;
   cacheCreationInputTokens?: number;
+  cache_write_tokens?: number;
+  cacheWriteTokens?: number;
   cache_write_input_tokens?: number;
   cacheWriteInputTokens?: number;
   total_tokens?: number;
 }
+
+export type CacheInputMode = 'included_in_input' | 'separate_from_input';
 
 export interface UsageResponseHeaderQuotaWindow {
   used_percent?: number;
@@ -126,6 +134,12 @@ export interface UsageDetail {
   reasoningEffort?: string;
   service_tier?: string;
   serviceTier?: string;
+  request_service_tier?: string;
+  requestServiceTier?: string;
+  response_service_tier?: string;
+  responseServiceTier?: string;
+  cache_input_mode?: CacheInputMode | string;
+  cacheInputMode?: CacheInputMode | string;
   executor_type?: string;
   executorType?: string;
   latency_ms?: number;
@@ -197,6 +211,8 @@ const CACHE_CREATION_TOKEN_KEYS = [
   'cacheCreationTokens',
   'cache_creation_input_tokens',
   'cacheCreationInputTokens',
+  'cache_write_tokens',
+  'cacheWriteTokens',
   'cache_write_input_tokens',
   'cacheWriteInputTokens',
 ] as const;
@@ -239,13 +255,86 @@ const readDetailString = (value: unknown): string | undefined => {
 const readResponseHeaderMetadata = (value: unknown): UsageResponseHeaderMetadata | undefined =>
   isRecord(value) ? (value as UsageResponseHeaderMetadata) : undefined;
 
-const isModelFamily = (modelName: string, family: string): boolean =>
-  modelName === family || modelName.startsWith(`${family}-`);
+const normalizedModelSlug = (modelName: string): string => {
+  const normalized = String(modelName ?? '')
+    .trim()
+    .toLowerCase();
+  const separator = normalized.lastIndexOf('/');
+  return separator >= 0 ? normalized.slice(separator + 1) : normalized;
+};
+
+const isModelFamily = (modelName: string, family: string): boolean => {
+  const slug = normalizedModelSlug(modelName);
+  return slug === family || slug.startsWith(`${family}-`);
+};
+
+const isGpt56Model = (modelName: string): boolean => isModelFamily(modelName, 'gpt-5.6');
+
+const supportsLongContextPremium = (modelName: string): boolean => {
+  const slug = normalizedModelSlug(modelName);
+  if (isGpt56Model(slug)) return true;
+  if (slug === 'gpt-5.5' || slug.startsWith('gpt-5.5-20')) return true;
+  return (
+    slug === 'gpt-5.4' ||
+    slug.startsWith('gpt-5.4-20') ||
+    slug === 'gpt-5.4-pro' ||
+    slug.startsWith('gpt-5.4-pro-20')
+  );
+};
+
+const isConfiguredPriceValue = (value: unknown, configured?: boolean): boolean => {
+  const parsed = Number(value);
+  return configured === true || (Number.isFinite(parsed) && parsed > 0);
+};
+
+const getOfficialGpt56Price = (modelName: string): ModelPrice | undefined => {
+  if (isModelFamily(modelName, 'gpt-5.6-sol')) {
+    return {
+      prompt: 5,
+      completion: 30,
+      cache: 0.5,
+      cacheRead: 0.5,
+      cacheCreation: 6.25,
+      promptConfigured: true,
+      completionConfigured: true,
+      cacheReadConfigured: true,
+      cacheCreationConfigured: true,
+    };
+  }
+  if (isModelFamily(modelName, 'gpt-5.6-terra')) {
+    return {
+      prompt: 2.5,
+      completion: 15,
+      cache: 0.25,
+      cacheRead: 0.25,
+      cacheCreation: 3.125,
+      promptConfigured: true,
+      completionConfigured: true,
+      cacheReadConfigured: true,
+      cacheCreationConfigured: true,
+    };
+  }
+  if (isModelFamily(modelName, 'gpt-5.6-luna')) {
+    return {
+      prompt: 1,
+      completion: 6,
+      cache: 0.1,
+      cacheRead: 0.1,
+      cacheCreation: 1.25,
+      promptConfigured: true,
+      completionConfigured: true,
+      cacheReadConfigured: true,
+      cacheCreationConfigured: true,
+    };
+  }
+  return undefined;
+};
 
 export function getServiceTierMultiplier(modelName: string, serviceTier?: string): number {
   const tier = String(serviceTier ?? '')
     .trim()
     .toLowerCase();
+  if (tier === 'flex' || tier === 'batch') return 0.5;
   if (tier !== 'priority' && tier !== 'fast') return 1;
 
   const normalizedModel = String(modelName ?? '')
@@ -254,6 +343,7 @@ export function getServiceTierMultiplier(modelName: string, serviceTier?: string
   // OpenAI Priority pricing currently publishes tier multipliers for these
   // model families. Keep this as a compatibility layer until model prices can
   // be represented per tier, such as standard, priority, flex, and batch.
+  if (isModelFamily(normalizedModel, 'gpt-5.6')) return 2;
   if (isModelFamily(normalizedModel, 'gpt-5.5')) return 2.5;
   if (isModelFamily(normalizedModel, 'gpt-5.4-mini')) return 2;
   if (isModelFamily(normalizedModel, 'gpt-5.4')) return 2;
@@ -275,6 +365,103 @@ export const compatibleCachedTokens = (
   const fineGrained =
     Math.max(toFiniteNumber(cacheReadTokens), 0) + Math.max(toFiniteNumber(cacheCreationTokens), 0);
   return Math.max(cached - fineGrained, 0);
+};
+
+const inferCacheInputMode = (
+  mode: unknown,
+  identity: string,
+  cacheReadTokens: number,
+  cacheCreationTokens: number
+): CacheInputMode => {
+  const normalizedMode = String(mode ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalizedMode === 'separate_from_input') return 'separate_from_input';
+  if (normalizedMode === 'included_in_input') return 'included_in_input';
+  const normalizedIdentity = identity.toLowerCase();
+  if (normalizedIdentity.includes('anthropic') || normalizedIdentity.includes('claude')) {
+    return 'separate_from_input';
+  }
+  if (
+    normalizedIdentity.includes('openai') ||
+    normalizedIdentity.includes('codex') ||
+    normalizedIdentity.includes('gemini') ||
+    normalizedIdentity.includes('antigravity') ||
+    normalizedIdentity.includes('interaction') ||
+    normalizedIdentity.includes('gpt-')
+  ) {
+    return 'included_in_input';
+  }
+  return cacheReadTokens > 0 || cacheCreationTokens > 0
+    ? 'separate_from_input'
+    : 'included_in_input';
+};
+
+const normalizeCacheAccounting = (input: {
+  mode?: unknown;
+  identity?: string;
+  inputTokens: unknown;
+  cachedTokens: unknown;
+  cacheTokens: unknown;
+  cacheReadTokens: unknown;
+  cacheCreationTokens: unknown;
+}) => {
+  const rawInput = Math.max(toFiniteNumber(input.inputTokens), 0);
+  const rawRead = Math.max(toFiniteNumber(input.cacheReadTokens), 0);
+  const creation = Math.max(toFiniteNumber(input.cacheCreationTokens), 0);
+  const legacyRead = compatibleCachedTokens(
+    input.cachedTokens,
+    input.cacheTokens,
+    rawRead,
+    creation
+  );
+  const read = legacyRead + rawRead;
+  const mode = inferCacheInputMode(input.mode, input.identity ?? '', rawRead, creation);
+  return {
+    mode,
+    legacyRead,
+    cacheReadTokens: rawRead,
+    cacheCreationTokens: creation,
+    totalInputTokens: mode === 'separate_from_input' ? rawInput + read + creation : rawInput,
+    uncachedInputTokens:
+      mode === 'separate_from_input' ? rawInput : Math.max(rawInput - read - creation, 0),
+  };
+};
+
+export type CacheHitMetricsInput = {
+  modelName?: string;
+  inputTokens: unknown;
+  cachedTokens: unknown;
+  cacheReadTokens: unknown;
+  cacheCreationTokens: unknown;
+};
+
+export const getCacheHitTotals = ({
+  inputTokens,
+  cachedTokens,
+  cacheReadTokens,
+}: CacheHitMetricsInput): { hitTokens: number; inputTokens: number } => {
+  const input = Math.max(toFiniteNumber(inputTokens), 0);
+  const cached = Math.max(toFiniteNumber(cachedTokens), 0);
+  const cacheRead = Math.max(toFiniteNumber(cacheReadTokens), 0);
+  return {
+    hitTokens: cached + cacheRead,
+    inputTokens: input,
+  };
+};
+
+export const calculateCacheHitRate = (input: CacheHitMetricsInput): number => {
+  const totals = getCacheHitTotals(input);
+  return calculateCacheHitRateFromTotals(totals.hitTokens, totals.inputTokens);
+};
+
+export const calculateCacheHitRateFromTotals = (
+  hitTokens: unknown,
+  inputTokens: unknown
+): number => {
+  const normalizedInput = Math.max(toFiniteNumber(inputTokens), 0);
+  if (normalizedInput <= 0) return 0;
+  return Math.min(1, Math.max(toFiniteNumber(hitTokens), 0) / normalizedInput);
 };
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
@@ -430,35 +617,39 @@ export function extractTTFTMs(detail: unknown): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-const readTokens = (detail: Record<string, unknown>): UsageTokens => {
+const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTokens => {
   const tokensRaw = isRecord(detail.tokens) ? detail.tokens : {};
   const cacheReadTokens = readFirstTokenNumber(tokensRaw, CACHE_READ_TOKEN_KEYS);
   const cacheCreationTokens = readFirstTokenNumber(tokensRaw, CACHE_CREATION_TOKEN_KEYS);
-  const cachedTokens = compatibleCachedTokens(
-    tokensRaw.cached_tokens ?? tokensRaw.cachedTokens,
-    tokensRaw.cache_tokens ?? tokensRaw.cacheTokens,
+  const accounting = normalizeCacheAccounting({
+    mode: detail.cache_input_mode ?? detail.cacheInputMode,
+    identity: [
+      modelName,
+      detail.executor_type,
+      detail.executorType,
+      detail.auth_provider_snapshot,
+      detail.authProviderSnapshot,
+    ]
+      .filter(Boolean)
+      .join(' '),
+    inputTokens: tokensRaw.input_tokens ?? tokensRaw.inputTokens,
+    cachedTokens: tokensRaw.cached_tokens ?? tokensRaw.cachedTokens,
+    cacheTokens: tokensRaw.cache_tokens ?? tokensRaw.cacheTokens,
     cacheReadTokens,
-    cacheCreationTokens
-  );
-  const inputTokens = toFiniteNumber(tokensRaw.input_tokens ?? tokensRaw.inputTokens);
+    cacheCreationTokens,
+  });
+  const inputTokens = accounting.totalInputTokens;
   const outputTokens = toFiniteNumber(tokensRaw.output_tokens ?? tokensRaw.outputTokens);
   const reasoningTokens = toFiniteNumber(tokensRaw.reasoning_tokens ?? tokensRaw.reasoningTokens);
   const explicitTotalTokens = toFiniteNumber(tokensRaw.total_tokens ?? tokensRaw.totalTokens);
   const totalTokens =
-    explicitTotalTokens > 0
-      ? explicitTotalTokens
-      : inputTokens +
-        outputTokens +
-        reasoningTokens +
-        cachedTokens +
-        cacheReadTokens +
-        cacheCreationTokens;
+    explicitTotalTokens > 0 ? explicitTotalTokens : inputTokens + outputTokens + reasoningTokens;
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     reasoning_tokens: reasoningTokens,
-    cached_tokens: cachedTokens,
-    cache_tokens: cachedTokens,
+    cached_tokens: accounting.legacyRead,
+    cache_tokens: accounting.legacyRead,
     cache_read_tokens: cacheReadTokens,
     cache_creation_tokens: cacheCreationTokens,
     total_tokens: totalTokens,
@@ -541,7 +732,16 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
           executor_type: readDetailString(detailRaw.executor_type ?? detailRaw.executorType),
           latency_ms: latencyMs ?? undefined,
           ttft_ms: ttftMs ?? undefined,
-          tokens: readTokens(detailRaw),
+          request_service_tier: readDetailString(
+            detailRaw.request_service_tier ?? detailRaw.requestServiceTier
+          ),
+          response_service_tier: readDetailString(
+            detailRaw.response_service_tier ?? detailRaw.responseServiceTier
+          ),
+          cache_input_mode: readDetailString(
+            detailRaw.cache_input_mode ?? detailRaw.cacheInputMode
+          ),
+          tokens: readTokens(detailRaw, modelName),
           failed: detailRaw.failed === true,
           fail_status_code:
             toOptionalNumber(
@@ -649,9 +849,18 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           ),
           service_tier: readDetailString(detailRaw.service_tier ?? detailRaw.serviceTier),
           executor_type: readDetailString(detailRaw.executor_type ?? detailRaw.executorType),
+          request_service_tier: readDetailString(
+            detailRaw.request_service_tier ?? detailRaw.requestServiceTier
+          ),
+          response_service_tier: readDetailString(
+            detailRaw.response_service_tier ?? detailRaw.responseServiceTier
+          ),
+          cache_input_mode: readDetailString(
+            detailRaw.cache_input_mode ?? detailRaw.cacheInputMode
+          ),
           latency_ms: latencyMs ?? undefined,
           ttft_ms: ttftMs ?? undefined,
-          tokens: readTokens(detailRaw),
+          tokens: readTokens(detailRaw, modelName),
           failed: detailRaw.failed === true,
           fail_status_code:
             toOptionalNumber(
@@ -729,7 +938,15 @@ export function extractTotalTokens(detail: unknown): number {
 export function calculateCost(
   detail: Pick<
     UsageDetail,
-    'tokens' | '__modelName' | '__resolvedModel' | 'service_tier' | 'serviceTier'
+    | 'tokens'
+    | '__modelName'
+    | '__resolvedModel'
+    | 'service_tier'
+    | 'serviceTier'
+    | 'request_service_tier'
+    | 'requestServiceTier'
+    | 'response_service_tier'
+    | 'responseServiceTier'
   >,
   modelPrices: Record<string, ModelPrice>
 ): number {
@@ -737,8 +954,25 @@ export function calculateCost(
   const requestedModel = detail.__modelName || '';
   const resolvedPrice = resolvedModel ? modelPrices[resolvedModel] : undefined;
   const requestedPrice = requestedModel ? modelPrices[requestedModel] : undefined;
-  const price = resolvedPrice || requestedPrice;
-  const pricedModel = resolvedPrice ? resolvedModel : requestedPrice ? requestedModel : '';
+  const behaviorModel = resolvedModel || requestedModel;
+  const behaviorFallback = getOfficialGpt56Price(behaviorModel);
+  const officialCandidatePrice =
+    getOfficialGpt56Price(resolvedModel) || getOfficialGpt56Price(requestedModel);
+  const configuredPrice = resolvedPrice || requestedPrice;
+  const price = configuredPrice
+    ? {
+        ...configuredPrice,
+        prompt: isConfiguredPriceValue(configuredPrice.prompt, configuredPrice.promptConfigured)
+          ? Number(configuredPrice.prompt)
+          : (behaviorFallback?.prompt ?? 0),
+        completion: isConfiguredPriceValue(
+          configuredPrice.completion,
+          configuredPrice.completionConfigured
+        )
+          ? Number(configuredPrice.completion)
+          : (behaviorFallback?.completion ?? 0),
+      }
+    : officialCandidatePrice;
   if (!price) return 0;
 
   const inputTokens = Math.max(toFiniteNumber(detail.tokens.input_tokens), 0);
@@ -751,27 +985,43 @@ export function calculateCost(
   const cacheCreationTokens = Math.max(toFiniteNumber(detail.tokens.cache_creation_tokens), 0);
   const promptPrice = Number(price.prompt) || 0;
   const completionPrice = Number(price.completion) || 0;
-  let standardCost = 0;
-  if (cacheReadTokens > 0 || cacheCreationTokens > 0) {
-    const cacheReadPrice = Number(price.cacheRead) || Number(price.cache) || 0;
-    const cacheCreationPrice = Number(price.cacheCreation) || promptPrice;
-    const promptTokens = Math.max(inputTokens - cachedTokens, 0);
-    standardCost =
-      (promptTokens / TOKENS_PER_PRICE_UNIT) * promptPrice +
-      (completionTokens / TOKENS_PER_PRICE_UNIT) * completionPrice +
+  const configuredCacheReadPrice = Number(price.cacheRead) || 0;
+  const cacheReadPrice = isConfiguredPriceValue(configuredCacheReadPrice, price.cacheReadConfigured)
+    ? configuredCacheReadPrice
+    : isGpt56Model(behaviorModel)
+      ? promptPrice * 0.1
+      : Number(price.cache) || 0;
+  const configuredCacheCreationPrice = Number(price.cacheCreation) || 0;
+  const cacheCreationPrice = isConfiguredPriceValue(
+    configuredCacheCreationPrice,
+    price.cacheCreationConfigured
+  )
+    ? configuredCacheCreationPrice
+    : promptPrice * (isGpt56Model(behaviorModel) ? 1.25 : 1);
+  const readTokens = cachedTokens + cacheReadTokens;
+  const promptTokens = Math.max(inputTokens - readTokens - cacheCreationTokens, 0);
+  const longContext = supportsLongContextPremium(behaviorModel) && inputTokens > 272_000;
+  const inputMultiplier = longContext ? 2 : 1;
+  const outputMultiplier = longContext ? 1.5 : 1;
+  const standardCost =
+    ((promptTokens / TOKENS_PER_PRICE_UNIT) * promptPrice +
       (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0) +
       (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice +
-      (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice;
-  } else {
-    const promptTokens = Math.max(inputTokens - cachedTokens, 0);
-    const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * promptPrice;
-    const completionCost = (completionTokens / TOKENS_PER_PRICE_UNIT) * completionPrice;
-    const cachedCost = (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0);
-    standardCost = promptCost + cachedCost + completionCost;
-  }
+      (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice) *
+      inputMultiplier +
+    (completionTokens / TOKENS_PER_PRICE_UNIT) * completionPrice * outputMultiplier;
 
-  const serviceTier = detail.service_tier ?? detail.serviceTier;
-  const multiplier = getServiceTierMultiplier(pricedModel, serviceTier);
+  const serviceTier =
+    detail.response_service_tier ??
+    detail.responseServiceTier ??
+    detail.service_tier ??
+    detail.serviceTier ??
+    detail.request_service_tier ??
+    detail.requestServiceTier;
+  let multiplier = getServiceTierMultiplier(behaviorModel, serviceTier);
+  if (longContext && ['priority', 'fast'].includes(String(serviceTier ?? '').toLowerCase())) {
+    multiplier = 1;
+  }
   const total = standardCost * multiplier;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }

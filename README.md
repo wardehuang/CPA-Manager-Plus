@@ -7,7 +7,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/seakee/cpa-manager-plus?style=flat-square)](https://hub.docker.com/r/seakee/cpa-manager-plus)
 [![Stars](https://img.shields.io/github/stars/seakee/CPA-Manager-Plus?style=flat-square&label=stars)](https://github.com/seakee/CPA-Manager-Plus/stargazers)
 
-A self-hosted dashboard for monitoring AI gateway traffic: requests, cost, failures, quota, and account health.
+A self-hosted CPA / CLIProxyAPI management panel and AI Gateway Observability platform for gateway operations, request monitoring, cost analytics, quota tracking, failure diagnosis, and Codex account health.
 
 Works with [CPA / CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and OpenAI-compatible gateways that serve Codex, Claude Code, or similar tools.
 
@@ -17,8 +17,9 @@ Works with [CPA / CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and
 
 ## Highlights
 
-- Real-time dashboard showing today's request count, success rate, average latency, and estimated cost. Supports filtering by model, account, project, and time range.
-- Cost ranking by model and per-account spend breakdown, with token-level detail (input, output, reasoning, cached).
+- CPA / CLIProxyAPI gateway operations for providers, auth files, OAuth logins, API keys, quota, logs, plugins, and system config.
+- Request monitoring and failure diagnosis with request count, success rate, latency, status codes, affected accounts/models, and searchable request history.
+- Usage and cost analytics by model, provider, account, project, channel, and token type, with model price sync from LiteLLM and OpenRouter.
 - Codex account inspection runs on a schedule to check quota, credential validity, and workspace status. Accounts that hit quota limits are paused automatically and re-enabled at reset time.
 - Single Docker container, all data in local files, no telemetry or account registration. Outbound calls are limited to your configured gateway plus user-configured or user-triggered integrations such as model price sync, OAuth, and providers.
 
@@ -215,16 +216,6 @@ docker compose -f docker-compose.manager.yml up --build
 
 - Thanks to the upstream projects [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and [Cli-Proxy-API-Management-Center](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) for the foundation and inspiration.
 - Thanks to the [Linux.do](https://linux.do/) community for project promotion and feedback.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=seakee%2FCPA-Manager-Plus&type=date&logscale=&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&legend=top-left" />
- </picture>
-</a>
 
 ## License
 

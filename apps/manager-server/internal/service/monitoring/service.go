@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/pricing"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/usagehourly"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 )
@@ -28,11 +29,19 @@ const (
 )
 
 type Service struct {
-	store *store.Store
+	store        *store.Store
+	hourlyReader *usagehourly.Reader
 }
 
-func New(store *store.Store) *Service {
-	return &Service{store: store}
+func New(store *store.Store, hourlyRollupEnabled ...bool) *Service {
+	enabled := false
+	if len(hourlyRollupEnabled) > 0 {
+		enabled = hourlyRollupEnabled[0]
+	}
+	return &Service{
+		store:        store,
+		hourlyReader: usagehourly.New(store, enabled, "monitoring-rollup"),
+	}
 }
 
 type Request struct {
@@ -80,6 +89,7 @@ type Include struct {
 	CredentialTimeline bool              `json:"credential_timeline"`
 	APIKeyStats        bool              `json:"api_key_stats"`
 	FilterOptions      bool              `json:"filter_options"`
+	FilterSelectors    bool              `json:"filter_selectors"`
 	Heatmap            bool              `json:"heatmap"`
 	AnomalyPoints      bool              `json:"anomaly_points"`
 	TaskBuckets        bool              `json:"task_buckets"`
@@ -187,6 +197,7 @@ type Summary struct {
 	CachedTokens          int64    `json:"cached_tokens"`
 	CacheReadTokens       int64    `json:"cache_read_tokens"`
 	CacheCreationTokens   int64    `json:"cache_creation_tokens"`
+	CacheHitRate          float64  `json:"cache_hit_rate"`
 	ReasoningTokens       int64    `json:"reasoning_tokens"`
 	TotalTokens           int64    `json:"total_tokens"`
 	TotalCost             float64  `json:"total_cost"`
@@ -232,6 +243,7 @@ type TimelinePoint struct {
 	CachedTokens        int64    `json:"cached_tokens"`
 	CacheReadTokens     int64    `json:"cache_read_tokens"`
 	CacheCreationTokens int64    `json:"cache_creation_tokens"`
+	CacheHitRate        float64  `json:"cache_hit_rate"`
 	ReasoningTokens     int64    `json:"reasoning_tokens"`
 	TotalTokens         int64    `json:"total_tokens"`
 	Cost                float64  `json:"cost"`
@@ -310,6 +322,9 @@ type ModelStat struct {
 	CachedTokens        int64   `json:"cached_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheHitTokens      int64   `json:"cache_hit_tokens"`
+	CacheHitInputTokens int64   `json:"cache_hit_input_tokens"`
+	CacheHitRate        float64 `json:"cache_hit_rate"`
 	TotalTokens         int64   `json:"total_tokens"`
 	Cost                float64 `json:"cost"`
 }
@@ -432,6 +447,9 @@ type AccountModelStatRow struct {
 	CachedTokens        int64   `json:"cached_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheHitTokens      int64   `json:"cache_hit_tokens"`
+	CacheHitInputTokens int64   `json:"cache_hit_input_tokens"`
+	CacheHitRate        float64 `json:"cache_hit_rate"`
 	TotalTokens         int64   `json:"total_tokens"`
 	Cost                float64 `json:"cost"`
 	LastSeenMS          int64   `json:"last_seen_ms"`
@@ -487,6 +505,8 @@ type FilterOptions struct {
 	APIKeyStats      []APIKeyStatRow   `json:"api_key_stats,omitempty"`
 	ChannelShare     []ChannelShareRow `json:"channel_share,omitempty"`
 	ModelStats       []ModelStat       `json:"model_stats,omitempty"`
+	Models           []string          `json:"models,omitempty"`
+	APIKeyHashes     []string          `json:"api_key_hashes,omitempty"`
 	Providers        []string          `json:"providers,omitempty"`
 	AuthFiles        []string          `json:"auth_files,omitempty"`
 	ProjectIDs       []string          `json:"project_ids,omitempty"`
@@ -642,13 +662,27 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 	// (summary and events use the exact same filter).
 	var summaryTotalCalls int64
 	summaryComputed := false
+	rollupEligible := analyticsHourlyRollupEligible(filter)
+	needsHourlyAggregates := req.Include.Summary || req.Include.ModelShare || req.Include.ModelStats
+	needsHourlyTimeline := req.Include.Timeline || req.Include.AnomalyPoints
+	hourlyTimelineRepresentable := rollupEligible && needsHourlyTimeline && s.hourlyReader.CanRepresentAnalyticsTimeline(req.FromMS, req.ToMS, granularity, location)
+	needsHourlyCore := needsHourlyAggregates || hourlyTimelineRepresentable
+	var hourlySnapshot usagehourly.Snapshot
+	hourlySnapshotAvailable := false
+	if rollupEligible && needsHourlyCore {
+		hourlySnapshot, hourlySnapshotAvailable = s.hourlyReader.Load(ctx, req.FromMS, req.ToMS)
+	}
 
 	var modelStats []store.ModelStat
 	needsModelStats := req.Include.Summary || req.Include.ModelShare || req.Include.ModelStats
 	if needsModelStats {
-		modelStats, err = s.store.ModelStatsWithFilter(ctx, filter, 0)
-		if err != nil {
-			return Response{}, err
+		if hourlySnapshotAvailable {
+			modelStats = hourlySnapshot.ModelStats
+		} else {
+			modelStats, err = s.store.ModelStatsWithFilter(ctx, filter, 0)
+			if err != nil {
+				return Response{}, err
+			}
 		}
 	}
 
@@ -661,9 +695,14 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 	}
 
 	if req.Include.Summary {
-		agg, err := s.store.AggregateWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
+		var agg store.Aggregate
+		if hourlySnapshotAvailable {
+			agg = hourlySnapshot.Aggregate
+		} else {
+			agg, err = s.store.AggregateWithFilter(ctx, filter)
+			if err != nil {
+				return Response{}, err
+			}
 		}
 		latencySummary, err := s.store.LatencySummaryWithFilter(ctx, filter)
 		if err != nil {
@@ -697,13 +736,25 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 				prevFilter := filter
 				prevFilter.FromMS = prevFrom
 				prevFilter.ToMS = req.FromMS
-				prevAgg, err := s.store.AggregateWithFilter(ctx, prevFilter)
-				if err != nil {
-					return Response{}, err
+				var prevAgg store.Aggregate
+				var prevModelStats []store.ModelStat
+				var prevSnapshot usagehourly.Snapshot
+				prevSnapshotAvailable := false
+				if rollupEligible {
+					prevSnapshot, prevSnapshotAvailable = s.hourlyReader.Load(ctx, prevFrom, req.FromMS)
 				}
-				prevModelStats, err := s.store.ModelStatsWithFilter(ctx, prevFilter, 0)
-				if err != nil {
-					return Response{}, err
+				if prevSnapshotAvailable {
+					prevAgg = prevSnapshot.Aggregate
+					prevModelStats = prevSnapshot.ModelStats
+				} else {
+					prevAgg, err = s.store.AggregateWithFilter(ctx, prevFilter)
+					if err != nil {
+						return Response{}, err
+					}
+					prevModelStats, err = s.store.ModelStatsWithFilter(ctx, prevFilter, 0)
+					if err != nil {
+						return Response{}, err
+					}
 				}
 				response.SummaryComparison = &SummaryComparison{
 					FromMS:       prevFrom,
@@ -720,9 +771,16 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 	}
 	var timeline []TimelinePoint
 	if req.Include.Timeline || req.Include.AnomalyPoints {
-		points, err := s.store.TimelineWithFilter(ctx, filter, granularity, location)
-		if err != nil {
-			return Response{}, err
+		var points []store.TimelinePoint
+		pointsAvailable := false
+		if hourlySnapshotAvailable && hourlyTimelineRepresentable {
+			points, pointsAvailable = s.hourlyReader.AnalyticsTimeline(ctx, hourlySnapshot, granularity, location)
+		}
+		if !pointsAvailable {
+			points, err = s.store.TimelineWithFilter(ctx, filter, granularity, location)
+			if err != nil {
+				return Response{}, err
+			}
 		}
 		percentiles, err := s.store.LatencyPercentilesWithFilter(ctx, filter, granularity, location)
 		if err != nil {
@@ -798,7 +856,13 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		}
 		response.APIKeyStats = buildAPIKeyStats(stats, prices)
 	}
-	if req.Include.FilterOptions {
+	if req.Include.FilterSelectors {
+		selectors, err := s.filterSelectors(ctx, filter)
+		if err != nil {
+			return Response{}, err
+		}
+		response.FilterOptions = selectors
+	} else if req.Include.FilterOptions {
 		options, err := s.filterOptions(ctx, filter, prices)
 		if err != nil {
 			return Response{}, err
@@ -1030,25 +1094,30 @@ func buildFilter(req Request) store.AnalyticsFilter {
 	}
 }
 
+func analyticsHourlyRollupEligible(filter store.AnalyticsFilter) bool {
+	return strings.TrimSpace(filter.SearchQuery) == "" &&
+		strings.TrimSpace(filter.SearchAPIKeyHash) == "" &&
+		len(filter.Models) == 0 &&
+		len(filter.Providers) == 0 &&
+		len(filter.Accounts) == 0 &&
+		len(filter.AuthFiles) == 0 &&
+		len(filter.AuthIndices) == 0 &&
+		len(filter.APIKeyHashes) == 0 &&
+		len(filter.SourceHashes) == 0 &&
+		len(filter.ProjectIDs) == 0 &&
+		len(filter.RequestTypes) == 0 &&
+		len(filter.HeaderErrorKinds) == 0 &&
+		len(filter.HeaderErrorCodes) == 0 &&
+		len(filter.HeaderQuotaPlans) == 0 &&
+		len(filter.HeaderTraceIDs) == 0 &&
+		filter.IncludeFailed &&
+		!filter.FailedOnly &&
+		filter.MinLatencyMS == 0 &&
+		strings.TrimSpace(filter.CacheStatus) == ""
+}
+
 func (s *Service) filterOptions(ctx context.Context, filter store.AnalyticsFilter, prices map[string]store.ModelPrice) (*FilterOptions, error) {
-	optionFilter := filter
-	optionFilter.Models = nil
-	optionFilter.Providers = nil
-	optionFilter.Accounts = nil
-	optionFilter.AuthFiles = nil
-	optionFilter.AuthIndices = nil
-	optionFilter.APIKeyHashes = nil
-	optionFilter.SourceHashes = nil
-	optionFilter.ProjectIDs = nil
-	optionFilter.RequestTypes = nil
-	optionFilter.HeaderErrorKinds = nil
-	optionFilter.HeaderErrorCodes = nil
-	optionFilter.HeaderQuotaPlans = nil
-	optionFilter.HeaderTraceIDs = nil
-	optionFilter.IncludeFailed = true
-	optionFilter.FailedOnly = false
-	optionFilter.MinLatencyMS = 0
-	optionFilter.CacheStatus = ""
+	optionFilter := filterOptionsBaseFilter(filter)
 
 	accountStats, err := s.store.AccountModelStatsWithFilter(ctx, optionFilter)
 	if err != nil {
@@ -1085,6 +1154,41 @@ func (s *Service) filterOptions(ctx context.Context, filter store.AnalyticsFilte
 		HeaderQuotaPlans: optionValues.HeaderQuotaPlans,
 		HeaderTraceIDs:   optionValues.HeaderTraceIDs,
 	}, nil
+}
+
+func (s *Service) filterSelectors(ctx context.Context, filter store.AnalyticsFilter) (*FilterOptions, error) {
+	values, err := s.store.FilterSelectorValuesWithFilter(ctx, filterOptionsBaseFilter(filter))
+	if err != nil {
+		return nil, err
+	}
+	return &FilterOptions{
+		Models:       values.Models,
+		APIKeyHashes: values.APIKeyHashes,
+		Providers:    values.Providers,
+		AuthFiles:    values.AuthFiles,
+	}, nil
+}
+
+func filterOptionsBaseFilter(filter store.AnalyticsFilter) store.AnalyticsFilter {
+	optionFilter := filter
+	optionFilter.Models = nil
+	optionFilter.Providers = nil
+	optionFilter.Accounts = nil
+	optionFilter.AuthFiles = nil
+	optionFilter.AuthIndices = nil
+	optionFilter.APIKeyHashes = nil
+	optionFilter.SourceHashes = nil
+	optionFilter.ProjectIDs = nil
+	optionFilter.RequestTypes = nil
+	optionFilter.HeaderErrorKinds = nil
+	optionFilter.HeaderErrorCodes = nil
+	optionFilter.HeaderQuotaPlans = nil
+	optionFilter.HeaderTraceIDs = nil
+	optionFilter.IncludeFailed = true
+	optionFilter.FailedOnly = false
+	optionFilter.MinLatencyMS = 0
+	optionFilter.CacheStatus = ""
+	return optionFilter
 }
 
 func normalizeGranularity(input string, fromMS int64, toMS int64) string {
@@ -1132,6 +1236,7 @@ func buildSummary(agg store.Aggregate, latencySummary store.LatencySummary, roll
 		CachedTokens:          agg.CachedTokens,
 		CacheReadTokens:       agg.CacheReadTokens,
 		CacheCreationTokens:   agg.CacheCreationTokens,
+		CacheHitRate:          cacheHitRateForModelStats(modelStats),
 		ReasoningTokens:       agg.ReasoningTokens,
 		TotalTokens:           agg.TotalTokens,
 		TotalCost:             totalCost,
@@ -1153,9 +1258,11 @@ func buildSummary(agg store.Aggregate, latencySummary store.LatencySummary, roll
 
 func buildTimeline(points []store.TimelinePoint, percentiles []store.LatencyPercentiles, granularity string, location *time.Location, prices map[string]store.ModelPrice) []TimelinePoint {
 	type bucketAccumulator struct {
-		point         TimelinePoint
-		latencyTotal  float64
-		latencySample int64
+		point               TimelinePoint
+		cacheHitTokens      int64
+		cacheHitInputTokens int64
+		latencyTotal        float64
+		latencySample       int64
 	}
 	buckets := make(map[int64]*bucketAccumulator, len(points))
 	order := make([]int64, 0, len(points))
@@ -1183,6 +1290,19 @@ func buildTimeline(points []store.TimelinePoint, percentiles []store.LatencyPerc
 		bucket.point.CacheCreationTokens += point.CacheCreationTokens
 		bucket.point.ReasoningTokens += point.ReasoningTokens
 		bucket.point.Cost += costForTimelinePoint(point, prices)
+		behaviorModel := point.BillingModel
+		if strings.TrimSpace(behaviorModel) == "" {
+			behaviorModel = point.Model
+		}
+		cacheHitTokens, cacheHitInputTokens := usage.CacheHitTotals(
+			behaviorModel,
+			point.InputTokens,
+			point.CachedTokens,
+			point.CacheReadTokens,
+			point.CacheCreationTokens,
+		)
+		bucket.cacheHitTokens += cacheHitTokens
+		bucket.cacheHitInputTokens += cacheHitInputTokens
 		if point.AvgLatencyMS.Valid && point.LatencySamples > 0 {
 			bucket.latencyTotal += point.AvgLatencyMS.Float64 * float64(point.LatencySamples)
 			bucket.latencySample += point.LatencySamples
@@ -1197,6 +1317,7 @@ func buildTimeline(points []store.TimelinePoint, percentiles []store.LatencyPerc
 		}
 		bucket.point.SuccessRate = ratio(bucket.point.Success, bucket.point.Calls)
 		bucket.point.FailureRate = ratio(bucket.point.Failure, bucket.point.Calls)
+		bucket.point.CacheHitRate = usage.CacheHitRateFromTotals(bucket.cacheHitTokens, bucket.cacheHitInputTokens)
 		result = append(result, bucket.point)
 	}
 	percentilesByBucket := make(map[int64]store.LatencyPercentiles, len(percentiles))
@@ -1431,6 +1552,9 @@ func buildModelStats(stats []store.ModelStat, prices map[string]store.ModelPrice
 			CachedTokens:        stat.CachedTokens,
 			CacheReadTokens:     stat.CacheReadTokens,
 			CacheCreationTokens: stat.CacheCreationTokens,
+			CacheHitTokens:      stat.CacheHitTokens,
+			CacheHitInputTokens: stat.CacheHitInputTokens,
+			CacheHitRate:        usage.CacheHitRateFromTotals(stat.CacheHitTokens, stat.CacheHitInputTokens),
 			TotalTokens:         stat.TotalTokens,
 			Cost:                stat.Cost,
 		})
@@ -1447,6 +1571,8 @@ type aggregatedModelStat struct {
 	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
+	CacheHitTokens      int64
+	CacheHitInputTokens int64
 	TotalTokens         int64
 	Cost                float64
 }
@@ -1468,6 +1594,19 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 		entry.CachedTokens += stat.CachedTokens
 		entry.CacheReadTokens += stat.CacheReadTokens
 		entry.CacheCreationTokens += stat.CacheCreationTokens
+		behaviorModel := stat.BillingModel
+		if strings.TrimSpace(behaviorModel) == "" {
+			behaviorModel = stat.Model
+		}
+		cacheHitTokens, cacheHitInputTokens := usage.CacheHitTotals(
+			behaviorModel,
+			stat.InputTokens,
+			stat.CachedTokens,
+			stat.CacheReadTokens,
+			stat.CacheCreationTokens,
+		)
+		entry.CacheHitTokens += cacheHitTokens
+		entry.CacheHitInputTokens += cacheHitInputTokens
 		entry.TotalTokens += stat.TotalTokens
 		entry.Cost += costForStat(stat, prices)
 	}
@@ -1633,7 +1772,7 @@ func buildAccountStats(stats []store.AccountModelStat, prices map[string]store.M
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencySamples += stat.LatencySamples
 		}
-		addAccountModelStat(entry.models, stat.Model, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
 	}
 
 	result := make([]AccountStatRow, 0, len(grouped))
@@ -1710,7 +1849,7 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencySamples += stat.LatencySamples
 		}
-		addAccountModelStat(entry.models, stat.Model, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
 	}
 
 	result := make([]CredentialStatRow, 0, len(grouped))
@@ -1858,7 +1997,7 @@ func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.Mod
 			entry.latencySamples += stat.LatencySamples
 		}
 		addAPIKeyContextStat(entry.contexts, stat, cost)
-		addAccountModelStat(entry.models, stat.Model, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
 	}
 
 	result := make([]APIKeyStatRow, 0, len(grouped))
@@ -2104,6 +2243,7 @@ func addAccountTotals(
 func addAccountModelStat(
 	models map[string]*AccountModelStatRow,
 	model string,
+	billingModel string,
 	calls int64,
 	successCalls int64,
 	failureCalls int64,
@@ -2133,6 +2273,20 @@ func addAccountModelStat(
 	entry.CachedTokens += cachedTokens
 	entry.CacheReadTokens += cacheReadTokens
 	entry.CacheCreationTokens += cacheCreationTokens
+	behaviorModel := billingModel
+	if strings.TrimSpace(behaviorModel) == "" {
+		behaviorModel = modelKey
+	}
+	cacheHitTokens, cacheHitInputTokens := usage.CacheHitTotals(
+		behaviorModel,
+		inputTokens,
+		cachedTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	)
+	entry.CacheHitTokens += cacheHitTokens
+	entry.CacheHitInputTokens += cacheHitInputTokens
+	entry.CacheHitRate = usage.CacheHitRateFromTotals(entry.CacheHitTokens, entry.CacheHitInputTokens)
 	entry.TotalTokens += totalTokens
 	entry.Cost += cost
 	if lastSeenMS > entry.LastSeenMS {
@@ -2401,11 +2555,16 @@ func buildAccountHistoryTotals(rows []store.AccountHistoryRollupRow, prices map[
 			[]string{row.BillingModel, row.Model},
 			row.ServiceTier,
 			pricing.ModelTokens{
-				InputTokens:         row.InputTokens,
-				OutputTokens:        row.OutputTokens,
-				CachedTokens:        row.CachedTokens,
-				CacheReadTokens:     row.CacheReadTokens,
-				CacheCreationTokens: row.CacheCreationTokens,
+				InputTokens:             row.InputTokens,
+				OutputTokens:            row.OutputTokens,
+				CachedTokens:            row.CachedTokens,
+				CacheReadTokens:         row.CacheReadTokens,
+				CacheCreationTokens:     row.CacheCreationTokens,
+				LongInputTokens:         row.LongInputTokens,
+				LongOutputTokens:        row.LongOutputTokens,
+				LongCachedTokens:        row.LongCachedTokens,
+				LongCacheReadTokens:     row.LongCacheReadTokens,
+				LongCacheCreationTokens: row.LongCacheCreationTokens,
 			},
 			prices,
 		)
@@ -2446,81 +2605,121 @@ func sumCost(stats []store.ModelStat, prices map[string]store.ModelPrice) float6
 
 func costForStat(stat store.ModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		InputTokens:         stat.InputTokens,
-		OutputTokens:        stat.OutputTokens,
-		CachedTokens:        stat.CachedTokens,
-		CacheReadTokens:     stat.CacheReadTokens,
-		CacheCreationTokens: stat.CacheCreationTokens,
+		InputTokens:             stat.InputTokens,
+		OutputTokens:            stat.OutputTokens,
+		CachedTokens:            stat.CachedTokens,
+		CacheReadTokens:         stat.CacheReadTokens,
+		CacheCreationTokens:     stat.CacheCreationTokens,
+		LongInputTokens:         stat.LongInputTokens,
+		LongOutputTokens:        stat.LongOutputTokens,
+		LongCachedTokens:        stat.LongCachedTokens,
+		LongCacheReadTokens:     stat.LongCacheReadTokens,
+		LongCacheCreationTokens: stat.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForTimelinePoint(point store.TimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		InputTokens:         point.InputTokens,
-		OutputTokens:        point.OutputTokens,
-		CachedTokens:        point.CachedTokens,
-		CacheReadTokens:     point.CacheReadTokens,
-		CacheCreationTokens: point.CacheCreationTokens,
+		InputTokens:             point.InputTokens,
+		OutputTokens:            point.OutputTokens,
+		CachedTokens:            point.CachedTokens,
+		CacheReadTokens:         point.CacheReadTokens,
+		CacheCreationTokens:     point.CacheCreationTokens,
+		LongInputTokens:         point.LongInputTokens,
+		LongOutputTokens:        point.LongOutputTokens,
+		LongCachedTokens:        point.LongCachedTokens,
+		LongCacheReadTokens:     point.LongCacheReadTokens,
+		LongCacheCreationTokens: point.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForHeatmapPoint(point store.HeatmapPoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		InputTokens:         point.InputTokens,
-		OutputTokens:        point.OutputTokens,
-		CachedTokens:        point.CachedTokens,
-		CacheReadTokens:     point.CacheReadTokens,
-		CacheCreationTokens: point.CacheCreationTokens,
+		InputTokens:             point.InputTokens,
+		OutputTokens:            point.OutputTokens,
+		CachedTokens:            point.CachedTokens,
+		CacheReadTokens:         point.CacheReadTokens,
+		CacheCreationTokens:     point.CacheCreationTokens,
+		LongInputTokens:         point.LongInputTokens,
+		LongOutputTokens:        point.LongOutputTokens,
+		LongCachedTokens:        point.LongCachedTokens,
+		LongCacheReadTokens:     point.LongCacheReadTokens,
+		LongCacheCreationTokens: point.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForChannelStat(stat store.ChannelModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		InputTokens:         stat.InputTokens,
-		OutputTokens:        stat.OutputTokens,
-		CachedTokens:        stat.CachedTokens,
-		CacheReadTokens:     stat.CacheReadTokens,
-		CacheCreationTokens: stat.CacheCreationTokens,
+		InputTokens:             stat.InputTokens,
+		OutputTokens:            stat.OutputTokens,
+		CachedTokens:            stat.CachedTokens,
+		CacheReadTokens:         stat.CacheReadTokens,
+		CacheCreationTokens:     stat.CacheCreationTokens,
+		LongInputTokens:         stat.LongInputTokens,
+		LongOutputTokens:        stat.LongOutputTokens,
+		LongCachedTokens:        stat.LongCachedTokens,
+		LongCacheReadTokens:     stat.LongCacheReadTokens,
+		LongCacheCreationTokens: stat.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForAccountModelStat(stat store.AccountModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		InputTokens:         stat.InputTokens,
-		OutputTokens:        stat.OutputTokens,
-		CachedTokens:        stat.CachedTokens,
-		CacheReadTokens:     stat.CacheReadTokens,
-		CacheCreationTokens: stat.CacheCreationTokens,
+		InputTokens:             stat.InputTokens,
+		OutputTokens:            stat.OutputTokens,
+		CachedTokens:            stat.CachedTokens,
+		CacheReadTokens:         stat.CacheReadTokens,
+		CacheCreationTokens:     stat.CacheCreationTokens,
+		LongInputTokens:         stat.LongInputTokens,
+		LongOutputTokens:        stat.LongOutputTokens,
+		LongCachedTokens:        stat.LongCachedTokens,
+		LongCacheReadTokens:     stat.LongCacheReadTokens,
+		LongCacheCreationTokens: stat.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForAPIKeyModelStat(stat store.APIKeyModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		InputTokens:         stat.InputTokens,
-		OutputTokens:        stat.OutputTokens,
-		CachedTokens:        stat.CachedTokens,
-		CacheReadTokens:     stat.CacheReadTokens,
-		CacheCreationTokens: stat.CacheCreationTokens,
+		InputTokens:             stat.InputTokens,
+		OutputTokens:            stat.OutputTokens,
+		CachedTokens:            stat.CachedTokens,
+		CacheReadTokens:         stat.CacheReadTokens,
+		CacheCreationTokens:     stat.CacheCreationTokens,
+		LongInputTokens:         stat.LongInputTokens,
+		LongOutputTokens:        stat.LongOutputTokens,
+		LongCachedTokens:        stat.LongCachedTokens,
+		LongCacheReadTokens:     stat.LongCacheReadTokens,
+		LongCacheCreationTokens: stat.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForCredentialModelStat(stat store.CredentialModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		InputTokens:         stat.InputTokens,
-		OutputTokens:        stat.OutputTokens,
-		CachedTokens:        stat.CachedTokens,
-		CacheReadTokens:     stat.CacheReadTokens,
-		CacheCreationTokens: stat.CacheCreationTokens,
+		InputTokens:             stat.InputTokens,
+		OutputTokens:            stat.OutputTokens,
+		CachedTokens:            stat.CachedTokens,
+		CacheReadTokens:         stat.CacheReadTokens,
+		CacheCreationTokens:     stat.CacheCreationTokens,
+		LongInputTokens:         stat.LongInputTokens,
+		LongOutputTokens:        stat.LongOutputTokens,
+		LongCachedTokens:        stat.LongCachedTokens,
+		LongCacheReadTokens:     stat.LongCacheReadTokens,
+		LongCacheCreationTokens: stat.LongCacheCreationTokens,
 	}, prices)
 }
 
 func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		InputTokens:         point.InputTokens,
-		OutputTokens:        point.OutputTokens,
-		CachedTokens:        point.CachedTokens,
-		CacheReadTokens:     point.CacheReadTokens,
-		CacheCreationTokens: point.CacheCreationTokens,
+		InputTokens:             point.InputTokens,
+		OutputTokens:            point.OutputTokens,
+		CachedTokens:            point.CachedTokens,
+		CacheReadTokens:         point.CacheReadTokens,
+		CacheCreationTokens:     point.CacheCreationTokens,
+		LongInputTokens:         point.LongInputTokens,
+		LongOutputTokens:        point.LongOutputTokens,
+		LongCachedTokens:        point.LongCachedTokens,
+		LongCacheReadTokens:     point.LongCacheReadTokens,
+		LongCacheCreationTokens: point.LongCacheCreationTokens,
 	}, prices)
 }
 
@@ -2556,23 +2755,35 @@ func averageTokensPerRequest(point TimelinePoint) float64 {
 }
 
 func cacheHitRate(point TimelinePoint) float64 {
-	// Mirror computeCacheHitRate on the web client: cache-read tokens over total
-	// input. cacheRead falls back to cachedTokens for OpenAI-style usage (input
-	// already includes cache); totalInput adds cacheRead/cacheCreation back for
-	// Anthropic-style usage where InputTokens excludes them.
-	cacheRead := point.CacheReadTokens
-	if cacheRead == 0 {
-		cacheRead = point.CachedTokens
+	rate := point.CacheHitRate
+	if rate <= 0 {
+		rate = usage.CacheHitRate("", point.InputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens)
 	}
-	totalInput := point.InputTokens + point.CacheReadTokens + point.CacheCreationTokens
-	if totalInput <= 0 {
-		return 0
-	}
-	rate := float64(cacheRead) / float64(totalInput)
 	if rate > 1 {
 		return 1
 	}
 	return rate
+}
+
+func cacheHitRateForModelStats(stats []store.ModelStat) float64 {
+	var hitTokens int64
+	var inputTokens int64
+	for _, stat := range stats {
+		behaviorModel := stat.BillingModel
+		if strings.TrimSpace(behaviorModel) == "" {
+			behaviorModel = stat.Model
+		}
+		statHitTokens, statInputTokens := usage.CacheHitTotals(
+			behaviorModel,
+			stat.InputTokens,
+			stat.CachedTokens,
+			stat.CacheReadTokens,
+			stat.CacheCreationTokens,
+		)
+		hitTokens += statHitTokens
+		inputTokens += statInputTokens
+	}
+	return usage.CacheHitRateFromTotals(hitTokens, inputTokens)
 }
 
 func floatValueOrZero(value *float64) float64 {

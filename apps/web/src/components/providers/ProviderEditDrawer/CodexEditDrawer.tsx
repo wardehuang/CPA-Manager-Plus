@@ -61,13 +61,13 @@ const buildEmptyForm = (): ProviderFormState => ({
   excludedText: '',
 });
 
-const normalizeModelEntries = (entries: Array<{ name: string; alias: string }>) =>
-  (entries ?? []).reduce<Array<{ name: string; alias: string }>>((acc, entry) => {
+const normalizeModelEntries = (entries: ProviderFormState['modelEntries']) =>
+  (entries ?? []).reduce<ProviderFormState['modelEntries']>((acc, entry) => {
     const name = String(entry?.name ?? '').trim();
     let alias = String(entry?.alias ?? '').trim();
     if (name && alias === name) alias = '';
     if (!name && !alias) return acc;
-    acc.push({ name, alias });
+    acc.push({ ...entry, name, alias });
     return acc;
   }, []);
 
@@ -473,12 +473,17 @@ export function CodexEditDrawer({
         disableCooling: form.disableCooling,
         experimentalCchSigning: form.experimentalCchSigning,
       };
-      const nextList =
+      if (editIndex !== null) {
+        await providersApi.updateCodexConfig(configs[editIndex], payload);
+      } else {
+        await providersApi.createCodexConfig(payload);
+      }
+      const syncedList = await providersApi.getCodexConfigs().catch(() =>
         editIndex !== null
-          ? configs.map((item, idx) => (idx === editIndex ? payload : item))
-          : [...configs, payload];
-      await providersApi.saveCodexConfigs(nextList);
-      updateConfigValue('codex-api-key', nextList);
+          ? configs.map((item, index) => (index === editIndex ? payload : item))
+          : [...configs, payload]
+      );
+      updateConfigValue('codex-api-key', syncedList);
       clearCache('codex-api-key');
       showNotification(
         editIndex !== null
@@ -686,6 +691,8 @@ export function CodexEditDrawer({
                 removeButtonClassName={styles.modelRowRemoveButton}
                 removeButtonTitle={t('common.delete')}
                 removeButtonAriaLabel={t('common.delete')}
+                showForceMapping
+                forceMappingLabel={t('ai_providers.force_mapping_label')}
               />
               <div className={styles.modelTestPanel}>
                 <div className={styles.modelTestMeta}>

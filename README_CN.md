@@ -7,7 +7,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/seakee/cpa-manager-plus?style=flat-square)](https://hub.docker.com/r/seakee/cpa-manager-plus)
 [![Stars](https://img.shields.io/github/stars/seakee/CPA-Manager-Plus?style=flat-square&label=stars)](https://github.com/seakee/CPA-Manager-Plus/stargazers)
 
-自托管的 AI Gateway 监控面板，追踪请求、成本、失败、额度和账号健康状态。
+面向 CPA / CLIProxyAPI 的自托管管理面板与 AI Gateway Observability 平台，覆盖网关运维、请求监控、成本分析、额度追踪、失败诊断和 Codex 账号健康。
 
 配合 [CPA / CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 及 OpenAI-compatible 网关使用，支持 Codex、Claude Code 等工具的流量观测。
 
@@ -17,8 +17,9 @@
 
 ## 亮点
 
-- 实时仪表盘展示今日请求量、成功率、平均延迟和预估成本，支持按模型、账号、项目和时间范围筛选。
-- 按模型的成本排行和按账号的费用拆解，Token 粒度细分到输入、输出、推理和缓存。
+- CPA / CLIProxyAPI 网关日常运维：管理提供商、认证文件、OAuth 登录、API Key、额度、日志、插件和系统配置。
+- 请求监控与失败诊断：展示请求量、成功率、延迟、状态码、受影响账号/模型，并支持检索请求历史。
+- 按模型、提供商、账号、项目、渠道和 Token 类型拆解用量与成本，并支持从 LiteLLM 和 OpenRouter 同步模型价格。
 - Codex 账号定时巡检，检查 quota 剩余、凭证有效性和工作区状态。触达限额的账号自动暂停，到 reset 时间后恢复。
 - 一个 Docker 容器搞定，数据全在本地，没有遥测 SDK，也不需要注册账号。外部请求只限于你配置的 Gateway，以及你主动配置或触发的模型价格同步、OAuth、provider 等集成。
 
@@ -219,16 +220,6 @@ docker compose -f docker-compose.manager.yml up --build
 ## 社区与反馈
 
 - Telegram 交流群: https://t.me/cpa_mp
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=seakee%2FCPA-Manager-Plus&type=date&logscale=&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=seakee/CPA-Manager-Plus&type=date&legend=top-left" />
- </picture>
-</a>
 
 ## 许可证
 

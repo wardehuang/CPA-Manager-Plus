@@ -178,6 +178,7 @@ Saving CPAMP configuration does not rewrite the full CPA `config.yaml`.
 |---|---|---|
 | `CPA_MANAGER_CONFIG` | empty | Optional config file path. Native packages default to `config.json` next to the binary. |
 | `HTTP_ADDR` | `0.0.0.0:18317` | Manager Server listen address. |
+| `CPA_MANAGER_PPROF_ADDR` | empty | Optional Go pprof listen address; only `localhost`, `127.0.0.1`, or `::1` is accepted. |
 | `USAGE_DATA_DIR` | Docker: `/data`; native: `./data` | Base data directory. |
 | `USAGE_DB_PATH` | Docker: `/data/usage.sqlite`; native: `./data/usage.sqlite` | SQLite database path. |
 | `CPA_MANAGER_ADMIN_KEY` | empty | Optional admin key. |
@@ -194,9 +195,10 @@ Saving CPAMP configuration does not rewrite the full CPA `config.yaml`.
 | `USAGE_BATCH_SIZE` | `100` | Max records per batch. |
 | `USAGE_POLL_INTERVAL_MS` | `500` | Idle poll interval. |
 | `USAGE_QUERY_LIMIT` | `50000` | Max recent usage events. |
+| `USAGE_DASHBOARD_HOURLY_ROLLUP_ENABLED` | `true` | Enable the hourly rollup worker plus the Dashboard and strictly unfiltered Usage Analytics query paths. Temporarily set it to `false` when diagnosing SQLite write contention or rollup failures; queries fall back to raw events. |
 | `USAGE_CORS_ORIGINS` | `*` | CORS origins for compatibility endpoints. |
 | `USAGE_RESP_TLS_SKIP_VERIFY` | `false` | Skip TLS verification for RESP connection. |
-| `USAGE_QUOTA_COOLDOWN_ENABLED` | `false` | Enable the Codex usage-limit cooldown worker. |
+| `USAGE_QUOTA_COOLDOWN_ENABLED` | `false` | Enable the provider quota cooldown worker for strict Codex usage-limit and xAI free-usage-exhausted signals. |
 | `USAGE_ACCOUNT_ACTIONS_ENABLED` | `false` | Enable the account action queue for auth issues that need review. |
 | `USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE` | `false` | Enable automatic disabling for auth issues. This only takes effect when the account action queue is enabled. |
 | `PANEL_PATH` | empty | Optional custom `management.html`. |
@@ -206,6 +208,25 @@ Startup precedence:
 ```text
 environment variables > config.json > defaults
 ```
+
+Temporarily enable the loopback-only pprof server when diagnosing CPU, heap, or goroutine behavior:
+
+```bash
+CPA_MANAGER_PPROF_ADDR=127.0.0.1:6060 ./cpa-manager-plus
+go tool pprof http://127.0.0.1:6060/debug/pprof/heap
+```
+
+The equivalent config-file field is `pprofAddr`. The service is disabled by default and should not be exposed through Docker port mappings or a reverse proxy.
+
+Hourly rollup is enabled by default. The worker catches up historical events in bounded batches. Dashboard and strictly unfiltered Usage Analytics long-window core metrics reuse complete hourly data; searches and dimension, status, latency, or cache filters continue to read raw events. If the checkpoint is pending, the requested timezone cannot be represented losslessly by UTC hourly buckets, or a rollup read fails, the affected query falls back to raw events. Runtime failures are recorded through rate-limited logs. To stop background rollup temporarily, set:
+
+```bash
+USAGE_DASHBOARD_HOURLY_ROLLUP_ENABLED=false
+```
+
+Restart Manager Server after changing it. Dashboard and Usage Analytics will always use raw events while disabled, and existing rollup tables are left intact. This runtime switch is not exposed in the UI.
+
+See the [July 10, 2026 Performance Optimization Report](./performance-optimization-2026-07-10.md) for the causes, delivery stages, and complete 100k benchmark evidence.
 
 When `USAGE_QUOTA_COOLDOWN_ENABLED`, `USAGE_ACCOUNT_ACTIONS_ENABLED`, or `USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE` is set through the environment, the matching panel switch is shown as environment-sourced and locked. Remove the environment variable and restart Manager Server if you want the setting to be editable from the panel.
 
@@ -225,6 +246,7 @@ When `USAGE_QUOTA_COOLDOWN_ENABLED`, `USAGE_ACCOUNT_ACTIONS_ENABLED`, or `USAGE_
 | `GET /v0/management/usage` | Compatible usage data. |
 | `GET /v0/management/usage/export` | Export JSONL usage events. |
 | `POST /v0/management/usage/import` | Import JSONL or compatible legacy snapshots. |
+| `GET /v0/management/model-prices/usage-summary` | Return the lightweight model-call summary used by the Model Prices page. |
 | `GET /v0/management/model-prices` | Model pricing. |
 | `PUT /v0/management/model-prices` | Replace saved model pricing. |
 | `POST /v0/management/model-prices/sync` | Price sync. |
