@@ -70,6 +70,29 @@ func TestReaderMatchesRawCoreAndTimelines(t *testing.T) {
 	if !ok || !reflect.DeepEqual(analyticsTimeline, rawAnalyticsTimeline) {
 		t.Fatalf("analytics timeline mismatch\nrollup=%#v\nraw=%#v", analyticsTimeline, rawAnalyticsTimeline)
 	}
+
+	projected, ok := reader.LoadAnalytics(ctx, fromMS, toMS, "day", time.UTC, true)
+	if !ok {
+		t.Fatal("analytics reader did not use daily projection")
+	}
+	if !reflect.DeepEqual(projected.Aggregate, rawAggregate) || !reflect.DeepEqual(projected.ModelStats, rawModels) {
+		t.Fatalf("projected core mismatch\nrollup=%#v %#v\nraw=%#v %#v", projected.Aggregate, projected.ModelStats, rawAggregate, rawModels)
+	}
+	projectedTimeline, ok := reader.AnalyticsTimeline(ctx, projected, "day", time.UTC)
+	if !ok || !reflect.DeepEqual(projectedTimeline, rawAnalyticsTimeline) {
+		t.Fatalf("projected timeline mismatch\nrollup=%#v\nraw=%#v", projectedTimeline, rawAnalyticsTimeline)
+	}
+	if _, ok := reader.DashboardTimeline(ctx, projected, fromMS, toMS); ok {
+		t.Fatal("daily analytics projection unexpectedly exposed dashboard timeline")
+	}
+
+	modelOnly, ok := reader.LoadAnalytics(ctx, fromMS, toMS, "day", time.UTC, false)
+	if !ok || !reflect.DeepEqual(modelOnly.Aggregate, rawAggregate) || !reflect.DeepEqual(modelOnly.ModelStats, rawModels) {
+		t.Fatalf("model-only projection mismatch\nrollup=%#v %#v\nraw=%#v %#v", modelOnly.Aggregate, modelOnly.ModelStats, rawAggregate, rawModels)
+	}
+	if _, ok := reader.AnalyticsTimeline(ctx, modelOnly, "day", time.UTC); ok {
+		t.Fatal("model-only projection unexpectedly exposed analytics timeline")
+	}
 }
 
 func TestReaderAnalyticsTimelineFallsBackForHalfHourBuckets(t *testing.T) {

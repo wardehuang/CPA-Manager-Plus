@@ -45,6 +45,11 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 		}
 	}
 	selectors := request(Include{FilterOptions: true, FilterSelectors: true})
+	selectedCredentialTimeline := request(Include{
+		CredentialTimeline: true,
+		Granularity:        "day",
+	})
+	selectedCredentialTimeline.Filters.CredentialIDs = []string{"account-000.json"}
 	profiles := []struct {
 		name     string
 		service  *Service
@@ -73,14 +78,16 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 			service: rollupService,
 			requests: []Request{
 				request(Include{
-					Summary:           true,
-					SummaryComparison: true,
-					Timeline:          true,
-					ModelStats:        true,
-					ChannelShare:      true,
-					APIKeyStats:       true,
-					AnomalyPoints:     true,
-					Granularity:       "day",
+					Summary:            true,
+					SummaryProfile:     "compact",
+					SummaryPercentiles: true,
+					SummaryComparison:  true,
+					Timeline:           true,
+					ModelStats:         true,
+					ChannelShare:       true,
+					APIKeyStats:        true,
+					AnomalyPoints:      true,
+					Granularity:        "day",
 				}),
 				selectors,
 			},
@@ -89,14 +96,16 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 			name:    "overview_tab_raw",
 			service: rawService,
 			requests: []Request{request(Include{
-				Summary:           true,
-				SummaryComparison: true,
-				Timeline:          true,
-				ModelStats:        true,
-				ChannelShare:      true,
-				APIKeyStats:       true,
-				AnomalyPoints:     true,
-				Granularity:       "day",
+				Summary:            true,
+				SummaryProfile:     "compact",
+				SummaryPercentiles: true,
+				SummaryComparison:  true,
+				Timeline:           true,
+				ModelStats:         true,
+				ChannelShare:       true,
+				APIKeyStats:        true,
+				AnomalyPoints:      true,
+				Granularity:        "day",
 			})},
 		},
 		{
@@ -114,6 +123,22 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 			})},
 		},
 		{
+			name:    "overview_tab_compact",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary:            true,
+				SummaryProfile:     "compact",
+				SummaryPercentiles: true,
+				SummaryComparison:  true,
+				Timeline:           true,
+				ModelStats:         true,
+				ChannelShare:       true,
+				APIKeyStats:        true,
+				AnomalyPoints:      true,
+				Granularity:        "day",
+			})},
+		},
+		{
 			name:    "analytics_core_raw",
 			service: rawService,
 			requests: []Request{request(Include{
@@ -122,6 +147,30 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 				Timeline:          true,
 				ModelStats:        true,
 				Granularity:       "day",
+			})},
+		},
+		{
+			name:    "summary_full",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary: true,
+			})},
+		},
+		{
+			name:    "summary_compact",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary:            true,
+				SummaryProfile:     "compact",
+				SummaryPercentiles: true,
+			})},
+		},
+		{
+			name:    "summary_compact_no_percentiles",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary:        true,
+				SummaryProfile: "compact",
 			})},
 		},
 		{
@@ -136,10 +185,36 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 			})},
 		},
 		{
+			name:    "analytics_core_compact",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary:            true,
+				SummaryProfile:     "compact",
+				SummaryPercentiles: true,
+				SummaryComparison:  true,
+				Timeline:           true,
+				ModelStats:         true,
+				Granularity:        "day",
+			})},
+		},
+		{
+			name:    "analytics_core_compact_no_summary_percentiles",
+			service: rollupService,
+			requests: []Request{request(Include{
+				Summary:           true,
+				SummaryProfile:    "compact",
+				SummaryComparison: true,
+				Timeline:          true,
+				ModelStats:        true,
+				Granularity:       "day",
+			})},
+		},
+		{
 			name:    "trends_tab_request",
 			service: rollupService,
 			requests: []Request{request(Include{
 				Summary:           true,
+				SummaryProfile:    "compact",
 				SummaryComparison: true,
 				Timeline:          true,
 				ModelStats:        true,
@@ -152,39 +227,60 @@ func BenchmarkUsageAnalyticsIncludeProfiles(b *testing.B) {
 			name:    "models_tab_request",
 			service: rollupService,
 			requests: []Request{request(Include{
-				Summary:     true,
-				Timeline:    true,
-				ModelStats:  true,
-				APIKeyStats: true,
-				Granularity: "day",
+				Summary:        true,
+				SummaryProfile: "compact",
+				Timeline:       true,
+				ModelStats:     true,
+				APIKeyStats:    true,
+				Granularity:    "day",
 			})},
 		},
 		{
 			name:    "api_keys_tab_request",
 			service: rollupService,
 			requests: []Request{request(Include{
-				Summary:     true,
-				APIKeyStats: true,
-				Granularity: "day",
+				Summary:        true,
+				SummaryProfile: "compact",
+				APIKeyStats:    true,
+				Granularity:    "day",
 			})},
 		},
 		{
 			name:    "credentials_tab_request",
 			service: rollupService,
 			requests: []Request{request(Include{
-				Summary:            true,
-				CredentialStats:    true,
-				CredentialTimeline: true,
-				Granularity:        "day",
+				Summary:         true,
+				SummaryProfile:  "compact",
+				CredentialStats: true,
+				Granularity:     "day",
 			})},
+		},
+		{
+			name:     "selected_credential_timeline_request",
+			service:  rollupService,
+			requests: []Request{selectedCredentialTimeline},
+		},
+		{
+			name:    "credentials_tab_two_stage",
+			service: rollupService,
+			requests: []Request{
+				request(Include{
+					Summary:         true,
+					SummaryProfile:  "compact",
+					CredentialStats: true,
+					Granularity:     "day",
+				}),
+				selectedCredentialTimeline,
+			},
 		},
 		{
 			name:    "heatmap_tab_request",
 			service: rollupService,
 			requests: []Request{request(Include{
-				Summary:     true,
-				Heatmap:     true,
-				Granularity: "day",
+				Summary:        true,
+				SummaryProfile: "compact",
+				Heatmap:        true,
+				Granularity:    "day",
 			})},
 		},
 		{name: "filter_selectors", service: rollupService, requests: []Request{selectors}},
@@ -245,7 +341,7 @@ func BenchmarkUsageAnalyticsHourlyCorePaths(b *testing.B) {
 	b.Run("rollup", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
-			snapshot, ok := reader.Load(ctx, fromMS, toMS)
+			snapshot, ok := reader.LoadAnalytics(ctx, fromMS, toMS, "day", time.UTC, true)
 			if !ok {
 				b.Fatal("rollup unavailable")
 			}

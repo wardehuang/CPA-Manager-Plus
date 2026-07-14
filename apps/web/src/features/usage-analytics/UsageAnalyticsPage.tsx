@@ -45,6 +45,7 @@ import {
   formatHeatmapMetricValue,
   formatLocalDateTime,
   formatMetricValue,
+  getUsageCacheTokens,
   hasUsageData,
   maskApiKeyHash,
   parseDateTimeLocalValue,
@@ -471,7 +472,8 @@ const getApiKeyContributorDisplayLabel = (row: UsageHeatmapContributor) => {
   return label && label.toLowerCase() !== row.key.toLowerCase() ? label : maskApiKeyHash(row.key);
 };
 
-const metricValue = (point: UsageTimelinePoint, key: UsageMetricKey) => point[key];
+const metricValue = (point: UsageTimelinePoint, key: UsageMetricKey) =>
+  key === 'cachedTokens' ? getUsageCacheTokens(point) : point[key];
 
 const getMetricAxisIndex = (axis: (typeof USAGE_METRICS)[number]['axis']) =>
   usageChartAxisKeys[axis];
@@ -1896,7 +1898,7 @@ function TokenStructureChart({ timeline }: { timeline: UsageTimelinePoint[] }) {
         },
         {
           barMaxWidth: 22,
-          data: timeline.map((point) => point.cachedTokens),
+          data: timeline.map((point) => getUsageCacheTokens(point)),
           itemStyle: tokenBarItemStyle,
           name: t('usage_analytics.metric_cached_tokens'),
           stack: 'tokens',
@@ -1938,10 +1940,14 @@ function EntityTrendChart({
   metric,
   series,
   highlightId,
+  loading = false,
+  error = '',
 }: {
   metric: UsageTrendMetricKey;
   series: UsageEntityTrendSeries[];
   highlightId?: string;
+  loading?: boolean;
+  error?: string;
 }) {
   const { t } = useTranslation();
   const chartTheme = useUsageChartTheme();
@@ -2024,6 +2030,25 @@ function EntityTrendChart({
     }),
     [chartTheme, hasHighlight, highlightId, metric, series]
   );
+
+  if (loading) {
+    return (
+      <div className={styles.chartEmptyInline}>
+        <IconRefreshCw size={24} />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={styles.chartEmptyInline}>
+        <IconX size={24} />
+        <span>{t('usage_analytics.error_title')}</span>
+        <span>{error}</span>
+      </div>
+    );
+  }
 
   if (series.length === 0) {
     return (
@@ -3288,7 +3313,12 @@ function UsageAnalyticsPageInner() {
                   ))}
                 </div>
               </div>
-              <EntityTrendChart series={usage.credentialTrendSeries} metric={usage.trendMetric} />
+              <EntityTrendChart
+                series={usage.credentialTrendSeries}
+                metric={usage.trendMetric}
+                loading={usage.credentialTrendLoading}
+                error={usage.credentialTrendError}
+              />
             </div>
             {usage.selectedCredential ? (
               <DetailPanel
@@ -3678,7 +3708,7 @@ function RankTable({
                 <td>{compactNumber(row.totalTokens)}</td>
                 <td>{compactNumber(row.inputTokens)}</td>
                 <td>{compactNumber(row.outputTokens)}</td>
-                <td>{compactNumber(row.cachedTokens)}</td>
+                <td>{compactNumber(getUsageCacheTokens(row))}</td>
                 {type !== 'credential' ? (
                   <td>{formatPercent(computeRowCacheHitRate(row))}</td>
                 ) : null}

@@ -29,10 +29,12 @@ type Snapshot struct {
 	Aggregate  store.Aggregate
 	ModelStats []store.ModelStat
 
-	rows        []store.DashboardHourlyRollupRow
-	edges       []timeRange
-	fullStartMS int64
-	fullEndMS   int64
+	rows                   []store.DashboardHourlyRollupRow
+	edges                  []timeRange
+	fullStartMS            int64
+	fullEndMS              int64
+	dashboardTimelineReady bool
+	analyticsTimelineReady bool
 }
 
 type timeRange struct {
@@ -66,6 +68,36 @@ func New(store *store.Store, enabled bool, logContext ...string) *Reader {
 }
 
 func (r *Reader) Load(ctx context.Context, fromMS, toMS int64) (Snapshot, bool) {
+	return r.loadRows(ctx, fromMS, toMS, r.store.DashboardHourlyRollupRows, true, true)
+}
+
+func (r *Reader) LoadAnalytics(
+	ctx context.Context,
+	fromMS int64,
+	toMS int64,
+	granularity string,
+	location *time.Location,
+	needsTimeline bool,
+) (Snapshot, bool) {
+	if needsTimeline {
+		if granularity != "day" || location == nil || location.String() != "UTC" {
+			return r.Load(ctx, fromMS, toMS)
+		}
+		return r.loadRows(ctx, fromMS, toMS, r.store.DashboardDailyRollupRows, false, true)
+	}
+	return r.loadRows(ctx, fromMS, toMS, r.store.DashboardHourlyRollupModelRows, false, false)
+}
+
+type rowLoader func(context.Context, int64, int64) ([]store.DashboardHourlyRollupRow, error)
+
+func (r *Reader) loadRows(
+	ctx context.Context,
+	fromMS int64,
+	toMS int64,
+	load rowLoader,
+	dashboardTimelineReady bool,
+	analyticsTimelineReady bool,
+) (Snapshot, bool) {
 	if !r.enabled {
 		return Snapshot{}, false
 	}
@@ -95,7 +127,7 @@ func (r *Reader) Load(ctx context.Context, fromMS, toMS int64) (Snapshot, bool) 
 		return Snapshot{}, false
 	}
 
-	rows, err := r.store.DashboardHourlyRollupRows(ctx, fullStartMS, fullEndMS)
+	rows, err := load(ctx, fullStartMS, fullEndMS)
 	if err != nil {
 		r.logFallback(fmt.Sprintf("hourly rows query failed: %v", err))
 		return Snapshot{}, false
@@ -125,16 +157,21 @@ func (r *Reader) Load(ctx context.Context, fromMS, toMS int64) (Snapshot, bool) 
 	}
 
 	return Snapshot{
-		Aggregate:   agg,
-		ModelStats:  modelStats,
-		rows:        rows,
-		edges:       edges,
-		fullStartMS: fullStartMS,
-		fullEndMS:   fullEndMS,
+		Aggregate:              agg,
+		ModelStats:             modelStats,
+		rows:                   rows,
+		edges:                  edges,
+		fullStartMS:            fullStartMS,
+		fullEndMS:              fullEndMS,
+		dashboardTimelineReady: dashboardTimelineReady,
+		analyticsTimelineReady: analyticsTimelineReady,
 	}, true
 }
 
 func (r *Reader) DashboardTimeline(ctx context.Context, snapshot Snapshot, fromMS, toMS int64) ([]store.TimelinePoint, bool) {
+	if !snapshot.dashboardTimelineReady {
+		return nil, false
+	}
 	if fromMS%hourMS != 0 {
 		timeline, err := r.store.HourlyTimelineBetween(ctx, fromMS, toMS)
 		if err != nil {
@@ -162,13 +199,16 @@ func (r *Reader) AnalyticsTimeline(
 	granularity string,
 	location *time.Location,
 ) ([]store.TimelinePoint, bool) {
+	if !snapshot.analyticsTimelineReady {
+		return nil, false
+	}
 	if location == nil {
 		location = time.UTC
 	}
 	if granularity != "day" {
 		granularity = "hour"
 	}
-	if !bucketsRepresentable(snapshot.fullStartMS, snapshot.fullEndMS, granularity, location) {
+	if !usage.CanMapUTCWholeHours(snapshot.fullStartMS, snapshot.fullEndMS, granularity, location) {
 		return nil, false
 	}
 
@@ -203,7 +243,7 @@ func (r *Reader) CanRepresentAnalyticsTimeline(fromMS, toMS int64, granularity s
 	}
 	fullStartMS := ceilHourMS(fromMS)
 	fullEndMS := floorHourMS(toMS)
-	return fullStartMS < fullEndMS && bucketsRepresentable(fullStartMS, fullEndMS, granularity, location)
+	return fullStartMS < fullEndMS && usage.CanMapUTCWholeHours(fullStartMS, fullEndMS, granularity, location)
 }
 
 func rawEdges(fromMS, toMS, fullStartMS, fullEndMS int64) []timeRange {
@@ -499,15 +539,6 @@ func sortedAnalyticsTimeline(grouped map[analyticsTimelineKey]*store.TimelinePoi
 		return result[i].ServiceTier < result[j].ServiceTier
 	})
 	return result
-}
-
-func bucketsRepresentable(fromMS, toMS int64, granularity string, location *time.Location) bool {
-	for bucketMS := fromMS; bucketMS < toMS; bucketMS += hourMS {
-		if usage.AnalyticsBucketMS(bucketMS, granularity, location) != usage.AnalyticsBucketMS(bucketMS+hourMS-1, granularity, location) {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *Reader) logFallback(reason string) {
