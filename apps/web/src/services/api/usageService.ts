@@ -116,9 +116,12 @@ export interface QuotaCooldownInfo {
   authIndex?: string;
   provider?: string;
   owner?: string;
+  reasonCode?: string;
+  windowKind?: 'five_hour' | 'weekly' | 'monthly' | 'rolling_24h' | 'unknown' | string;
   recoverAtMs: number;
   disabledAtMs?: number;
   createdAtMs?: number;
+  evidence?: ProviderUsageMetadata;
 }
 
 export interface QuotaCooldownsResponse {
@@ -174,15 +177,21 @@ export interface ManagerCodexInspectionScheduleConfig {
 export interface ManagerCodexInspectionConfig {
   enabled?: boolean;
   schedule?: ManagerCodexInspectionScheduleConfig;
+  targetTypes?: string[];
   targetType?: string;
   workers?: number;
   deleteWorkers?: number;
   timeout?: number;
   retries?: number;
   userAgent?: string;
+  xaiInferenceUserAgent?: string;
+  xaiInferenceEnabled?: boolean;
+  xaiInferenceModel?: string;
+  xaiInferencePrompt?: string;
   usedPercentThreshold?: number;
   sampleSize?: number;
   autoActionMode?: ManagerCodexInspectionAutoActionMode | string;
+  autoRecoverEnabled?: boolean;
 }
 
 export interface ManagerConfig {
@@ -293,6 +302,7 @@ export interface CodexInspectionResult {
   statusCode?: number;
   usedPercent?: number;
   isQuota: boolean;
+  autoRecoverEligible?: boolean;
   error?: string;
   planType?: string | null;
   quotaWindows?: CodexInspectionQuotaWindow[];
@@ -341,6 +351,11 @@ export interface CodexManualRefreshRequest {
 export interface CodexInspectionActionsResponse {
   outcomes: CodexInspectionActionOutcome[];
   detail: CodexInspectionRunDetail;
+}
+
+export interface CodexInspectionActionOverride {
+  resultId: number;
+  action: 'delete';
 }
 
 export interface ModelPricesResponse {
@@ -415,7 +430,10 @@ export interface AccountActionCandidate {
   accountSnapshot?: string;
   accountIdSnapshot?: string;
   authLabel?: string;
+  reasonCode?: string;
   reason: string;
+  autoDisableEligible?: boolean;
+  autoDisabledAtMs?: number;
   evidence?: unknown;
   lastError?: string;
   firstSeenAtMs: number;
@@ -680,6 +698,7 @@ export interface MonitoringAnalyticsInclude {
   account_stats?: boolean;
   credential_stats?: boolean;
   credential_timeline?: boolean;
+  api_key_timeline?: boolean;
   api_key_stats?: boolean;
   filter_options?: boolean;
   filter_selectors?: boolean;
@@ -970,6 +989,27 @@ export interface MonitoringAnalyticsCredentialTimelinePoint {
   failure_rate?: number;
 }
 
+export interface MonitoringAnalyticsApiKeyTimelinePoint {
+  api_key_hash: string;
+  bucket_ms: number;
+  bucket_label?: string;
+  calls: number;
+  tokens: number;
+  success: number;
+  failure: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+  total_tokens?: number;
+  cost?: number;
+  average_latency_ms?: number | null;
+  success_rate?: number;
+  failure_rate?: number;
+}
+
 export interface MonitoringAnalyticsApiKeyStatRow {
   id: string;
   api_key_hash: string;
@@ -1088,6 +1128,7 @@ export interface ResponseHeaderErrorMetadata {
   retry_after_seconds?: number;
   retry_after_recover_at_ms?: number;
   rate_limit_bypass?: string;
+  should_retry?: boolean;
 }
 
 export interface ResponseHeaderTraceMetadata {
@@ -1100,6 +1141,7 @@ export interface ResponseHeaderTraceMetadata {
   cloud_ai_companion_trace_id?: string;
   client_request_id?: string;
   zeabur_request_id?: string;
+  traceparent?: string;
 }
 
 export interface ResponseHeaderRoutingMetadata {
@@ -1130,6 +1172,39 @@ export interface ResponseHeaderProviderMetadata {
   cloudflare_cache_status?: string;
 }
 
+export interface ResponseHeaderRateLimitBucket {
+  limit?: number;
+  remaining?: number;
+}
+
+export interface ResponseHeaderRateLimitMetadata {
+  requests?: ResponseHeaderRateLimitBucket;
+  tokens?: ResponseHeaderRateLimitBucket;
+}
+
+export interface ResponseHeaderDataPolicyMetadata {
+  retention_mode?: string;
+  zero_retention?: boolean;
+}
+
+export interface ProviderUsageMetadata {
+  provider?: string;
+  kind?: string;
+  state?: string;
+  code?: string;
+  model?: string;
+  unit?: string;
+  actual?: number;
+  limit?: number;
+  remaining?: number;
+  overage?: number;
+  window_kind?: string;
+  observed_at_ms?: number;
+  recover_at_ms?: number;
+  recover_at_estimated?: boolean;
+  source?: string;
+}
+
 export interface ResponseHeaderMetadata {
   quota?: ResponseHeaderQuotaMetadata;
   errors?: ResponseHeaderErrorMetadata;
@@ -1137,6 +1212,9 @@ export interface ResponseHeaderMetadata {
   routing?: ResponseHeaderRoutingMetadata;
   response?: ResponseHeaderResponseMetadata;
   providers?: ResponseHeaderProviderMetadata;
+  rate_limit?: ResponseHeaderRateLimitMetadata;
+  data_policy?: ResponseHeaderDataPolicyMetadata;
+  provider_usage?: ProviderUsageMetadata;
 }
 
 export interface UsageHeaderSnapshot {
@@ -1256,6 +1334,7 @@ export interface MonitoringAnalyticsResponse {
   account_stats?: MonitoringAnalyticsAccountStatRow[];
   credential_stats?: MonitoringAnalyticsCredentialStatRow[];
   credential_timeline?: MonitoringAnalyticsCredentialTimelinePoint[];
+  api_key_timeline?: MonitoringAnalyticsApiKeyTimelinePoint[];
   api_key_stats?: MonitoringAnalyticsApiKeyStatRow[];
   filter_options?: MonitoringAnalyticsFilterOptions;
   task_buckets?: MonitoringAnalyticsTaskBucketRow[];
@@ -1495,19 +1574,32 @@ const getDemoPatchedAccountProcessingPolicy = (
 };
 
 const getDemoCodexInspectionActionsResponse = (
-  resultIds: number[]
+  resultIds: number[],
+  actionOverrides: CodexInspectionActionOverride[] = []
 ): CodexInspectionActionsResponse => {
   const detail = getDemoCodexInspectionRun();
+  const overrideByID = new Map(actionOverrides.map((item) => [item.resultId, item.action]));
   const selected = resultIds.length
     ? detail.results.filter((result) => resultIds.includes(result.id))
     : detail.results;
+  const selectedIds = new Set(selected.map((result) => result.id));
+  detail.results = detail.results.map((result) => {
+    if (!selectedIds.has(result.id)) return result;
+    const executedAction = overrideByID.get(result.id) ?? result.action;
+    return {
+      ...result,
+      actionStatus: 'success',
+      executedAction,
+      actionError: undefined,
+    };
+  });
   return {
     outcomes: selected.map((result) => ({
       resultId: result.id,
       accountKey: result.accountKey,
       fileName: result.fileName,
       displayAccount: result.displayAccount,
-      action: result.action,
+      action: overrideByID.get(result.id) ?? result.action,
       status: 'done',
       success: true,
     })),
@@ -1731,16 +1823,17 @@ export const usageServiceApi = {
     base: string,
     managementKey: string | undefined,
     runId: number,
-    resultIds: number[]
+    resultIds: number[],
+    actionOverrides: CodexInspectionActionOverride[] = []
   ): Promise<CodexInspectionActionsResponse> => {
     if (__DEMO_SITE__ && isDemoMode()) {
-      return getDemoCodexInspectionActionsResponse(resultIds);
+      return getDemoCodexInspectionActionsResponse(resultIds, actionOverrides);
     }
 
     return withUsageServiceError(async () => {
       const response = await axios.post<CodexInspectionActionsResponse>(
         buildUrl(base, `/v0/management/codex-inspection/runs/${runId}/actions`),
-        { resultIds },
+        { resultIds, actionOverrides },
         {
           timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
           headers: authHeaders(managementKey),

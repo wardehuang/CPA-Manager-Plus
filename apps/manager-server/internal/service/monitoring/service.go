@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/pricing"
@@ -26,11 +27,71 @@ const (
 	maxAccountHistoryTargets   = 200
 	accountHistoryCatchUpLimit = 5000
 	recentWindowMS             = 30 * 60 * 1000
+	// analyticsPrefetchConcurrency limits background analytics reads. The
+	// foreground summary/task path may hold one additional SQLite connection.
+	analyticsPrefetchConcurrency = 2
 )
 
 type Service struct {
 	store        *store.Store
 	hourlyReader *usagehourly.Reader
+}
+
+type analyticsQueryGroup struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	semaphore chan struct{}
+	waitGroup sync.WaitGroup
+	errorOnce sync.Once
+	waitOnce  sync.Once
+	err       error
+}
+
+func newAnalyticsQueryGroup(ctx context.Context, concurrency int) *analyticsQueryGroup {
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	queryCtx, cancel := context.WithCancel(ctx)
+	return &analyticsQueryGroup{
+		ctx:       queryCtx,
+		cancel:    cancel,
+		semaphore: make(chan struct{}, concurrency),
+	}
+}
+
+func (g *analyticsQueryGroup) Go(query func(context.Context) error) {
+	g.waitGroup.Add(1)
+	go func() {
+		defer g.waitGroup.Done()
+		select {
+		case g.semaphore <- struct{}{}:
+			defer func() { <-g.semaphore }()
+		case <-g.ctx.Done():
+			return
+		}
+		if err := query(g.ctx); err != nil {
+			g.errorOnce.Do(func() {
+				g.err = err
+				g.cancel()
+			})
+		}
+	}()
+}
+
+func (g *analyticsQueryGroup) Wait() error {
+	g.waitOnce.Do(func() {
+		g.waitGroup.Wait()
+		if g.err == nil && g.ctx.Err() != nil {
+			g.err = g.ctx.Err()
+		}
+		g.cancel()
+	})
+	return g.err
+}
+
+func (g *analyticsQueryGroup) Close() {
+	g.cancel()
+	_ = g.Wait()
 }
 
 func New(store *store.Store, hourlyRollupEnabled ...bool) *Service {
@@ -90,6 +151,7 @@ type Include struct {
 	AccountStats       bool              `json:"account_stats"`
 	CredentialStats    bool              `json:"credential_stats"`
 	CredentialTimeline bool              `json:"credential_timeline"`
+	APIKeyTimeline     bool              `json:"api_key_timeline"`
 	APIKeyStats        bool              `json:"api_key_stats"`
 	FilterOptions      bool              `json:"filter_options"`
 	FilterSelectors    bool              `json:"filter_selectors"`
@@ -130,6 +192,7 @@ type Response struct {
 	AccountStats       []AccountStatRow          `json:"account_stats,omitempty"`
 	CredentialStats    []CredentialStatRow       `json:"credential_stats,omitempty"`
 	CredentialTimeline []CredentialTimelinePoint `json:"credential_timeline,omitempty"`
+	APIKeyTimeline     []APIKeyTimelinePoint     `json:"api_key_timeline,omitempty"`
 	APIKeyStats        []APIKeyStatRow           `json:"api_key_stats,omitempty"`
 	FilterOptions      *FilterOptions            `json:"filter_options,omitempty"`
 	TaskBuckets        []TaskBucketRow           `json:"task_buckets,omitempty"`
@@ -439,6 +502,27 @@ type CredentialTimelinePoint struct {
 	FailureRate           float64  `json:"failure_rate"`
 }
 
+type APIKeyTimelinePoint struct {
+	APIKeyHash          string   `json:"api_key_hash"`
+	BucketMS            int64    `json:"bucket_ms"`
+	BucketLabel         string   `json:"bucket_label"`
+	Calls               int64    `json:"calls"`
+	Tokens              int64    `json:"tokens"`
+	Success             int64    `json:"success"`
+	Failure             int64    `json:"failure"`
+	InputTokens         int64    `json:"input_tokens"`
+	OutputTokens        int64    `json:"output_tokens"`
+	CachedTokens        int64    `json:"cached_tokens"`
+	CacheReadTokens     int64    `json:"cache_read_tokens"`
+	CacheCreationTokens int64    `json:"cache_creation_tokens"`
+	ReasoningTokens     int64    `json:"reasoning_tokens"`
+	TotalTokens         int64    `json:"total_tokens"`
+	Cost                float64  `json:"cost"`
+	AvgLatencyMS        *float64 `json:"average_latency_ms"`
+	SuccessRate         float64  `json:"success_rate"`
+	FailureRate         float64  `json:"failure_rate"`
+}
+
 type AccountModelStatRow struct {
 	Model               string  `json:"model"`
 	Calls               int64   `json:"calls"`
@@ -685,6 +769,9 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 	}
 
 	var modelStats []store.ModelStat
+	var channelStats []store.ChannelModelStat
+	var accountStats []store.AccountModelStat
+	var apiKeyStats []store.APIKeyModelStat
 	needsModelStats := req.Include.Summary || req.Include.ModelShare || req.Include.ModelStats
 	if needsModelStats {
 		if hourlySnapshotAvailable {
@@ -695,6 +782,156 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 				return Response{}, err
 			}
 		}
+	}
+
+	queries := newAnalyticsQueryGroup(ctx, analyticsPrefetchConcurrency)
+	defer queries.Close()
+
+	var latencyPercentiles []store.LatencyPercentiles
+	if req.Include.Timeline || req.Include.AnomalyPoints {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			latencyPercentiles, queryErr = s.store.LatencyPercentilesWithFilter(queryCtx, filter, granularity, location)
+			return queryErr
+		})
+	}
+
+	var hourlyDistributionPoints []store.HourlyPoint
+	if req.Include.HourlyDistribution {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			hourlyDistributionPoints, queryErr = s.store.HourlyDistributionWithFilter(queryCtx, filter, location)
+			return queryErr
+		})
+	}
+
+	var heatmapPoints []store.HeatmapPoint
+	if req.Include.Heatmap {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			heatmapPoints, queryErr = s.store.HeatmapWithFilter(queryCtx, filter, location)
+			return queryErr
+		})
+	}
+
+	if req.Include.ChannelShare {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			channelStats, queryErr = s.store.ChannelModelStatsWithFilter(queryCtx, filter)
+			return queryErr
+		})
+	}
+
+	var failureSourceStats []store.FailureSourceStat
+	if req.Include.FailureSources {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			failureSourceStats, queryErr = s.store.FailureSourcesWithFilter(queryCtx, filter)
+			return queryErr
+		})
+	}
+
+	if req.Include.AccountStats {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			accountStats, queryErr = s.store.AccountModelStatsWithFilter(queryCtx, filter)
+			return queryErr
+		})
+	}
+
+	var credentialStats []store.CredentialModelStat
+	if req.Include.CredentialStats {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			credentialStats, queryErr = s.store.CredentialModelStatsWithFilter(queryCtx, filter)
+			return queryErr
+		})
+	}
+
+	var credentialTimelinePoints []store.CredentialTimelinePoint
+	if req.Include.CredentialTimeline {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			credentialTimelinePoints, queryErr = s.store.CredentialTimelineWithFilter(queryCtx, filter, granularity, location)
+			return queryErr
+		})
+	}
+
+	var apiKeyTimelinePoints []store.APIKeyTimelinePoint
+	if req.Include.APIKeyTimeline {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			apiKeyTimelinePoints, queryErr = s.store.APIKeyTimelineWithFilter(queryCtx, filter, granularity, location)
+			return queryErr
+		})
+	}
+
+	if req.Include.APIKeyStats {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			apiKeyStats, queryErr = s.store.APIKeyModelStatsWithFilter(queryCtx, filter)
+			return queryErr
+		})
+	}
+
+	var selectorOptions *FilterOptions
+	var prebuiltFilterOptions *FilterOptions
+	var filterOptionValues store.FilterOptionValues
+	var filterOptionValuesAvailable bool
+	if req.Include.FilterSelectors {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			selectorOptions, queryErr = s.filterSelectors(queryCtx, filter)
+			return queryErr
+		})
+	} else if req.Include.FilterOptions {
+		if filterOptionsMatchMainScope(filter) {
+			queries.Go(func(queryCtx context.Context) error {
+				var queryErr error
+				filterOptionValues, queryErr = s.store.FilterOptionValuesWithFilter(queryCtx, filterOptionsBaseFilter(filter))
+				filterOptionValuesAvailable = queryErr == nil
+				return queryErr
+			})
+		} else {
+			queries.Go(func(queryCtx context.Context) error {
+				var queryErr error
+				prebuiltFilterOptions, queryErr = s.filterOptions(queryCtx, filter, prices, filterOptionStats{})
+				return queryErr
+			})
+		}
+	}
+
+	var recentFailureRows []store.RecentFailure
+	if req.Include.RecentFailures > 0 {
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			recentFailureRows, queryErr = s.store.RecentFailuresWithFilter(queryCtx, filter, req.Include.RecentFailures)
+			return queryErr
+		})
+	}
+
+	var eventsPage store.EventsPage
+	if req.Include.EventsPage != nil {
+		limit := req.Include.EventsPage.Limit
+		if limit <= 0 {
+			limit = defaultEventsLimit
+		}
+		if limit > maxEventsLimit {
+			limit = maxEventsLimit
+		}
+		beforeMS := int64(0)
+		if req.Include.EventsPage.BeforeMS != nil {
+			beforeMS = *req.Include.EventsPage.BeforeMS
+		}
+		beforeID := int64(0)
+		if req.Include.EventsPage.BeforeID != nil {
+			beforeID = *req.Include.EventsPage.BeforeID
+		}
+		queries.Go(func(queryCtx context.Context) error {
+			var queryErr error
+			eventsPage, queryErr = s.store.EventsPageWithFilter(queryCtx, filter, beforeMS, beforeID, limit)
+			return queryErr
+		})
 	}
 
 	var taskBuckets []store.TaskBucket
@@ -802,6 +1039,9 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 			}
 		}
 	}
+	if err := queries.Wait(); err != nil {
+		return Response{}, err
+	}
 	var timeline []TimelinePoint
 	if req.Include.Timeline || req.Include.AnomalyPoints {
 		var points []store.TimelinePoint
@@ -815,11 +1055,7 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 				return Response{}, err
 			}
 		}
-		percentiles, err := s.store.LatencyPercentilesWithFilter(ctx, filter, granularity, location)
-		if err != nil {
-			return Response{}, err
-		}
-		timeline = buildTimeline(points, percentiles, granularity, location, prices)
+		timeline = buildTimeline(points, latencyPercentiles, granularity, location, prices)
 		if req.Include.Timeline {
 			response.Timeline = timeline
 		}
@@ -828,18 +1064,10 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		}
 	}
 	if req.Include.HourlyDistribution {
-		points, err := s.store.HourlyDistributionWithFilter(ctx, filter, location)
-		if err != nil {
-			return Response{}, err
-		}
-		response.HourlyDistribution = buildHourly(points)
+		response.HourlyDistribution = buildHourly(hourlyDistributionPoints)
 	}
 	if req.Include.Heatmap {
-		points, err := s.store.HeatmapWithFilter(ctx, filter, location)
-		if err != nil {
-			return Response{}, err
-		}
-		response.Heatmap = buildHeatmap(points, prices)
+		response.Heatmap = buildHeatmap(heatmapPoints, prices)
 	}
 	if req.Include.ModelShare {
 		response.ModelShare = buildModelShare(modelStats, prices)
@@ -848,90 +1076,72 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		response.ModelStats = buildModelStats(modelStats, prices)
 	}
 	if req.Include.ChannelShare {
-		stats, err := s.store.ChannelModelStatsWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.ChannelShare = buildChannelShare(stats, prices)
+		response.ChannelShare = buildChannelShare(channelStats, prices)
 	}
 	if req.Include.FailureSources {
-		stats, err := s.store.FailureSourcesWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.FailureSources = buildFailureSources(stats)
+		response.FailureSources = buildFailureSources(failureSourceStats)
 	}
 	if req.Include.AccountStats {
-		stats, err := s.store.AccountModelStatsWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.AccountStats = buildAccountStats(stats, prices)
+		response.AccountStats = buildAccountStats(accountStats, prices)
 	}
 	if req.Include.CredentialStats {
-		stats, err := s.store.CredentialModelStatsWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.CredentialStats = buildCredentialStats(stats, prices)
+		response.CredentialStats = buildCredentialStats(credentialStats, prices)
 	}
 	if req.Include.CredentialTimeline {
-		points, err := s.store.CredentialTimelineWithFilter(ctx, filter, granularity, location)
-		if err != nil {
-			return Response{}, err
-		}
-		response.CredentialTimeline = buildCredentialTimeline(points, granularity, location, prices)
+		response.CredentialTimeline = buildCredentialTimeline(credentialTimelinePoints, granularity, location, prices)
+	}
+	if req.Include.APIKeyTimeline {
+		response.APIKeyTimeline = buildAPIKeyTimeline(apiKeyTimelinePoints, granularity, location, prices)
 	}
 	if req.Include.APIKeyStats {
-		stats, err := s.store.APIKeyModelStatsWithFilter(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.APIKeyStats = buildAPIKeyStats(stats, prices)
+		response.APIKeyStats = buildAPIKeyStats(apiKeyStats, prices)
 	}
 	if req.Include.FilterSelectors {
-		selectors, err := s.filterSelectors(ctx, filter)
-		if err != nil {
-			return Response{}, err
-		}
-		response.FilterOptions = selectors
+		response.FilterOptions = selectorOptions
 	} else if req.Include.FilterOptions {
-		options, err := s.filterOptions(ctx, filter, prices)
-		if err != nil {
-			return Response{}, err
+		if prebuiltFilterOptions != nil {
+			response.FilterOptions = prebuiltFilterOptions
+		} else {
+			reuse := filterOptionStats{
+				accountStats:          accountStats,
+				accountStatsAvailable: req.Include.AccountStats,
+				apiKeyStats:           apiKeyStats,
+				apiKeyStatsAvailable:  req.Include.APIKeyStats,
+				channelStats:          channelStats,
+				channelStatsAvailable: req.Include.ChannelShare,
+				modelStats:            modelStats,
+				modelStatsAvailable:   needsModelStats,
+				optionValues:          filterOptionValues,
+				optionValuesAvailable: filterOptionValuesAvailable,
+			}
+			options, err := s.filterOptions(ctx, filter, prices, reuse)
+			if err != nil {
+				return Response{}, err
+			}
+			if filterOptionsMatchMainScope(filter) {
+				if req.Include.AccountStats {
+					options.AccountStats = response.AccountStats
+				}
+				if req.Include.APIKeyStats {
+					options.APIKeyStats = response.APIKeyStats
+				}
+				if req.Include.ChannelShare {
+					options.ChannelShare = response.ChannelShare
+				}
+				if req.Include.ModelStats {
+					options.ModelStats = response.ModelStats
+				}
+			}
+			response.FilterOptions = options
 		}
-		response.FilterOptions = options
 	}
 	if req.Include.TaskBuckets {
 		response.TaskBuckets = buildTaskBuckets(taskBuckets)
 	}
 	if req.Include.RecentFailures > 0 {
-		failures, err := s.store.RecentFailuresWithFilter(ctx, filter, req.Include.RecentFailures)
-		if err != nil {
-			return Response{}, err
-		}
-		response.RecentFailures = buildRecentFailures(failures)
+		response.RecentFailures = buildRecentFailures(recentFailureRows)
 	}
 	if req.Include.EventsPage != nil {
-		limit := req.Include.EventsPage.Limit
-		if limit <= 0 {
-			limit = defaultEventsLimit
-		}
-		if limit > maxEventsLimit {
-			limit = maxEventsLimit
-		}
-		beforeMS := int64(0)
-		if req.Include.EventsPage.BeforeMS != nil {
-			beforeMS = *req.Include.EventsPage.BeforeMS
-		}
-		beforeID := int64(0)
-		if req.Include.EventsPage.BeforeID != nil {
-			beforeID = *req.Include.EventsPage.BeforeID
-		}
-		page, err := s.store.EventsPageWithFilter(ctx, filter, beforeMS, beforeID, limit)
-		if err != nil {
-			return Response{}, err
-		}
 		// total_count is the real number of events matching the current filter
 		// (time range + scope filters + search), independent of the pagination
 		// cursor. Reuse the summary aggregate count when it was already computed
@@ -944,7 +1154,7 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 				return Response{}, err
 			}
 		}
-		response.Events = buildEvents(page, total)
+		response.Events = buildEvents(eventsPage, total)
 	}
 	if req.Include.DrilldownPreview != nil {
 		preview := req.Include.DrilldownPreview
@@ -1151,28 +1361,66 @@ func analyticsHourlyRollupEligible(filter store.AnalyticsFilter) bool {
 		strings.TrimSpace(filter.CacheStatus) == ""
 }
 
-func (s *Service) filterOptions(ctx context.Context, filter store.AnalyticsFilter, prices map[string]store.ModelPrice) (*FilterOptions, error) {
+type filterOptionStats struct {
+	accountStats          []store.AccountModelStat
+	accountStatsAvailable bool
+	apiKeyStats           []store.APIKeyModelStat
+	apiKeyStatsAvailable  bool
+	channelStats          []store.ChannelModelStat
+	channelStatsAvailable bool
+	modelStats            []store.ModelStat
+	modelStatsAvailable   bool
+	optionValues          store.FilterOptionValues
+	optionValuesAvailable bool
+}
+
+func (s *Service) filterOptions(
+	ctx context.Context,
+	filter store.AnalyticsFilter,
+	prices map[string]store.ModelPrice,
+	reuse filterOptionStats,
+) (*FilterOptions, error) {
 	optionFilter := filterOptionsBaseFilter(filter)
 
-	accountStats, err := s.store.AccountModelStatsWithFilter(ctx, optionFilter)
-	if err != nil {
-		return nil, err
+	accountStats := reuse.accountStats
+	if !reuse.accountStatsAvailable {
+		var err error
+		accountStats, err = s.store.AccountModelStatsWithFilter(ctx, optionFilter)
+		if err != nil {
+			return nil, err
+		}
 	}
-	apiKeyStats, err := s.store.APIKeyModelStatsWithFilter(ctx, optionFilter)
-	if err != nil {
-		return nil, err
+	apiKeyStats := reuse.apiKeyStats
+	if !reuse.apiKeyStatsAvailable {
+		var err error
+		apiKeyStats, err = s.store.APIKeyModelStatsWithFilter(ctx, optionFilter)
+		if err != nil {
+			return nil, err
+		}
 	}
-	channelStats, err := s.store.ChannelModelStatsWithFilter(ctx, optionFilter)
-	if err != nil {
-		return nil, err
+	channelStats := reuse.channelStats
+	if !reuse.channelStatsAvailable {
+		var err error
+		channelStats, err = s.store.ChannelModelStatsWithFilter(ctx, optionFilter)
+		if err != nil {
+			return nil, err
+		}
 	}
-	modelStats, err := s.store.ModelStatsWithFilter(ctx, optionFilter, 0)
-	if err != nil {
-		return nil, err
+	modelStats := reuse.modelStats
+	if !reuse.modelStatsAvailable {
+		var err error
+		modelStats, err = s.store.ModelStatsWithFilter(ctx, optionFilter, 0)
+		if err != nil {
+			return nil, err
+		}
 	}
-	optionValues, err := s.store.FilterOptionValuesWithFilter(ctx, optionFilter)
-	if err != nil {
-		return nil, err
+	optionValues := reuse.optionValues
+	if !reuse.optionValuesAvailable {
+		var err error
+		optionValues, err = s.store.FilterOptionValuesWithFilter(ctx, optionFilter)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &FilterOptions{
@@ -1189,6 +1437,27 @@ func (s *Service) filterOptions(ctx context.Context, filter store.AnalyticsFilte
 		HeaderQuotaPlans: optionValues.HeaderQuotaPlans,
 		HeaderTraceIDs:   optionValues.HeaderTraceIDs,
 	}, nil
+}
+
+func filterOptionsMatchMainScope(filter store.AnalyticsFilter) bool {
+	return len(filter.Models) == 0 &&
+		len(filter.Providers) == 0 &&
+		len(filter.Accounts) == 0 &&
+		len(filter.CredentialIDs) == 0 &&
+		len(filter.AuthFiles) == 0 &&
+		len(filter.AuthIndices) == 0 &&
+		len(filter.APIKeyHashes) == 0 &&
+		len(filter.SourceHashes) == 0 &&
+		len(filter.ProjectIDs) == 0 &&
+		len(filter.RequestTypes) == 0 &&
+		len(filter.HeaderErrorKinds) == 0 &&
+		len(filter.HeaderErrorCodes) == 0 &&
+		len(filter.HeaderQuotaPlans) == 0 &&
+		len(filter.HeaderTraceIDs) == 0 &&
+		filter.IncludeFailed &&
+		!filter.FailedOnly &&
+		filter.MinLatencyMS == 0 &&
+		strings.TrimSpace(filter.CacheStatus) == ""
 }
 
 func (s *Service) filterSelectors(ctx context.Context, filter store.AnalyticsFilter) (*FilterOptions, error) {
@@ -1990,6 +2259,69 @@ func buildCredentialTimeline(points []store.CredentialTimelinePoint, granularity
 	return result
 }
 
+type apiKeyTimelineAccumulator struct {
+	point          APIKeyTimelinePoint
+	latencySum     float64
+	latencySamples int64
+}
+
+func buildAPIKeyTimeline(points []store.APIKeyTimelinePoint, granularity string, location *time.Location, prices map[string]store.ModelPrice) []APIKeyTimelinePoint {
+	type key struct {
+		apiKeyHash string
+		bucketMS   int64
+	}
+	grouped := map[key]*apiKeyTimelineAccumulator{}
+	order := make([]key, 0, len(points))
+	for _, point := range points {
+		apiKeyHash := strings.TrimSpace(point.APIKeyHash)
+		if apiKeyHash == "" {
+			continue
+		}
+		mapKey := key{apiKeyHash: apiKeyHash, bucketMS: point.BucketMS}
+		entry := grouped[mapKey]
+		if entry == nil {
+			entry = &apiKeyTimelineAccumulator{
+				point: APIKeyTimelinePoint{
+					APIKeyHash:  apiKeyHash,
+					BucketMS:    point.BucketMS,
+					BucketLabel: timelineLabel(point.BucketMS, granularity, location),
+				},
+			}
+			grouped[mapKey] = entry
+			order = append(order, mapKey)
+		}
+		entry.point.Calls += point.Calls
+		entry.point.Tokens += point.Tokens
+		entry.point.TotalTokens += point.Tokens
+		entry.point.Success += point.Success
+		entry.point.Failure += point.Failure
+		entry.point.InputTokens += point.InputTokens
+		entry.point.OutputTokens += point.OutputTokens
+		entry.point.CachedTokens += point.CachedTokens
+		entry.point.CacheReadTokens += point.CacheReadTokens
+		entry.point.CacheCreationTokens += point.CacheCreationTokens
+		entry.point.ReasoningTokens += point.ReasoningTokens
+		entry.point.Cost += costForAPIKeyTimelinePoint(point, prices)
+		if point.AvgLatencyMS.Valid && point.LatencySamples > 0 {
+			entry.latencySum += point.AvgLatencyMS.Float64 * float64(point.LatencySamples)
+			entry.latencySamples += point.LatencySamples
+		}
+	}
+
+	result := make([]APIKeyTimelinePoint, 0, len(order))
+	for _, mapKey := range order {
+		entry := grouped[mapKey]
+		if entry.latencySamples > 0 {
+			value := entry.latencySum / float64(entry.latencySamples)
+			entry.point.AvgLatencyMS = &value
+		}
+		entry.point.SuccessRate = ratio(entry.point.Success, entry.point.Calls)
+		entry.point.FailureRate = ratio(entry.point.Failure, entry.point.Calls)
+		result = append(result, entry.point)
+	}
+	return result
+}
+
 func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.ModelPrice) []APIKeyStatRow {
 	grouped := map[string]*apiKeyStatAccumulator{}
 	for _, stat := range stats {
@@ -2759,6 +3091,21 @@ func costForCredentialModelStat(stat store.CredentialModelStat, prices map[strin
 }
 
 func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, prices map[string]store.ModelPrice) float64 {
+	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
+		InputTokens:             point.InputTokens,
+		OutputTokens:            point.OutputTokens,
+		CachedTokens:            point.CachedTokens,
+		CacheReadTokens:         point.CacheReadTokens,
+		CacheCreationTokens:     point.CacheCreationTokens,
+		LongInputTokens:         point.LongInputTokens,
+		LongOutputTokens:        point.LongOutputTokens,
+		LongCachedTokens:        point.LongCachedTokens,
+		LongCacheReadTokens:     point.LongCacheReadTokens,
+		LongCacheCreationTokens: point.LongCacheCreationTokens,
+	}, prices)
+}
+
+func costForAPIKeyTimelinePoint(point store.APIKeyTimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
 		InputTokens:             point.InputTokens,
 		OutputTokens:            point.OutputTokens,

@@ -37,7 +37,10 @@ const MODES: ReadonlyArray<{
   },
 ];
 
-const getModeDescription = (activeMode: CodexInspectionMode, t: ReturnType<typeof useTranslation>['t']) => {
+const getModeDescription = (
+  activeMode: CodexInspectionMode,
+  t: ReturnType<typeof useTranslation>['t']
+) => {
   if (activeMode === 'server') {
     return String(
       t('monitoring.codex_inspection_mode_server_desc', {
@@ -59,11 +62,16 @@ const getModeDescription = (activeMode: CodexInspectionMode, t: ReturnType<typeo
   );
 };
 
-export function CodexInspectionModeTabs({ activeMode, showDescription = true }: CodexInspectionModeTabsProps) {
+export function CodexInspectionModeTabs({
+  activeMode,
+  showDescription = true,
+}: CodexInspectionModeTabsProps) {
   const { t } = useTranslation();
   const availability = usePanelFeatureAvailability();
   const activeModeConfig = MODES.find((item) => item.mode === activeMode) ?? MODES[0];
-  const activeLabel = t(activeModeConfig.labelKey, { defaultValue: activeModeConfig.fallbackLabel });
+  const activeLabel = t(activeModeConfig.labelKey, {
+    defaultValue: activeModeConfig.fallbackLabel,
+  });
   const visibleModes = MODES.filter(
     (item) =>
       item.mode !== 'local' &&

@@ -1,4 +1,5 @@
 import { authFilesApi } from '@/services/api/authFiles';
+import type { TFunction } from 'i18next';
 import { getApiCallErrorMessage } from '@/services/api/apiCall';
 import type { AuthFileItem, Config } from '@/types';
 import {
@@ -22,10 +23,12 @@ import {
   serializeCodexInspectionLastRun,
   sortCodexInspectionResults as sortResults,
 } from '@/features/monitoring/model/codexInspectionStorage';
+import { getCodexInspectionOwnedDisableFileNames } from '@/features/monitoring/model/codexInspectionOwnership';
 import {
   inspectSingleAccount,
   toInspectionAccount,
 } from '@/features/monitoring/model/codexInspectionProbe';
+import { inspectSingleXaiAccount } from '@/features/monitoring/model/xaiInspectionProbe';
 import {
   buildProgressSummary,
   buildSummary,
@@ -71,26 +74,37 @@ export type CodexInspectionStoredActionFilter =
 export interface CodexInspectionSettings {
   baseUrl: string;
   token: string;
+  targetTypes: string[];
   targetType: string;
   workers: number;
   deleteWorkers: number;
   timeout: number;
   retries: number;
   userAgent: string;
+  xaiInferenceUserAgent: string;
+  xaiInferenceEnabled: boolean;
+  xaiInferenceModel: string;
+  xaiInferencePrompt: string;
   usedPercentThreshold: number;
   sampleSize: number;
 }
 
 export interface CodexInspectionConfigurableSettings {
+  targetTypes: string[];
   targetType: string;
   workers: number;
   deleteWorkers: number;
   timeout: number;
   retries: number;
   userAgent: string;
+  xaiInferenceUserAgent: string;
+  xaiInferenceEnabled: boolean;
+  xaiInferenceModel: string;
+  xaiInferencePrompt: string;
   usedPercentThreshold: number;
   sampleSize: number;
   autoActionMode: CodexInspectionAutoActionMode;
+  autoRecoverEnabled: boolean;
 }
 
 export interface CodexInspectionAccount {
@@ -101,6 +115,7 @@ export interface CodexInspectionAccount {
   accountId: string | null;
   provider: string;
   disabled: boolean;
+  autoRecoverOwned: boolean;
   status: string;
   state: string;
   raw: AuthFileItem;
@@ -121,11 +136,13 @@ export interface CodexInspectionResultItem extends CodexInspectionAccount {
   statusCode: number | null;
   usedPercent: number | null;
   isQuota: boolean;
+  autoRecoverEligible: boolean;
   error: string;
   planType?: string | null;
   quotaWindows?: CodexInspectionQuotaWindow[];
   errorKind?: string;
   errorDetail?: string;
+  actionHandled?: boolean;
   observedHeaderEvidence?: string[];
   observedHeaderAtMs?: number | null;
 }
@@ -220,6 +237,7 @@ type InspectCodexAccountsOptions = {
   onLog?: LogHandler;
   onProgress?: ProgressHandler;
   onResultsChange?: ResultsChangeHandler;
+  t?: TFunction;
 };
 
 type CreateCodexInspectionSessionOptions = InspectCodexAccountsOptions;
@@ -294,6 +312,22 @@ const pickSample = <T>(items: T[], sampleSize: number): T[] => {
   return shuffled.slice(0, sampleSize);
 };
 
+const pickSamplePerProvider = (
+  items: CodexInspectionAccount[],
+  sampleSize: number
+): CodexInspectionAccount[] => {
+  if (sampleSize <= 0) return [...items];
+
+  const groups = new Map<string, CodexInspectionAccount[]>();
+  items.forEach((item) => {
+    const group = groups.get(item.provider) ?? [];
+    group.push(item);
+    groups.set(item.provider, group);
+  });
+
+  return Array.from(groups.values()).flatMap((group) => pickSample(group, sampleSize));
+};
+
 export const resolveCodexInspectionSettings = (
   config: Config | null,
   apiBase: string,
@@ -309,12 +343,17 @@ export const resolveCodexInspectionSettings = (
   return {
     baseUrl: readString(apiBase) || readString(clean?.baseUrl),
     token: readString(managementKey) || readString(clean?.token),
+    targetTypes: configurable.targetTypes,
     targetType: configurable.targetType,
     workers: configurable.workers,
     deleteWorkers: configurable.deleteWorkers,
     timeout: configurable.timeout,
     retries: configurable.retries,
     userAgent: configurable.userAgent,
+    xaiInferenceUserAgent: configurable.xaiInferenceUserAgent,
+    xaiInferenceEnabled: configurable.xaiInferenceEnabled,
+    xaiInferenceModel: configurable.xaiInferenceModel,
+    xaiInferencePrompt: configurable.xaiInferencePrompt,
     usedPercentThreshold: configurable.usedPercentThreshold,
     sampleSize: configurable.sampleSize,
   };
@@ -328,6 +367,7 @@ export const createCodexInspectionSession = ({
   onLog,
   onProgress,
   onResultsChange,
+  t,
 }: CreateCodexInspectionSessionOptions): CodexInspectionSession => {
   const resolvedSettings = resolveCodexInspectionSettings(config, apiBase, managementKey, settings);
   const sessionId = `codex-inspection-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -434,7 +474,11 @@ export const createCodexInspectionSession = ({
       inFlight += 1;
       emitProgress();
 
-      void inspectSingleAccount(account, resolvedSettings, onLog)
+      void (
+        account.provider === 'xai'
+          ? inspectSingleXaiAccount(account, resolvedSettings, onLog, t)
+          : inspectSingleAccount(account, resolvedSettings, onLog)
+      )
         .then((inspectionResult) => {
           resultMap.set(inspectionResult.key, inspectionResult);
           emitResultsChange(inspectionResult);
@@ -447,6 +491,7 @@ export const createCodexInspectionSession = ({
             statusCode: null,
             usedPercent: null,
             isQuota: false,
+            autoRecoverEligible: false,
             error: error instanceof Error ? error.message : String(error || '探测失败'),
           };
           resultMap.set(account.key, fallbackResult);
@@ -473,15 +518,28 @@ export const createCodexInspectionSession = ({
   };
 
   const initialize = async () => {
-    onLog?.('info', `加载认证文件列表，目标类型：${resolvedSettings.targetType}`);
+    onLog?.('info', `加载认证文件列表，目标类型：${resolvedSettings.targetTypes.join(' + ')}`);
 
     const authFilesResponse = await authFilesApi.list();
     files = Array.isArray(authFilesResponse.files) ? authFilesResponse.files : [];
     const accounts = files.map(toInspectionAccount);
-    probeSet = accounts.filter((item) => item.provider === resolvedSettings.targetType);
+    const connectionFingerprint = createCodexInspectionConnectionFingerprint(
+      resolvedSettings.baseUrl,
+      resolvedSettings.token
+    );
+    const ownedDisableFileNames = getCodexInspectionOwnedDisableFileNames(
+      connectionFingerprint ?? '',
+      files
+    );
+    probeSet = accounts
+      .filter((item) => resolvedSettings.targetTypes.includes(item.provider))
+      .map((item) => ({
+        ...item,
+        autoRecoverOwned: ownedDisableFileNames.has(item.fileName),
+      }));
     sampledAccounts =
       resolvedSettings.sampleSize > 0
-        ? pickSample(probeSet, Math.min(resolvedSettings.sampleSize, probeSet.length))
+        ? pickSamplePerProvider(probeSet, resolvedSettings.sampleSize)
         : probeSet;
 
     onLog?.(
@@ -592,6 +650,7 @@ export const inspectCodexAccounts = async ({
   onLog,
   onProgress,
   onResultsChange,
+  t,
 }: InspectCodexAccountsOptions): Promise<CodexInspectionRunResult> => {
   const session = createCodexInspectionSession({
     config,
@@ -601,6 +660,7 @@ export const inspectCodexAccounts = async ({
     onLog,
     onProgress,
     onResultsChange,
+    t,
   });
 
   return session.start();
@@ -630,25 +690,39 @@ export const toReauthDeleteExecutionItem = (
 
 export const resolveCodexInspectionAutoActionItems = (
   mode: CodexInspectionAutoActionMode,
+  autoRecoverEnabled: boolean,
   items: CodexInspectionResultItem[]
 ): CodexInspectionResultItem[] => {
   const normalizedMode = normalizeAutoActionMode(mode);
-  if (normalizedMode === 'none') return [];
+  const canAutoRecover = (item: CodexInspectionResultItem) =>
+    autoRecoverEnabled && item.action === 'enable' && item.autoRecoverEligible;
 
-  if (normalizedMode === 'enable') {
-    return items.filter((item) => item.action === 'enable');
+  const grouped = new Map<string, CodexInspectionResultItem[]>();
+  items.filter(isExecutableAction).forEach((item) => {
+    const fileName = item.fileName.trim();
+    if (!fileName) return;
+    const group = grouped.get(fileName) ?? [];
+    group.push(item);
+    grouped.set(fileName, group);
+  });
+  const canonicalItems = Array.from(grouped.values())
+    .filter((group) => new Set(group.map((item) => item.action)).size === 1)
+    .map((group) => group[0]);
+
+  if (normalizedMode === 'none' || normalizedMode === 'enable') {
+    return canonicalItems.filter(canAutoRecover);
   }
 
   if (normalizedMode === 'disable') {
-    return items
+    return canonicalItems
       .filter(
-        (item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable'
+        (item) => canAutoRecover(item) || item.action === 'delete' || item.action === 'disable'
       )
       .map((item) =>
         item.action === 'delete'
           ? {
               ...item,
-              action: 'disable',
+              action: 'disable' as const,
               actionReason: item.actionReason
                 ? `${item.actionReason}；自动禁用策略改为禁用账号`
                 : '自动禁用策略改为禁用账号',
@@ -657,8 +731,8 @@ export const resolveCodexInspectionAutoActionItems = (
       );
   }
 
-  return items.filter(
-    (item) => item.action === 'delete' || item.action === 'disable' || item.action === 'enable'
+  return canonicalItems.filter(
+    (item) => canAutoRecover(item) || item.action === 'delete' || item.action === 'disable'
   );
 };
 

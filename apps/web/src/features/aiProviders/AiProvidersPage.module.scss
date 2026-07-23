@@ -817,15 +817,30 @@
 }
 
 .keyStatusTooltip {
-  bottom: calc(100% + 10px);
-  width: max-content;
-  max-width: min(280px, 42vw);
-  white-space: normal;
+  position: fixed;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 24px));
+  padding: 8px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-subtle, #d8e5f2);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: auto;
   text-align: left;
+  user-select: text;
+  z-index: $z-modal + 1;
 }
 
 .keyStatusTooltipText {
   display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -928,5 +943,4 @@
     background: rgba($error-color, 0.24);
     color: #f1b0a6;
   }
-
 }

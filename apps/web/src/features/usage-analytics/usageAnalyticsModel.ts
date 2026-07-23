@@ -1,6 +1,7 @@
 import type {
   MonitoringAnalyticsAnomalyPoint,
   MonitoringAnalyticsApiKeyStatRow,
+  MonitoringAnalyticsApiKeyTimelinePoint,
   MonitoringAnalyticsChannelShareRow,
   MonitoringAnalyticsCredentialStatRow,
   MonitoringAnalyticsCredentialTimelinePoint,
@@ -159,6 +160,7 @@ export type UsageRankRow = {
   label: string;
   model?: string;
   apiKeyHash?: string;
+  apiKeyCopyValue?: string;
   provider?: string;
   authFile?: string;
   authIndex?: string;
@@ -219,6 +221,15 @@ export type UsageEntityTrendSeries = {
 export type UsageCredentialTimelinePoint = {
   id: string;
   label: string;
+  bucketMs: number;
+  bucketLabel: string;
+  requestCount: number;
+  totalTokens: number;
+  estimatedCost: number;
+};
+
+export type UsageApiKeyTimelinePoint = {
+  apiKeyHash: string;
   bucketMs: number;
   bucketLabel: string;
   requestCount: number;
@@ -922,6 +933,22 @@ export const buildUsageCredentialTimeline = (
     };
   });
 
+export const buildUsageApiKeyTimeline = (
+  timeline: MonitoringAnalyticsApiKeyTimelinePoint[] = [],
+  granularity: UsageAnalyticsResolvedGranularity
+): UsageApiKeyTimelinePoint[] =>
+  timeline.map((point) => {
+    const bucketMs = toNumber(point.bucket_ms);
+    return {
+      apiKeyHash: normalizeApiKeyHash(point.api_key_hash),
+      bucketMs,
+      bucketLabel: point.bucket_label || formatLocalBucketLabel(bucketMs, granularity),
+      requestCount: toNumber(point.calls),
+      totalTokens: toNumber(point.total_tokens ?? point.tokens),
+      estimatedCost: toNumber(point.cost),
+    };
+  });
+
 const rowTotalCost = (row: { cost?: number }) => toNumber(row.cost);
 
 const usageRankMetricValue = (row: UsageRankRow, metric: UsageTrendMetricKey) => {
@@ -1411,6 +1438,7 @@ export const buildApiKeyRows = (
         id: hash || row.id || '-',
         label: resolveUsageApiKeyLabel(hash, apiKeyDisplayMap),
         apiKeyHash: hash,
+        apiKeyCopyValue: apiKeyDisplayMap?.get(hash)?.copyValue,
         provider: row.auth_provider_snapshot,
         authIndex: row.auth_indices?.[0],
         source: row.sources?.[0],
@@ -1791,6 +1819,58 @@ export const buildEntityTrendSeries = (
           label: point.label,
           value: point[metric] * share,
         })),
+      };
+    });
+};
+
+const usageApiKeyTimelineMetricValue = (
+  point: UsageApiKeyTimelinePoint,
+  metric: UsageTrendMetricKey
+) => {
+  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'totalTokens') return point.totalTokens;
+  return point.requestCount;
+};
+
+export const buildApiKeyTrendSeries = (
+  rows: UsageRankRow[],
+  timeline: UsageTimelinePoint[],
+  apiKeyTimeline: UsageApiKeyTimelinePoint[],
+  metric: UsageTrendMetricKey,
+  limit = 4
+): UsageEntityTrendSeries[] => {
+  const valuesByAPIKey = new Map<string, Map<number, UsageApiKeyTimelinePoint>>();
+  apiKeyTimeline.forEach((point) => {
+    if (!point.apiKeyHash) return;
+    let valuesByBucket = valuesByAPIKey.get(point.apiKeyHash);
+    if (!valuesByBucket) {
+      valuesByBucket = new Map();
+      valuesByAPIKey.set(point.apiKeyHash, valuesByBucket);
+    }
+    valuesByBucket.set(point.bucketMs, point);
+  });
+  const colors = ['#2563eb', '#0ea5a7', '#f59e0b', '#ef4444', '#64748b'];
+  return rows
+    .filter((row) => {
+      const apiKeyHash = normalizeApiKeyHash(row.apiKeyHash || row.id);
+      return apiKeyHash !== '' && usageRankMetricValue(row, metric) > 0;
+    })
+    .slice(0, limit)
+    .map((row, index) => {
+      const apiKeyHash = normalizeApiKeyHash(row.apiKeyHash || row.id);
+      const valuesByBucket = valuesByAPIKey.get(apiKeyHash);
+      return {
+        id: apiKeyHash,
+        label: row.label,
+        color: colors[index % colors.length],
+        points: timeline.map((timelinePoint) => {
+          const value = valuesByBucket?.get(timelinePoint.bucketMs);
+          return {
+            bucketMs: timelinePoint.bucketMs,
+            label: timelinePoint.label,
+            value: value ? usageApiKeyTimelineMetricValue(value, metric) : 0,
+          };
+        }),
       };
     });
 };

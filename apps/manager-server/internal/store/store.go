@@ -14,6 +14,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexaccountwindowcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexpriorityadjustment"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/datamigration"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/modelprice"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/quotacooldown"
@@ -38,6 +39,7 @@ type ManagerExternalUsageServiceConfig = model.ManagerExternalUsageServiceConfig
 type CodexInspectionRun = model.CodexInspectionRun
 type CodexInspectionResult = model.CodexInspectionResult
 type CodexInspectionLog = model.CodexInspectionLog
+type CodexInspectionDisableOwnership = model.CodexInspectionDisableOwnership
 type InsertResult = model.InsertResult
 type ModelPrice = model.ModelPrice
 type ModelPriceSyncResult = model.ModelPriceSyncResult
@@ -51,6 +53,8 @@ type AccountActionCandidateUpsert = model.AccountActionCandidateUpsert
 type CodexPriorityAdjustment = model.CodexPriorityAdjustment
 type WxaiPriorityAdjustment = model.WxaiPriorityAdjustment
 type AutomationSettings = model.AutomationSettings
+type DataMigrationState = datamigration.State
+type DataMigrationBatchResult = datamigration.BatchResult
 
 var DefaultCodexInspectionConfig = model.DefaultCodexInspectionConfig
 var NormalizeCodexInspectionConfig = model.NormalizeCodexInspectionConfig
@@ -72,6 +76,7 @@ type FailureSourceStat = usageevent.FailureSourceStat
 type AccountModelStat = usageevent.AccountModelStat
 type CredentialModelStat = usageevent.CredentialModelStat
 type CredentialTimelinePoint = usageevent.CredentialTimelinePoint
+type APIKeyTimelinePoint = usageevent.APIKeyTimelinePoint
 type APIKeyModelStat = usageevent.APIKeyModelStat
 type TaskBucket = usageevent.TaskBucket
 type EventPageItem = usageevent.EventPageItem
@@ -98,6 +103,7 @@ type Store struct {
 	APIKeyAliases            apikeyalias.Repository
 	AccountActions           accountaction.Repository
 	CodexInspections         codexinspection.Repository
+	DataMigrations           datamigration.Repository
 	QuotaCooldowns           quotacooldown.Repository
 	UsageRollups             usagerollup.Repository
 }
@@ -124,6 +130,7 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		APIKeyAliases:            apikeyalias.New(db),
 		AccountActions:           accountaction.New(db),
 		CodexInspections:         codexinspection.New(db),
+		DataMigrations:           datamigration.New(db),
 		QuotaCooldowns:           quotacooldown.New(db),
 		UsageRollups:             usagerollup.New(db),
 	}
@@ -292,6 +299,10 @@ func (s *Store) ListCodexAccountStatusItems(ctx context.Context, runID int64) ([
 	return s.CodexAccountStatus.ListItemsByRun(ctx, runID)
 }
 
+func (s *Store) MarkAccountActionCandidateAutoDisabled(ctx context.Context, id int64, disabledAtMS int64) error {
+	return s.AccountActions.MarkAutoDisabled(ctx, id, disabledAtMS)
+}
+
 func (s *Store) CreateCodexInspectionRun(ctx context.Context, run CodexInspectionRun) (CodexInspectionRun, error) {
 	return s.CodexInspections.CreateRun(ctx, run)
 }
@@ -328,6 +339,26 @@ func (s *Store) ListCodexInspectionLogs(ctx context.Context, runID int64) ([]Cod
 	return s.CodexInspections.ListLogs(ctx, runID)
 }
 
+func (s *Store) ListCodexInspectionDisableOwnership(ctx context.Context) ([]CodexInspectionDisableOwnership, error) {
+	return s.CodexInspections.ListDisableOwnership(ctx)
+}
+
+func (s *Store) UpsertCodexInspectionDisableOwnership(ctx context.Context, item CodexInspectionDisableOwnership) error {
+	return s.CodexInspections.UpsertDisableOwnership(ctx, item)
+}
+
+func (s *Store) DeleteCodexInspectionDisableOwnership(ctx context.Context, fileName string) error {
+	return s.CodexInspections.DeleteDisableOwnership(ctx, fileName)
+}
+
+func (s *Store) RevokeCodexInspectionDisableOwnership(ctx context.Context, fileNames []string, clearAll bool) ([]CodexInspectionDisableOwnership, error) {
+	return s.CodexInspections.RevokeDisableOwnership(ctx, fileNames, clearAll)
+}
+
+func (s *Store) RestoreCodexInspectionDisableOwnership(ctx context.Context, items []CodexInspectionDisableOwnership) error {
+	return s.CodexInspections.RestoreDisableOwnership(ctx, items)
+}
+
 func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertResult, error) {
 	return s.UsageEvents.InsertBatch(ctx, events)
 }
@@ -336,11 +367,59 @@ func (s *Store) GetRawEventByHash(ctx context.Context, eventHash string) (RawEve
 	return s.UsageEvents.GetRawEventByHash(ctx, eventHash)
 }
 
+func (s *Store) UsageCacheAccountingMigrationState(ctx context.Context) (DataMigrationState, error) {
+	state, found, err := s.DataMigrations.UsageCacheAccountingState(ctx)
+	if err != nil {
+		return DataMigrationState{}, err
+	}
+	if found {
+		return state, nil
+	}
+	return DataMigrationState{
+		Name:   datamigration.UsageCacheAccountingMigrationName,
+		Status: datamigration.StatusDiscovering,
+	}, nil
+}
+
+func (s *Store) DiscoverUsageCacheAccounting(ctx context.Context) (DataMigrationState, error) {
+	return s.DataMigrations.DiscoverUsageCacheAccounting(ctx)
+}
+
+func (s *Store) RunUsageCacheAccountingBatch(ctx context.Context, batchSize int) (DataMigrationBatchResult, error) {
+	return s.DataMigrations.RunUsageCacheAccountingBatch(ctx, batchSize)
+}
+
+func (s *Store) RecordUsageCacheAccountingFailure(ctx context.Context, migrationErr error) error {
+	return s.DataMigrations.RecordUsageCacheAccountingFailure(ctx, migrationErr)
+}
+
+func (s *Store) UsageCacheAccountingMigrationReady(ctx context.Context) (bool, error) {
+	state, err := s.UsageCacheAccountingMigrationState(ctx)
+	if err != nil {
+		return false, err
+	}
+	return state.Status == datamigration.StatusCompleted, nil
+}
+
 func (s *Store) CatchUpAccountHistoryRollups(ctx context.Context, limit int, nowMS int64) (UsageRollupCatchUpResult, error) {
+	ready, err := s.UsageCacheAccountingMigrationReady(ctx)
+	if err != nil {
+		return UsageRollupCatchUpResult{}, err
+	}
+	if !ready {
+		return UsageRollupCatchUpResult{Pending: true}, nil
+	}
 	return s.UsageRollups.CatchUpAccountHistory(ctx, limit, nowMS)
 }
 
 func (s *Store) CatchUpDashboardHourlyRollups(ctx context.Context, limit int, nowMS int64) (UsageRollupCatchUpResult, error) {
+	ready, err := s.UsageCacheAccountingMigrationReady(ctx)
+	if err != nil {
+		return UsageRollupCatchUpResult{}, err
+	}
+	if !ready {
+		return UsageRollupCatchUpResult{Pending: true}, nil
+	}
 	return s.UsageRollups.CatchUpDashboardHourly(ctx, limit, nowMS)
 }
 
@@ -522,6 +601,10 @@ func (s *Store) CredentialModelStatsWithFilter(ctx context.Context, filter Analy
 
 func (s *Store) CredentialTimelineWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) ([]CredentialTimelinePoint, error) {
 	return s.UsageEvents.CredentialTimelineWithFilter(ctx, filter, granularity, location)
+}
+
+func (s *Store) APIKeyTimelineWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) ([]APIKeyTimelinePoint, error) {
+	return s.UsageEvents.APIKeyTimelineWithFilter(ctx, filter, granularity, location)
 }
 
 func (s *Store) APIKeyModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]APIKeyModelStat, error) {

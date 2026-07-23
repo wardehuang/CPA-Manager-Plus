@@ -184,6 +184,8 @@ export type MonitoringEventRow = {
   totalCost: number;
   reasoningEffort?: string;
   serviceTier?: string;
+  requestServiceTier?: string;
+  responseServiceTier?: string;
   executorType?: string;
   failStatusCode?: number | null;
   failSummary?: string;
@@ -274,6 +276,7 @@ export type MonitoringApiKeyRow = {
   apiKeyHash: string;
   apiKeyLabel: string;
   apiKeyMasked: string;
+  apiKeyCopyValue?: string;
   isUnknown: boolean;
   authLabels: string[];
   sourceLabels: string[];

@@ -102,7 +102,7 @@ func FromExisting(
 		APIKeyAliasService:              apikeyaliassvc.New(st),
 		AccountActionService:            accountactionsvc.New(st, managerConfigService),
 		AccountProcessingPolicyService:  accountProcessingPolicyService,
-		ProxyService:                    proxysvc.New(managerConfigService),
+		ProxyService:                    proxysvc.New(managerConfigService, st),
 		PanelService:                    panelsvc.New(cfg.PanelPath, embeddedPanel),
 		AutomationRuntimeService:        runtimeService,
 	}

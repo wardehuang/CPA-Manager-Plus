@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   applyCodexInspectionExecutionResult,
   buildCodexInspectionError,
@@ -49,6 +50,7 @@ import {
   formatAutoActionModeLabel,
   formatTime,
   getActionFilterCounts,
+  isCodexInspectionAutoExecutionEnabled,
   normalizeActionFilter,
   toSettingsDraft,
   validateInspectionConfigDraft,
@@ -68,6 +70,7 @@ import styles from './CodexInspectionPage.module.scss';
 
 export function CodexInspectionPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const config = useConfigStore((state) => state.config);
   const apiBase = useAuthStore((state) => state.apiBase);
   const managementKey = useAuthStore((state) => state.managementKey);
@@ -88,8 +91,8 @@ export function CodexInspectionPage() {
   }
   const initialLastRun = initialLastRunRef.current;
 
-  const [inspectionSettings, setInspectionSettings] = useState<CodexInspectionConfigurableSettings>(() =>
-    loadCodexInspectionConfigurableSettings(config)
+  const [inspectionSettings, setInspectionSettings] = useState<CodexInspectionConfigurableSettings>(
+    () => loadCodexInspectionConfigurableSettings(config)
   );
   const [settingsDraft, setSettingsDraft] = useState<InspectionSettingsDraft>(() =>
     toSettingsDraft(loadCodexInspectionConfigurableSettings(config))
@@ -113,8 +116,8 @@ export function CodexInspectionPage() {
     () => initialLastRun?.connectionFingerprint ?? null
   );
   const [executing, setExecuting] = useState(false);
-  const [actionFilter, setActionFilter] = useState<ActionFilter>(
-    () => normalizeActionFilter(initialLastRun?.actionFilter ?? 'all')
+  const [actionFilter, setActionFilter] = useState<ActionFilter>(() =>
+    normalizeActionFilter(initialLastRun?.actionFilter ?? 'all')
   );
   const [handlingFilter, setHandlingFilter] = useState<HandlingFilter>('all');
   const [resultPage, setResultPage] = useState(1);
@@ -128,14 +131,15 @@ export function CodexInspectionPage() {
   const restoredConnectionFingerprintRef = useRef<string | null>(connectionFingerprint);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const executeItemsRef = useRef<
-    ((
-      items: CodexInspectionResultItem[],
-      options?: {
-        resultOverride?: CodexInspectionRunResult | null;
-        source?: ExecutionTriggerSource;
-        connectionFingerprint?: string | null;
-      }
-    ) => Promise<void>) | null
+    | ((
+        items: CodexInspectionResultItem[],
+        options?: {
+          resultOverride?: CodexInspectionRunResult | null;
+          source?: ExecutionTriggerSource;
+          connectionFingerprint?: string | null;
+        }
+      ) => Promise<void>)
+    | null
   >(null);
 
   useEffect(() => {
@@ -232,6 +236,7 @@ export function CodexInspectionPage() {
       session: CodexInspectionSession,
       promise: Promise<CodexInspectionRunResult>,
       autoActionMode: CodexInspectionAutoActionMode,
+      autoRecoverEnabled: boolean,
       runConnectionFingerprint: string | null
     ) => {
       const sessionId = session.id;
@@ -242,6 +247,7 @@ export function CodexInspectionPage() {
           const nextSuggestedResults = nextResult.results.filter(isSuggestedAction);
           const autoTargets = resolveCodexInspectionAutoActionItems(
             autoActionMode,
+            autoRecoverEnabled,
             nextSuggestedResults
           );
           setResult(nextResult);
@@ -249,11 +255,15 @@ export function CodexInspectionPage() {
           setProgress(session.getProgress());
           setRunStatus('success');
           setLogsCollapsed(true);
-          if (autoActionMode !== 'none') {
+          if (isCodexInspectionAutoExecutionEnabled(autoActionMode, autoRecoverEnabled)) {
+            const autoExecutionLabel =
+              autoActionMode === 'none' && autoRecoverEnabled
+                ? t('monitoring.codex_inspection_settings_auto_recover_on')
+                : formatAutoActionModeLabel(autoActionMode, t);
             if (autoTargets.length > 0 && executeItemsRef.current) {
               const startedMessage = t('monitoring.codex_inspection_auto_execute_started', {
                 count: autoTargets.length,
-                mode: formatAutoActionModeLabel(autoActionMode, t),
+                mode: autoExecutionLabel,
               });
               appendLog('info', startedMessage);
               showNotification(startedMessage, 'info');
@@ -267,7 +277,7 @@ export function CodexInspectionPage() {
 
             if (nextSuggestedResults.length > 0) {
               const skippedMessage = t('monitoring.codex_inspection_auto_execute_skipped_by_mode', {
-                mode: formatAutoActionModeLabel(autoActionMode, t),
+                mode: autoExecutionLabel,
                 count: nextSuggestedResults.length,
               });
               appendLog('warning', skippedMessage);
@@ -344,6 +354,7 @@ export function CodexInspectionPage() {
         apiBase,
         managementKey,
         settings: inspectionSettings,
+        t,
         onLog: (level, message) => {
           if (activeSessionIdRef.current !== session.id) return;
           appendLog(level, message);
@@ -369,7 +380,13 @@ export function CodexInspectionPage() {
       sessionRef.current = session;
       activeSessionIdRef.current = session.id;
       setProgress(session.getProgress());
-      attachSessionPromise(session, session.start(), autoActionMode, runConnectionFingerprint);
+      attachSessionPromise(
+        session,
+        session.start(),
+        autoActionMode,
+        inspectionSettings.autoRecoverEnabled,
+        runConnectionFingerprint
+      );
     },
     [
       apiBase,
@@ -427,7 +444,8 @@ export function CodexInspectionPage() {
       const currentResult = options?.resultOverride ?? result;
       const source = options?.source ?? 'manual';
       if (!currentResult) return;
-      const currentResultFingerprint = options?.connectionFingerprint ?? resultConnectionFingerprint;
+      const currentResultFingerprint =
+        options?.connectionFingerprint ?? resultConnectionFingerprint;
       if (!connectionFingerprint || currentResultFingerprint !== connectionFingerprint) {
         showNotification(t('notification.connection_required'), 'warning');
         return;
@@ -447,6 +465,8 @@ export function CodexInspectionPage() {
           settings: currentResult.settings,
           items: targets,
           previousFiles: currentResult.files,
+          connectionFingerprint: currentResultFingerprint,
+          source,
           onLog: appendLog,
         });
 
@@ -483,7 +503,10 @@ export function CodexInspectionPage() {
                   success: successCount,
                 });
           appendLog(failedCount > 0 || remainingCount > 0 ? 'warning' : 'success', summaryMessage);
-          showNotification(summaryMessage, failedCount > 0 || remainingCount > 0 ? 'warning' : 'success');
+          showNotification(
+            summaryMessage,
+            failedCount > 0 || remainingCount > 0 ? 'warning' : 'success'
+          );
         }
       } finally {
         setExecuting(false);
@@ -496,11 +519,6 @@ export function CodexInspectionPage() {
     executeItemsRef.current = executeItems;
   }, [executeItems]);
 
-  const suggestedResults = useMemo(
-    () => (result ? result.results.filter(isSuggestedAction) : []),
-    [result]
-  );
-
   const displayResults = useMemo(() => (result ? result.results : []), [result]);
 
   const executableResults = useMemo(
@@ -512,7 +530,6 @@ export function CodexInspectionPage() {
     () => (result ? result.results.filter(isReauthAction) : []),
     [result]
   );
-
   const filteredResults = useMemo(
     () => filterInspectionResults(displayResults, handlingFilter, actionFilter),
     [displayResults, handlingFilter, actionFilter]
@@ -608,14 +625,21 @@ export function CodexInspectionPage() {
     [executeItems, showConfirmation, t]
   );
 
-  const handleOpenCodexReauth = useCallback((item: CodexInspectionResultItem) => {
-    setCodexReauthTarget({
-      account: item.displayAccount || item.accountId || item.fileName,
-      fileName: item.fileName,
-      authIndex: item.authIndex,
-      accountId: item.accountId,
-    });
-  }, []);
+  const handleOpenCodexReauth = useCallback(
+    (item: CodexInspectionResultItem) => {
+      if (item.provider === 'xai') {
+        navigate('/oauth#oauth-provider-xai');
+        return;
+      }
+      setCodexReauthTarget({
+        account: item.displayAccount || item.accountId || item.fileName,
+        fileName: item.fileName,
+        authIndex: item.authIndex,
+        accountId: item.accountId,
+      });
+    },
+    [navigate]
+  );
 
   const handleCodexReauthSuccess = useCallback(() => {
     showNotification(t('codex_reauth.rerun_hint'), 'success');
@@ -623,9 +647,10 @@ export function CodexInspectionPage() {
 
   const summaryCards = useMemo<SummaryCard[]>(() => {
     const summarySource =
-      runStatus === 'running' || runStatus === 'paused' ? progress.summary : result?.summary ?? null;
+      runStatus === 'running' || runStatus === 'paused'
+        ? progress.summary
+        : (result?.summary ?? null);
     const blank = '--';
-    const dash = '—';
     const probeSetCount = summarySource ? summarySource.probeSetCount : null;
     const sampledTotal = summarySource ? summarySource.sampledCount : null;
     const sampledCompleted =
@@ -638,14 +663,6 @@ export function CodexInspectionPage() {
     const disableCount = summarySource ? summarySource.disableCount : null;
     const enableCount = summarySource ? summarySource.enableCount : null;
     const reauthCount = summarySource ? summarySource.reauthCount : null;
-    const keepCount = summarySource ? summarySource.keepCount : null;
-    const actionCounts =
-      summarySource !== null
-        ? summarySource.deleteCount +
-          summarySource.disableCount +
-          summarySource.enableCount +
-          summarySource.reauthCount
-        : null;
 
     const probeMeta = summarySource
       ? t('monitoring.server_codex_inspection_total_files', {
@@ -687,10 +704,7 @@ export function CodexInspectionPage() {
         key: 'delete',
         label: t('monitoring.codex_inspection_delete_count'),
         value: deleteCount === null ? blank : String(deleteCount),
-        meta:
-          actionCounts === null
-            ? dash
-            : t('monitoring.server_codex_inspection_action_total_value', { count: actionCounts }),
+        meta: t('monitoring.codex_inspection_delete_meta'),
         tone: deleteCount && deleteCount > 0 ? 'bad' : undefined,
         icon: 'delete',
         accent: 'red',
@@ -699,7 +713,7 @@ export function CodexInspectionPage() {
         key: 'disable',
         label: t('monitoring.codex_inspection_disable_count'),
         value: disableCount === null ? blank : String(disableCount),
-        meta: `${t('monitoring.codex_inspection_threshold')}: ${inspectionSettings.usedPercentThreshold}%`,
+        meta: `${t('monitoring.codex_inspection_threshold')} ${inspectionSettings.usedPercentThreshold}%`,
         tone: disableCount && disableCount > 0 ? 'warn' : undefined,
         icon: 'disable',
         accent: 'amber',
@@ -708,10 +722,7 @@ export function CodexInspectionPage() {
         key: 'enable',
         label: t('monitoring.codex_inspection_enable_count'),
         value: enableCount === null ? blank : String(enableCount),
-        meta:
-          keepCount === null
-            ? dash
-            : t('monitoring.server_codex_inspection_keep_count', { count: keepCount }),
+        meta: t('monitoring.codex_inspection_enable_meta'),
         tone: enableCount && enableCount > 0 ? 'good' : undefined,
         icon: 'enable',
         accent: 'green',
@@ -720,7 +731,7 @@ export function CodexInspectionPage() {
         key: 'reauth',
         label: t('monitoring.codex_inspection_reauth_count'),
         value: reauthCount === null ? blank : String(reauthCount),
-        meta: t('monitoring.codex_inspection_action_reauth'),
+        meta: t('monitoring.codex_inspection_reauth_meta'),
         tone: reauthCount && reauthCount > 0 ? 'info' : undefined,
         icon: 'reauth',
         accent: 'violet',
@@ -768,15 +779,19 @@ export function CodexInspectionPage() {
   const statusTone = statusToneMap[runStatus];
   const statusLabel = statusLabelMap[runStatus];
 
-  const lastFinishedLabel = result && result.finishedAt > 0
-    ? `${t('monitoring.codex_inspection_last_finished_at')} · ${formatTime(result.finishedAt, i18n.language)}`
-    : null;
+  const lastFinishedLabel =
+    result && result.finishedAt > 0
+      ? `${t('monitoring.codex_inspection_last_finished_at')} · ${formatTime(result.finishedAt, i18n.language)}`
+      : null;
 
-  const openSettingsModal = useCallback((field?: string) => {
-    setSettingsDraft(toSettingsDraft(inspectionSettings));
-    setConfigFocusField(field ?? null);
-    setIsSettingsModalOpen(true);
-  }, [inspectionSettings]);
+  const openSettingsModal = useCallback(
+    (field?: string) => {
+      setSettingsDraft(toSettingsDraft(inspectionSettings));
+      setConfigFocusField(field ?? null);
+      setIsSettingsModalOpen(true);
+    },
+    [inspectionSettings]
+  );
 
   const handleSettingsDraftChange = useCallback(
     (field: InspectionSettingsDraftField, value: string) => {
@@ -792,6 +807,20 @@ export function CodexInspectionPage() {
     setSettingsDraft((previous) => ({
       ...previous,
       autoActionMode: value,
+    }));
+  }, []);
+
+  const handleAutoRecoverEnabledChange = useCallback((value: boolean) => {
+    setSettingsDraft((previous) => ({
+      ...previous,
+      autoRecoverEnabled: value,
+    }));
+  }, []);
+
+  const handleXaiInferenceEnabledChange = useCallback((value: boolean) => {
+    setSettingsDraft((previous) => ({
+      ...previous,
+      xaiInferenceEnabled: value,
     }));
   }, []);
 
@@ -866,10 +895,7 @@ export function CodexInspectionPage() {
     return getActionFilterCounts(displayResults);
   }, [displayResults]);
 
-  const handlingFilterCounts = useMemo(
-    () => countHandlingStates(displayResults),
-    [displayResults]
-  );
+  const handlingFilterCounts = useMemo(() => countHandlingStates(displayResults), [displayResults]);
 
   const filterLabel = (filter: ActionFilter) => {
     switch (filter) {
@@ -944,7 +970,6 @@ export function CodexInspectionPage() {
       <CodexInspectionResultsPanel
         result={result}
         filteredResults={resultPagination.pageItems}
-        suggestedResults={suggestedResults}
         pendingActionCount={pendingActionCount}
         manualActionCount={filterCounts.reauth}
         reauthActionCount={reauthResults.length}
@@ -957,6 +982,7 @@ export function CodexInspectionPage() {
         pageSizeOptions={CODEX_INSPECTION_RESULT_PAGE_SIZE_OPTIONS}
         executing={executing}
         isInspectionInFlight={isInspectionInFlight}
+        xaiInferenceEnabled={result?.settings.xaiInferenceEnabled ?? false}
         t={t}
         onActionFilterChange={setActionFilter}
         onHandlingFilterChange={setHandlingFilter}
@@ -965,8 +991,8 @@ export function CodexInspectionPage() {
         onExecutePlanned={handleExecutePlanned}
         onExecuteSingle={handleExecuteSingle}
         onReauthAccount={handleOpenCodexReauth}
-        onDeleteReauthPlanned={handleDeleteReauthPlanned}
-        onDeleteReauthSingle={handleDeleteSingleReauth}
+        onDeleteReauthPlanned={reauthResults.length > 0 ? handleDeleteReauthPlanned : undefined}
+        onDeleteReauthSingle={reauthResults.length > 0 ? handleDeleteSingleReauth : undefined}
         filterLabel={filterLabel}
         handlingFilterLabel={handlingFilterLabel}
       />
@@ -1021,7 +1047,9 @@ export function CodexInspectionPage() {
           errors={settingsFieldErrors}
           t={t}
           onFieldChange={handleSettingsDraftChange}
+          onXaiInferenceEnabledChange={handleXaiInferenceEnabledChange}
           onAutoActionModeChange={handleAutoActionModeChange}
+          onAutoRecoverEnabledChange={handleAutoRecoverEnabledChange}
         />
       </InspectionConfigDrawer>
 
