@@ -70,6 +70,8 @@ func New(client *http.Client, timeout ...time.Duration) *Client {
 const authFilesPath = "/v0/management/auth-files"
 const authFilesStatusPath = "/v0/management/auth-files/status"
 
+var authFileFieldsPaths = []string{"/auth-files/fields", "/v0/management/auth-files/fields"}
+
 func authFilesEndpoint(baseURL string, fileName string, authIndex string) string {
 	endpoint := baseURL + authFilesPath
 	query := url.Values{}
@@ -392,6 +394,62 @@ func verifyFileIdentity(file File, identity Identity) error {
 		return fmt.Errorf("%w: account_snapshot mismatch (expected %q, got %q)", ErrIdentityMismatch, strings.TrimSpace(identity.AccountSnapshot), file.AccountSnapshot)
 	}
 	return nil
+}
+
+func (c *Client) PatchFields(ctx context.Context, baseURL string, managementKey string, fields map[string]any) error {
+	fileName, ok := fields["name"].(string)
+	if !ok || strings.TrimSpace(fileName) == "" {
+		return errors.New("CPA auth file name is required")
+	}
+	data, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+	base := cpa.NormalizeBaseURL(baseURL)
+	endpointErrors := make([]string, 0, len(authFileFieldsPaths))
+	for endpointIndex, endpointPath := range authFileFieldsPaths {
+		statusCode, patchErr := c.patchFieldsEndpoint(ctx, base+endpointPath, managementKey, data)
+		if patchErr == nil {
+			return nil
+		}
+		endpointErrors = append(endpointErrors, fmt.Sprintf("%s: %v", endpointPath, patchErr))
+		isLastEndpoint := endpointIndex == len(authFileFieldsPaths)-1
+		if isLastEndpoint || (statusCode != http.StatusNotFound && statusCode != http.StatusMethodNotAllowed) {
+			return errors.New(strings.Join(endpointErrors, "; "))
+		}
+	}
+	return errors.New(strings.Join(endpointErrors, "; "))
+}
+
+func (c *Client) PatchPriority(ctx context.Context, baseURL string, managementKey string, fileName string, priority int) error {
+	return c.PatchFields(ctx, baseURL, managementKey, map[string]any{
+		"name":     fileName,
+		"priority": priority,
+	})
+}
+
+func (c *Client) patchFieldsEndpoint(ctx context.Context, endpoint string, managementKey string, data []byte) (int, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(reqCtx, http.MethodPatch, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+managementKey)
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		if err := ValidateActionResponse(response.Body); err != nil {
+			return response.StatusCode, err
+		}
+		return response.StatusCode, nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	return response.StatusCode, fmt.Errorf("HTTP %d %s", response.StatusCode, strings.TrimSpace(string(body)))
 }
 
 func (c *Client) PatchDisabled(ctx context.Context, baseURL string, managementKey string, fileName string, disabled bool, authIndex ...string) error {

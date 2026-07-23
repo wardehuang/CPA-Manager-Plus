@@ -24,6 +24,7 @@ import (
 	proxysvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/proxy"
 	setupsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/setup"
 	usagesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/usage"
+	wxaiinspectionsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/wxaiinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
 
@@ -50,6 +51,7 @@ type Context struct {
 	DashboardService                *dashboardsvc.Service
 	CodexInspectionService          *codexinspectionsvc.Service
 	AntigravityInspectionService    *antigravityinspectionsvc.Service
+	WxaiInspectionService           *wxaiinspectionsvc.Service
 	MonitoringService               *monitoringsvc.Service
 	ModelPriceService               *modelpricesvc.Service
 	APIKeyAliasService              *apikeyaliassvc.Service
@@ -94,6 +96,7 @@ func FromExisting(
 		DashboardService:                dashboardsvc.New(st, cfg.DashboardHourlyRollupEnabled),
 		CodexInspectionService:          codexinspectionsvc.New(st, managerConfigService),
 		AntigravityInspectionService:    antigravityinspectionsvc.New(st, managerConfigService),
+		WxaiInspectionService:           wxaiinspectionsvc.New(st, managerConfigService),
 		MonitoringService:               monitoringsvc.New(st, cfg.DashboardHourlyRollupEnabled),
 		ModelPriceService:               modelpricesvc.NewMultiSource(st, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
 		APIKeyAliasService:              apikeyaliassvc.New(st),

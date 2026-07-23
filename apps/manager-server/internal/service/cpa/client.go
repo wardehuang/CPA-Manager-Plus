@@ -22,6 +22,10 @@ type ManagementConfig struct {
 	ProxyURL string `json:"proxyUrl,omitempty"`
 }
 
+type xaiClientVersionResponse struct {
+	XAIClientVersion string `json:"xai-client-version"`
+}
+
 func ValidateManagementAPI(ctx context.Context, baseURL string, key string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, NormalizeBaseURL(baseURL)+"/v0/management/config", nil)
 	if err != nil {
@@ -81,6 +85,33 @@ func FetchManagementConfig(ctx context.Context, baseURL string, key string) (Man
 		},
 		ProxyURL: readStringField(raw, "proxy-url", "proxyUrl", "proxy_url"),
 	}, nil
+}
+
+func FetchXAIClientVersion(ctx context.Context, baseURL string, key string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, NormalizeBaseURL(baseURL)+"/v0/management/xai-client-version", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	client := &http.Client{Timeout: 30 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", errors.New("management API xAI client version request failed: " + res.Status)
+	}
+
+	var response xaiClientVersionResponse
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return "", err
+	}
+	clientVersion := strings.TrimSpace(response.XAIClientVersion)
+	if clientVersion == "" {
+		return "", errors.New("management API xAI client version is empty")
+	}
+	return clientVersion, nil
 }
 
 func SetUsageStatisticsEnabled(ctx context.Context, baseURL string, key string, enabled bool) error {

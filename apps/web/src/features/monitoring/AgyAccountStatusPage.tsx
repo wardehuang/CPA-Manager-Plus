@@ -40,6 +40,7 @@ type AgyAccountStatusRow = {
   weeklyResetAtMs: number | null;
   monthlyUsedPercent: number | null;
   monthlyResetAtMs: number | null;
+  resetAtMs: number | null;
   rateLimitResetCreditsAvailableCount: number | null;
   checkedAtMs: number | null;
   originalPriority: number | null;
@@ -73,6 +74,11 @@ const formatPercent = (value: number | null) => {
   return `${Math.round(Math.max(0, Math.min(100, value)))}%`;
 };
 
+const formatAgyQuotaValue = (usedPercent: number | null, remainingPercent: number | null, t: TFunction) => {
+  if (usedPercent === 0) return tr(t, 'antigravity_quota.quota_available', '额度可用');
+  return formatPercent(remainingPercent);
+};
+
 const formatUsd = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '$0.00';
   return `$${value.toFixed(2)}`;
@@ -90,9 +96,10 @@ const formatWindowCostTokenBreakdown = (cost: AgyDisplayWindowCost) =>
 
 const formatWindowCostCachePercent = (cost: AgyDisplayWindowCost) => {
   const inputTokens = typeof cost.inputTokens === 'number' && Number.isFinite(cost.inputTokens) ? cost.inputTokens : 0;
+  // cachedTokens is cache-hit total from API (residual + cache_read).
   const cachedTokens = typeof cost.cachedTokens === 'number' && Number.isFinite(cost.cachedTokens) ? cost.cachedTokens : 0;
   if (inputTokens <= 0 || cachedTokens <= 0) return '0%';
-  return `${((cachedTokens / inputTokens) * 100).toFixed(1)}%`;
+  return `${Math.min(100, (cachedTokens / inputTokens) * 100).toFixed(1)}%`;
 };
 
 const formatDateTime = (value: number | null, language: string) => {
@@ -106,6 +113,11 @@ const formatDateTime = (value: number | null, language: string) => {
     minute: '2-digit',
     hour12: false,
   });
+};
+
+const formatQuotaResetTime = (value: number | null, language: string, t: TFunction) => {
+  if (!value) return tr(t, 'monitoring.agy_account_status_reset_unknown', '重置时间未知');
+  return formatDateTime(value, language);
 };
 
 const formatFullDateTime = (value: number | null | undefined, language: string) => {
@@ -203,6 +215,7 @@ const buildRow = (item: AntigravityAccountStatusItem): AgyAccountStatusRow => ({
   weeklyResetAtMs: typeof item.weeklyResetAtMs === 'number' ? item.weeklyResetAtMs : null,
   monthlyUsedPercent: normalizePercent(item.monthlyUsedPercent),
   monthlyResetAtMs: typeof item.monthlyResetAtMs === 'number' ? item.monthlyResetAtMs : null,
+  resetAtMs: typeof item.resetAtMs === 'number' ? item.resetAtMs : null,
   rateLimitResetCreditsAvailableCount:
     typeof item.rateLimitResetCreditsAvailableCount === 'number'
       ? item.rateLimitResetCreditsAvailableCount
@@ -249,19 +262,20 @@ const getFixedBadgeTextSize = (value: string) => {
   return 11;
 };
 
-const sortWindowCosts = (costs: AntigravityAccountWindowCost[]) => {
-  const order: Record<string, number> = { five_hour: 1, weekly: 2, monthly: 3 };
-  return [...costs].sort((left, right) => (order[left.windowType] ?? 9) - (order[right.windowType] ?? 9));
+const selectLatestWindowCost = (costs: AntigravityAccountWindowCost[]): AntigravityAccountWindowCost | null => {
+  if (costs.length === 0) return null;
+  return costs.reduce((latest, candidate) => {
+    if (candidate.windowResetAtMs !== latest.windowResetAtMs) {
+      return candidate.windowResetAtMs > latest.windowResetAtMs ? candidate : latest;
+    }
+    return candidate.calculatedAtMs > latest.calculatedAtMs ? candidate : latest;
+  });
 };
 
 const getAgyQuotaGroup = (window: AntigravityInspectionQuotaWindow): 'claude' | 'gemini' | null => {
   const text = `${window.id || ''} ${window.labelKey || ''}`.toLowerCase();
-  if ((text.includes('claude') && (text.includes('opus') || text.includes('sonnet'))) || text.includes('gpt-oss')) {
-    return 'claude';
-  }
-  if (text.includes('gemini') && (text.includes('flash') || text.includes('pro'))) {
-    return 'gemini';
-  }
+  if (text.includes('claude') || text.includes('gpt-oss')) return 'claude';
+  if (text.includes('gemini')) return 'gemini';
   return null;
 };
 
@@ -299,7 +313,10 @@ const buildLegacyAgyQuotaGroupItem = (
     ? tr(t, 'monitoring.codex_account_status_monthly_limit', '月限额')
     : tr(t, 'monitoring.codex_account_status_weekly_limit', '周限额'),
   usedPercent: provider === 'gemini' ? row.monthlyUsedPercent ?? row.usedPercent : row.weeklyUsedPercent ?? row.usedPercent,
-  resetAtMs: provider === 'gemini' ? row.monthlyResetAtMs || null : row.weeklyResetAtMs || null,
+  resetAtMs:
+    provider === 'gemini'
+      ? row.monthlyResetAtMs || row.resetAtMs
+      : row.weeklyResetAtMs || row.resetAtMs,
 });
 
 const buildAgyQuotaItems = (
@@ -374,7 +391,7 @@ export function AgyAccountStatusPage({ provider }: AgyAccountStatusPageProps) {
   const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>('all');
   const [sortKey, setSortKey] = useState<AccountStatusSortKey>('priority');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [maskMode, setMaskMode] = useState<AccountMaskMode>('masked');
+  const [maskMode, setMaskMode] = useState<AccountMaskMode>('full');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -945,13 +962,14 @@ function AccountStatusTableRow({
       key: 'used-percent',
       label: tr(t, 'monitoring.codex_account_status_quota', '额度窗口'),
       usedPercent: row.usedPercent,
-      resetAtMs: null,
+      resetAtMs: row.resetAtMs,
     });
   }
 
-  const displayWindowCosts: AgyDisplayWindowCost[] = row.windowCosts.length > 0
-    ? sortWindowCosts(row.windowCosts)
-    : quotaItems.map((item, index) => ({
+  const latestWindowCost = selectLatestWindowCost(row.windowCosts);
+  const displayWindowCosts: AgyDisplayWindowCost[] = latestWindowCost
+    ? [latestWindowCost]
+    : quotaItems.slice(0, 1).map((item, index) => ({
         windowType: item.key,
         windowResetAtMs: item.resetAtMs ?? index,
         estimatedCost: 0,
@@ -1010,9 +1028,9 @@ function AccountStatusTableRow({
                 <div className={styles.accountStatusQuotaHeader}>
                   <span>
                     {item.label}
-                    <small>{formatDateTime(item.resetAtMs, language)}</small>
+                    <small>{formatQuotaResetTime(item.resetAtMs, language, t)}</small>
                   </span>
-                  <strong>{formatPercent(remainingPercent)}</strong>
+                  <strong>{formatAgyQuotaValue(item.usedPercent, remainingPercent, t)}</strong>
                 </div>
                 <div className={styles.accountStatusQuotaMeter}>
                   <span style={{ width: `${quotaWidth}%`, background: getQuotaGradient(remainingPercent) }} />

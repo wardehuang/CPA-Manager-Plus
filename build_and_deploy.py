@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Build and deploy CPA Manager Plus from local my-feature.
 
-The script keeps all output in build_and_deploy.log, refreshes upstream before
-building, merges upstream/main into my-feature, increments a local build number
-based on the latest upstream tag, injects it as the Docker build VERSION,
-uploads the local working tree, and recreates the Docker service on Oracle 01
-bound to 0.0.0.0 for public access on wcpap.edmundvps.site:18317.
+The script keeps all output in deploy.log and refreshes upstream refs before
+building. A clean my-feature branch is merged with upstream/main; an uncommitted
+my-feature working tree is preserved and packaged without merging. The script
+increments a local build number based on the latest upstream tag, injects it as
+the Docker build VERSION, uploads the local working tree, and recreates the
+Docker service on Oracle 01 bound to 0.0.0.0 for public access on
+wcpap.edmundvps.site:18317.
 """
 
 from __future__ import annotations
@@ -159,6 +161,22 @@ def ensure_git_remote(logger: Logger) -> None:
         )
 
 
+def current_branch() -> str:
+    return run_output(
+        [resolve_command("git"), "branch", "--show-current"],
+        PROJECT_ROOT,
+    )
+
+
+def working_tree_has_changes() -> bool:
+    return bool(
+        run_output(
+            [resolve_command("git"), "status", "--porcelain"],
+            PROJECT_ROOT,
+        )
+    )
+
+
 def prepare_branch(logger: Logger) -> None:
     ensure_git_remote(logger)
     run_checked(
@@ -171,7 +189,24 @@ def prepare_branch(logger: Logger) -> None:
         [resolve_command("git"), "fetch", "origin", "--prune"],
         "Fetching origin",
     )
-    run_checked(logger, [resolve_command("git"), "switch", BRANCH], f"Switching to {BRANCH}")
+
+    active_branch = current_branch()
+    has_local_changes = working_tree_has_changes()
+    if has_local_changes and active_branch != BRANCH:
+        raise RuntimeError(
+            f"Working tree has local changes on branch {active_branch or '<detached>'}; "
+            f"switch to {BRANCH} before deploying."
+        )
+
+    if active_branch != BRANCH:
+        run_checked(logger, [resolve_command("git"), "switch", BRANCH], f"Switching to {BRANCH}")
+
+    if has_local_changes:
+        logger.section(f"Skipping merge of {UPSTREAM_REF}")
+        logger.write("Local working tree has uncommitted changes.")
+        logger.write("Fetched upstream refs and tags, but preserved the local working tree for packaging.")
+        return
+
     run_checked(
         logger,
         [resolve_command("git"), "merge", "--no-edit", UPSTREAM_REF],

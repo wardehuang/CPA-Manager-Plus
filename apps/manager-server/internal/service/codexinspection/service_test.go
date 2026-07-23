@@ -1296,6 +1296,33 @@ func newCodexInspectionManagerConfig(upstreamURL string) store.ManagerConfig {
 	return cfg
 }
 
+func TestReadAuthFilePriorityAcceptsJSONNumber(t *testing.T) {
+	// cpaauthfiles decodes with decoder.UseNumber(); priority must still parse.
+	file := authFile{
+		"priority": json.Number("20"),
+		"metadata": map[string]any{
+			"priority": json.Number("7"),
+		},
+	}
+	priority := readAuthFilePriority(file)
+	if priority == nil {
+		t.Fatal("readAuthFilePriority() = nil, want 20")
+	}
+	if *priority != 20 {
+		t.Fatalf("readAuthFilePriority() = %d, want 20", *priority)
+	}
+
+	attributesOnly := authFile{
+		"attributes": map[string]any{
+			"priority": "19",
+		},
+	}
+	priority = readAuthFilePriority(attributesOnly)
+	if priority == nil || *priority != 19 {
+		t.Fatalf("attributes priority = %v, want 19", priority)
+	}
+}
+
 func newCodexInspectionTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "usage.sqlite"))

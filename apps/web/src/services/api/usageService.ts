@@ -230,6 +230,7 @@ export interface CodexAccountWindowCost {
   estimatedCost: number;
   inputTokens?: number;
   outputTokens?: number;
+  /** Cache-hit total for display: residual cached + cache_read. */
   cachedTokens?: number;
   isQuotaExhausted?: boolean;
   calculatedAtMs?: number;

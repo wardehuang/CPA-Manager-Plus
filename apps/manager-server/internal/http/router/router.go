@@ -24,6 +24,7 @@ import (
 	setupcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/setup"
 	systemcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/system"
 	usagecontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/usage"
+	wxaiinspectioncontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/wxaiinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/middleware"
 	proxysvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/proxy"
 )
@@ -43,6 +44,7 @@ func New(appCtx *app.Context) http.Handler {
 	quotaCooldownHandler := &quotacooldowncontroller.Handler{App: appCtx}
 	codexInspectionHandler := &codexinspectioncontroller.Handler{App: appCtx}
 	antigravityInspectionHandler := &antigravityinspectioncontroller.Handler{App: appCtx}
+	wxaiInspectionHandler := &wxaiinspectioncontroller.Handler{App: appCtx}
 	dashboardHandler := &dashboardcontroller.Handler{App: appCtx}
 	monitoringHandler := &monitoringcontroller.Handler{App: appCtx}
 	proxyHandler := &proxycontroller.Handler{App: appCtx}
@@ -58,7 +60,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/usage-service/quota-cooldowns", middleware.WithCORS(appCtx.Config, quotaCooldownHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
-	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, antigravityAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, antigravityInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))
+	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, codexAccountStatusHandler, antigravityAccountStatusHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, antigravityInspectionHandler, wxaiInspectionHandler, dashboardHandler, monitoringHandler, serverLogsHandler, proxyHandler))
 
 	return middleware.Recovery(middleware.RequestLogger(mux))
 }
@@ -73,6 +75,7 @@ func rootHandler(
 	accountActionHandler *accountactioncontroller.Handler,
 	codexInspectionHandler *codexinspectioncontroller.Handler,
 	antigravityInspectionHandler *antigravityinspectioncontroller.Handler,
+	wxaiInspectionHandler *wxaiinspectioncontroller.Handler,
 	dashboardHandler *dashboardcontroller.Handler,
 	monitoringHandler *monitoringcontroller.Handler,
 	serverLogsHandler *serverlogscontroller.Handler,
@@ -110,6 +113,10 @@ func rootHandler(
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/antigravity-inspection") {
 			middleware.WithCORS(appCtx.Config, antigravityInspectionHandler.Handle)(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v0/management/wxai-inspection") {
+			middleware.WithCORS(appCtx.Config, wxaiInspectionHandler.Handle)(w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/dashboard/") {

@@ -619,6 +619,12 @@ export function MainLayout({ routeBase = '', demoMode = false }: MainLayoutProps
         shortLabel: navShortLabel('nav.agy_inspection', t('nav.agy_inspection', { defaultValue: 'Agy 巡检' })),
         icon: sidebarIcons.codexInspection,
       },
+      {
+        path: '/wxai-inspection',
+        label: t('nav.wxai_inspection', { defaultValue: 'wXAi 账号巡检' }),
+        shortLabel: navShortLabel('nav.wxai_inspection', t('nav.wxai_inspection', { defaultValue: 'wXAi 巡检' })),
+        icon: sidebarIcons.codexInspection,
+      },
     ],
     operationNavItems,
     pluginResourceNavItems,

@@ -90,7 +90,7 @@ func (r *repository) ListItemsByRunWithDetailProvider(ctx context.Context, runID
 
 	items := make([]model.AntigravityAccountStatusItem, 0)
 	for rows.Next() {
-		item, err := scanItem(rows)
+		item, err := scanItem(rows, detailProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func (r *repository) ListItemsByRunWithDetailProvider(ctx context.Context, runID
 	return items, rows.Err()
 }
 
-func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccountStatusItem, error) {
+func scanItem(row interface{ Scan(dest ...any) error }, detailProvider string) (model.AntigravityAccountStatusItem, error) {
 	var item model.AntigravityAccountStatusItem
 	var authIndex, accountID, provider, targetProvider, status, state, actionReason, errorText sql.NullString
 	var actionStatus, executedAction, actionError, accountType, quotaWindowsJSON sql.NullString
@@ -156,16 +156,15 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccoun
 		value := int(statusCode.Int64)
 		item.StatusCode = &value
 	}
-	if usedPercent.Valid {
-		value := usedPercent.Float64
-		item.UsedPercent = &value
-	}
 	if priority.Valid {
 		value := int(priority.Int64)
 		item.Priority = &value
 	}
-	if detailUsedPercent.Valid && item.UsedPercent == nil {
+	if detailUsedPercent.Valid {
 		value := detailUsedPercent.Float64
+		item.UsedPercent = &value
+	} else if usedPercent.Valid {
+		value := usedPercent.Float64
 		item.UsedPercent = &value
 	}
 	if resetAt.Valid {
@@ -176,8 +175,17 @@ func scanItem(row interface{ Scan(dest ...any) error }) (model.AntigravityAccoun
 	}
 	if quotaWindowsJSON.Valid && strings.TrimSpace(quotaWindowsJSON.String) != "" {
 		if windows := model.UnmarshalAntigravityInspectionQuotaWindows(quotaWindowsJSON.String); len(windows) > 0 {
-			item.QuotaWindows = windows
-			applyAntigravityQuotaWindowsToStatusItem(&item, windows)
+			providerWindows := model.FilterAntigravityQuotaWindows(windows, detailProvider)
+			item.QuotaWindows = providerWindows
+			applyAntigravityQuotaWindowsToStatusItem(&item, providerWindows)
+		}
+	}
+	if detailProvider != model.AntigravityTargetProviderServer && len(item.QuotaWindows) == 0 {
+		item.UsedPercent = nil
+		item.ResetAtMS = 0
+		if item.Priority != nil && *item.Priority == -1 {
+			usedPercent := float64(100)
+			item.UsedPercent = &usedPercent
 		}
 	}
 	return item, nil
@@ -189,7 +197,7 @@ func applyAntigravityQuotaWindowsToStatusItem(item *model.AntigravityAccountStat
 		label := strings.ToLower(strings.TrimSpace(window.LabelKey + " " + window.ResetLabel))
 		target := id + " " + label
 		switch {
-		case strings.Contains(target, "five") || strings.Contains(target, "5") || strings.Contains(target, "hour"):
+		case strings.Contains(target, "five") || strings.Contains(target, "hour"):
 			item.FiveHourUsedPercent = window.UsedPercent
 			item.FiveHourResetAtMS = window.ResetAtMS
 		case strings.Contains(target, "month") || strings.Contains(target, "monthly") || strings.Contains(target, "gemini"):

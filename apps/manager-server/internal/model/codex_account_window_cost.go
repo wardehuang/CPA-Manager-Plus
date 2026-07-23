@@ -8,6 +8,8 @@ type CodexAccountWindowCost struct {
 	EstimatedCost    float64 `json:"estimatedCost"`
 	InputTokens      int64   `json:"inputTokens"`
 	OutputTokens     int64   `json:"outputTokens"`
+	// CachedTokens is the display cache-hit total: compatible residual + cache_read.
+	// Cost calculation still prices residual cached and cache_read as separate buckets.
 	CachedTokens     int64   `json:"cachedTokens"`
 	IsQuotaExhausted bool    `json:"isQuotaExhausted"`
 	CalculatedAtMS   int64   `json:"calculatedAtMs"`

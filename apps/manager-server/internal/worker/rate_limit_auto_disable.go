@@ -378,6 +378,9 @@ func xaiFreeUsageResetTimeFromEvent(event usage.Event, now time.Time) (time.Time
 		return time.Time{}, false
 	}
 	for _, text := range []string{event.FailBody, event.RawJSON, event.FailSummary} {
+		if isXaiFreeUsageExhaustedText(text) {
+			return now.Add(xaiFreeUsageCooldown), true
+		}
 		matched := false
 		forEachJSONValue(text, func(decoded any) bool {
 			if xaiFreeUsageCode(decoded) {
@@ -396,7 +399,9 @@ func xaiFreeUsageResetTimeFromEvent(event usage.Event, now time.Time) (time.Time
 func xaiFreeUsageCode(value any) bool {
 	switch typed := value.(type) {
 	case map[string]any:
-		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(typed["code"])), "subscription:free-usage-exhausted") {
+		if isXaiFreeUsageExhaustedText(fmt.Sprint(typed["code"])) ||
+			isXaiFreeUsageExhaustedText(fmt.Sprint(typed["message"])) ||
+			isXaiFreeUsageExhaustedText(fmt.Sprint(typed["error"])) {
 			return true
 		}
 		for _, child := range typed {
@@ -410,8 +415,17 @@ func xaiFreeUsageCode(value any) bool {
 				return true
 			}
 		}
+	case string:
+		return isXaiFreeUsageExhaustedText(typed)
 	}
 	return false
+}
+
+func isXaiFreeUsageExhaustedText(value string) bool {
+	normalizedValue := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(normalizedValue, "free-usage-exhausted") ||
+		strings.Contains(normalizedValue, "used all the included free usage") ||
+		strings.Contains(normalizedValue, "included free usage has been exhausted")
 }
 
 func normalizeQuotaProvider(value string) string {

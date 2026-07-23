@@ -111,10 +111,19 @@ func runServer() {
 	)
 	serverApp.AppContext().AutomationRuntimeService = automationRuntime
 	automationRuntime.Start(ctx)
+	wxaiWindowCostRefreshWorker := worker.NewWxaiWindowCostRefreshWorker(
+		serverApp.AppContext().WxaiInspectionService,
+	)
+	wxaiConditionalInspectionWorker := worker.NewWxaiConditionalInspectionWorker(
+		serverApp.AppContext().Store,
+		serverApp.AppContext().WxaiInspectionService,
+	)
 	manager.SetUsageEventHandler(worker.NewUsageEventFanout(
 		automationRuntime.UsageEventHandler(),
 		accountHistoryRollupWorker,
 		dashboardHourlyRollupWorker,
+		wxaiWindowCostRefreshWorker,
+		wxaiConditionalInspectionWorker,
 	))
 
 	collectorWorker.Start(ctx)
@@ -125,6 +134,9 @@ func runServer() {
 	codexConditionalInspectionWorker.Start(ctx)
 	antigravityInspectionWorker := worker.NewAntigravityInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().AntigravityInspectionService)
 	antigravityInspectionWorker.Start(ctx)
+	wxaiInspectionWorker := worker.NewWxaiInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().WxaiInspectionService)
+	wxaiInspectionWorker.Start(ctx)
+	wxaiConditionalInspectionWorker.Start(ctx)
 	antigravityConditionalInspectionWorker := worker.NewAntigravityConditionalInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().AntigravityInspectionService)
 	antigravityConditionalInspectionWorker.Start(ctx)
 

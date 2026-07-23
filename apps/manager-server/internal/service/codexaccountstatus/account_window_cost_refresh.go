@@ -80,7 +80,9 @@ func (s *Service) refreshCodexAccountWindowCost(ctx context.Context, target mode
 	for _, aggregate := range aggregates {
 		inputTokens += aggregate.InputTokens
 		outputTokens += aggregate.OutputTokens
-		cachedTokens += aggregate.CachedTokens
+		// Display/API cachedTokens uses hit total (residual + cache_read), same as usage.CacheHitTotals.
+		// Pricing still receives residual CachedTokens and fine-grained cache_read separately.
+		cachedTokens += aggregate.CachedTokens + aggregate.CacheReadTokens
 		estimatedCost += pricing.CostForModelWithServiceTier(aggregate.Model, aggregate.ServiceTier, pricing.ModelTokens{
 			InputTokens:         aggregate.InputTokens,
 			OutputTokens:        aggregate.OutputTokens,

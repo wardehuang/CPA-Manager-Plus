@@ -31,6 +31,8 @@ import { CodexAccountStatusPage } from '@/pages/CodexAccountStatusPage';
 import { ServerCodexInspectionPage } from '@/pages/ServerCodexInspectionPage';
 import { AgyInspectionPage } from '@/pages/AgyInspectionPage';
 import { ServerAgyInspectionPage } from '@/pages/ServerAgyInspectionPage';
+import { WxaiInspectionPage } from '@/pages/WxaiInspectionPage';
+import { ServerWxaiInspectionPage } from '@/pages/ServerWxaiInspectionPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { ServerLogsPage } from '@/pages/ServerLogsPage';
@@ -229,6 +231,9 @@ const mainRoutes: RouteObject[] = [
   { path: '/agy-inspection/claude', element: <AgyInspectionPage provider="claude" /> },
   { path: '/agy-inspection/gemini', element: <AgyInspectionPage provider="gemini" /> },
   { path: '/agy-inspection/server', element: <ServerAgyInspectionPage /> },
+  { path: '/wxai-inspection', element: <Navigate to="/wxai-inspection/status" replace /> },
+  { path: '/wxai-inspection/status', element: <WxaiInspectionPage /> },
+  { path: '/wxai-inspection/server', element: <ServerWxaiInspectionPage /> },
   {
     path: '/model-prices',
     element: (

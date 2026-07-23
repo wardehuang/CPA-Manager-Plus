@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -79,7 +79,7 @@ type ServerAgyInspectionDraft = {
   autoActionMode: string;
 };
 
-type NormalizedServerAgyInspectionConfig = {
+export type ServerInspectionDefaultConfig = {
   enabled: boolean;
   schedule: {
     mode: ManagerCodexInspectionScheduleMode;
@@ -98,7 +98,7 @@ type NormalizedServerAgyInspectionConfig = {
   autoActionMode: string;
 };
 
-const DEFAULT_SERVER_CODEX_CONFIG: NormalizedServerAgyInspectionConfig = {
+const DEFAULT_SERVER_CODEX_CONFIG: ServerInspectionDefaultConfig = {
   enabled: false,
   schedule: {
     mode: 'interval',
@@ -115,6 +115,67 @@ const DEFAULT_SERVER_CODEX_CONFIG: NormalizedServerAgyInspectionConfig = {
   usedPercentThreshold: 100,
   sampleSize: 0,
   autoActionMode: 'none',
+};
+
+export type ServerInspectionProviderAdapter = {
+  defaultConfig: ServerInspectionDefaultConfig;
+  renderModeTabs: () => ReactNode;
+  getSettings: (
+    base: string,
+    managementKey: string | undefined
+  ) => Promise<{ settings: ManagerCodexInspectionConfig; exists: boolean }>;
+  saveSettings: (
+    base: string,
+    managementKey: string | undefined,
+    settings: ManagerCodexInspectionConfig
+  ) => Promise<{ settings: ManagerCodexInspectionConfig; exists: boolean }>;
+  listRuns: (
+    base: string,
+    managementKey: string | undefined,
+    limit: number
+  ) => Promise<{ items: AgyInspectionRun[] }>;
+  getRun: (
+    base: string,
+    managementKey: string | undefined,
+    runId: number
+  ) => Promise<AgyInspectionRunDetail>;
+  run: (
+    base: string,
+    managementKey: string | undefined
+  ) => Promise<AgyInspectionRunDetail>;
+  executeActions: (
+    base: string,
+    managementKey: string | undefined,
+    runId: number,
+    resultIds: number[]
+  ) => Promise<{
+    outcomes: Array<{ success: boolean }>;
+    detail: AgyInspectionRunDetail;
+  }>;
+  resultStatusLabel?: (result: AgyInspectionResult) => string;
+  abnormalLabel?: string;
+  supportsActionExecution?: boolean;
+  showsPriorityAdjustmentSummary?: boolean;
+  quotaExhaustedLabel?: string;
+  getQuotaExhaustedCount?: (run: AgyInspectionRun) => number;
+  getAbnormalCount?: (run: AgyInspectionRun) => number;
+  autoActionDescription?: string;
+};
+
+const ANTIGRAVITY_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
+  defaultConfig: DEFAULT_SERVER_CODEX_CONFIG,
+  renderModeTabs: () => <AgyInspectionModeTabs activeMode="server" />,
+  getSettings: (base, managementKey) =>
+    antigravityInspectionApi.getSettings(base, managementKey, 'server'),
+  saveSettings: (base, managementKey, settings) =>
+    antigravityInspectionApi.saveSettings(base, managementKey, settings, 'server'),
+  listRuns: (base, managementKey, limit) =>
+    antigravityInspectionApi.listRuns(base, managementKey, limit),
+  getRun: (base, managementKey, runId) =>
+    antigravityInspectionApi.getRun(base, managementKey, runId),
+  run: (base, managementKey) => antigravityInspectionApi.run(base, managementKey, 'server'),
+  executeActions: (base, managementKey, runId, resultIds) =>
+    antigravityInspectionApi.executeActions(base, managementKey, runId, resultIds),
 };
 
 const RUNS_LIMIT = 30;
@@ -144,55 +205,58 @@ const detectBrowserTimeZone = (): string => {
 const isScheduleMode = (value: unknown): value is ManagerCodexInspectionScheduleMode =>
   value === 'interval' || value === 'time_points';
 
-const resolveServerAgyConfig = (
-  config?: ManagerCodexInspectionConfig | null
-): NormalizedServerAgyInspectionConfig => {
+const resolveServerInspectionConfig = (
+  config: ManagerCodexInspectionConfig | null | undefined,
+  defaultConfig: ServerInspectionDefaultConfig
+): ServerInspectionDefaultConfig => {
   const schedule = config?.schedule ?? {};
   const scheduleMode = isScheduleMode(schedule.mode)
     ? schedule.mode
     : schedule.timePoints && schedule.timePoints.length > 0
       ? 'time_points'
-      : DEFAULT_SERVER_CODEX_CONFIG.schedule.mode;
+      : defaultConfig.schedule.mode;
 
   return {
-    ...DEFAULT_SERVER_CODEX_CONFIG,
+    ...defaultConfig,
     ...config,
-    enabled: config?.enabled ?? DEFAULT_SERVER_CODEX_CONFIG.enabled,
+    enabled: config?.enabled ?? defaultConfig.enabled,
     schedule: {
       mode: scheduleMode,
       intervalMinutes:
         schedule.intervalMinutes && schedule.intervalMinutes > 0
           ? schedule.intervalMinutes
-          : DEFAULT_SERVER_CODEX_CONFIG.schedule.intervalMinutes,
-      timePoints: schedule.timePoints ?? DEFAULT_SERVER_CODEX_CONFIG.schedule.timePoints,
-      timeZone: typeof schedule.timeZone === 'string' ? schedule.timeZone : DEFAULT_SERVER_CODEX_CONFIG.schedule.timeZone,
+          : defaultConfig.schedule.intervalMinutes,
+      timePoints: schedule.timePoints ?? defaultConfig.schedule.timePoints,
+      timeZone:
+        typeof schedule.timeZone === 'string' ? schedule.timeZone : defaultConfig.schedule.timeZone,
     },
-    targetType: config?.targetType || DEFAULT_SERVER_CODEX_CONFIG.targetType,
-    workers: config?.workers && config.workers > 0 ? config.workers : DEFAULT_SERVER_CODEX_CONFIG.workers,
+    targetType: config?.targetType || defaultConfig.targetType,
+    workers: config?.workers && config.workers > 0 ? config.workers : defaultConfig.workers,
     deleteWorkers:
       config?.deleteWorkers && config.deleteWorkers > 0
         ? config.deleteWorkers
-        : DEFAULT_SERVER_CODEX_CONFIG.deleteWorkers,
-    timeout: config?.timeout && config.timeout > 0 ? config.timeout : DEFAULT_SERVER_CODEX_CONFIG.timeout,
+        : defaultConfig.deleteWorkers,
+    timeout: config?.timeout && config.timeout > 0 ? config.timeout : defaultConfig.timeout,
     retries:
-      config?.retries !== undefined && config.retries >= 0
-        ? config.retries
-        : DEFAULT_SERVER_CODEX_CONFIG.retries,
-    userAgent: config?.userAgent || DEFAULT_SERVER_CODEX_CONFIG.userAgent,
+      config?.retries !== undefined && config.retries >= 0 ? config.retries : defaultConfig.retries,
+    userAgent: config?.userAgent || defaultConfig.userAgent,
     usedPercentThreshold:
       config?.usedPercentThreshold !== undefined
         ? config.usedPercentThreshold
-        : DEFAULT_SERVER_CODEX_CONFIG.usedPercentThreshold,
+        : defaultConfig.usedPercentThreshold,
     sampleSize:
       config?.sampleSize !== undefined && config.sampleSize >= 0
         ? config.sampleSize
-        : DEFAULT_SERVER_CODEX_CONFIG.sampleSize,
-    autoActionMode: config?.autoActionMode || DEFAULT_SERVER_CODEX_CONFIG.autoActionMode,
+        : defaultConfig.sampleSize,
+    autoActionMode: config?.autoActionMode || defaultConfig.autoActionMode,
   };
 };
 
-const toDraft = (config?: ManagerCodexInspectionConfig | null): ServerAgyInspectionDraft => {
-  const resolved = resolveServerAgyConfig(config);
+const toDraft = (
+  config: ManagerCodexInspectionConfig | null | undefined,
+  defaultConfig: ServerInspectionDefaultConfig
+): ServerAgyInspectionDraft => {
+  const resolved = resolveServerInspectionConfig(config, defaultConfig);
   return {
     enabled: resolved.enabled,
     scheduleMode: resolved.schedule.mode as ManagerCodexInspectionScheduleMode,
@@ -253,7 +317,8 @@ const readScheduleInteger = (raw: string, min: number): number | null => {
 
 const createConfigFromDraft = (
   draft: ServerAgyInspectionDraft,
-  t: TFunction
+  t: TFunction,
+  defaultConfig: ServerInspectionDefaultConfig
 ): ManagerCodexInspectionConfig | null => {
   const validation = validateInspectionConfigDraft(draft, t);
   if (!validation.ok) {
@@ -261,8 +326,7 @@ const createConfigFromDraft = (
   }
 
   const parsedIntervalMinutes = readScheduleInteger(draft.intervalMinutes, 1);
-  const intervalMinutes =
-    parsedIntervalMinutes ?? DEFAULT_SERVER_CODEX_CONFIG.schedule.intervalMinutes;
+  const intervalMinutes = parsedIntervalMinutes ?? defaultConfig.schedule.intervalMinutes;
   const hasInvalidTimePoint =
     draft.scheduleMode === 'time_points' &&
     splitTimePointTokens(draft.timePoints).some((value) => normalizeTimePoint(value) === null);
@@ -396,7 +460,7 @@ function formatResultsDescription(
   return t('monitoring.server_codex_inspection_results_desc');
 }
 
-function formatSchedule(config: NormalizedServerAgyInspectionConfig, t: ReturnType<typeof useTranslation>['t']) {
+function formatSchedule(config: ServerInspectionDefaultConfig, t: ReturnType<typeof useTranslation>['t']) {
   if (config.schedule.mode === 'time_points') {
     const base = t('monitoring.server_codex_inspection_schedule_time_points_value', {
       points: config.schedule.timePoints.join(', '),
@@ -409,7 +473,7 @@ function formatSchedule(config: NormalizedServerAgyInspectionConfig, t: ReturnTy
   });
 }
 
-function getComparableConfig(config: NormalizedServerAgyInspectionConfig) {
+function getComparableConfig(config: ServerInspectionDefaultConfig) {
   return {
     enabled: config.enabled,
     scheduleMode: config.schedule.mode,
@@ -429,8 +493,8 @@ function getComparableConfig(config: NormalizedServerAgyInspectionConfig) {
 }
 
 function configsEquivalent(
-  current: NormalizedServerAgyInspectionConfig,
-  next: NormalizedServerAgyInspectionConfig
+  current: ServerInspectionDefaultConfig,
+  next: ServerInspectionDefaultConfig
 ) {
   return JSON.stringify(getComparableConfig(current)) === JSON.stringify(getComparableConfig(next));
 }
@@ -488,8 +552,12 @@ function formatServerResultStateToken(
 
 function formatServerResultStateDetail(
   item: AgyInspectionResult,
-  t: ReturnType<typeof useTranslation>['t']
+  t: ReturnType<typeof useTranslation>['t'],
+  adapter: ServerInspectionProviderAdapter
 ) {
+  const providerStatusLabel = adapter.resultStatusLabel?.(item);
+  if (providerStatusLabel) return providerStatusLabel;
+
   const errorText = item.actionError || item.errorDetail || item.error;
   if (errorText) return errorText;
 
@@ -515,10 +583,15 @@ function normalizeServerResultAction(action: string): CodexInspectionAction {
 
 function toServerResultItem(
   item: AgyInspectionResult,
-  t: ReturnType<typeof useTranslation>['t']
+  t: ReturnType<typeof useTranslation>['t'],
+  adapter: ServerInspectionProviderAdapter
 ): CodexInspectionResultItem {
   const actionStatusLabel = formatServerActionStatusLabel(item, t);
-  const reasonParts = [item.actionReason, actionStatusLabel].filter(Boolean);
+  const providerStatusLabel = adapter.resultStatusLabel?.(item) ?? '';
+  const reasonParts =
+    adapter.supportsActionExecution === false
+      ? []
+      : [item.actionReason, actionStatusLabel].filter(Boolean);
   return {
     key: `server-${item.id || item.accountKey}`,
     fileName: item.fileName,
@@ -530,12 +603,15 @@ function toServerResultItem(
     status: item.status ?? '',
     state: item.state ?? '',
     raw: item as unknown as CodexInspectionResultItem['raw'],
-    action: normalizeServerResultAction(item.action),
+    action:
+      adapter.supportsActionExecution === false
+        ? 'keep'
+        : normalizeServerResultAction(item.action),
     actionReason: reasonParts.join(' · '),
     statusCode: item.statusCode ?? null,
     usedPercent: item.usedPercent ?? null,
     isQuota: item.isQuota,
-    error: item.error ?? '',
+    error: providerStatusLabel || item.error || '',
     planType: item.planType ?? null,
     quotaWindows: item.quotaWindows?.map((window) => ({
       id: window.id,
@@ -546,7 +622,7 @@ function toServerResultItem(
       limitWindowSeconds: window.limitWindowSeconds ?? null,
     })),
     errorKind: item.errorKind,
-    errorDetail: item.actionError || item.errorDetail || '',
+    errorDetail: providerStatusLabel ? '' : item.actionError || item.errorDetail || '',
   };
 }
 
@@ -592,6 +668,14 @@ function formatServiceHost(base: string): string {
 }
 
 export function ServerAgyInspectionPage() {
+  return <ServerProviderInspectionPage adapter={ANTIGRAVITY_SERVER_INSPECTION_ADAPTER} />;
+}
+
+type ServerProviderInspectionPageProps = {
+  adapter: ServerInspectionProviderAdapter;
+};
+
+export function ServerProviderInspectionPage({ adapter }: ServerProviderInspectionPageProps) {
   const { t, i18n } = useTranslation();
   const managementKey = useAuthStore((state) => state.managementKey);
   const featureAvailability = usePanelFeatureAvailability();
@@ -600,7 +684,9 @@ export function ServerAgyInspectionPage() {
 
   const [serviceBase, setServiceBase] = useState('');
   const [managerConfig, setManagerConfig] = useState<ManagerConfig | null>(null);
-  const [draft, setDraft] = useState<ServerAgyInspectionDraft>(() => toDraft(null));
+  const [draft, setDraft] = useState<ServerAgyInspectionDraft>(() =>
+    toDraft(null, adapter.defaultConfig)
+  );
   const [runs, setRuns] = useState<AgyInspectionRun[]>([]);
   const [detail, setDetail] = useState<AgyInspectionRunDetail | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
@@ -625,12 +711,12 @@ export function ServerAgyInspectionPage() {
 
   const loadRunDetail = useCallback(
     async (base: string, id: number) => {
-      const nextDetail = await antigravityInspectionApi.getRun(base, managementKey, id);
+      const nextDetail = await adapter.getRun(base, managementKey, id);
       setDetail(nextDetail);
       setSelectedRunId(nextDetail.run.id);
       return nextDetail;
     },
-    [managementKey]
+    [adapter, managementKey]
   );
 
   const loadPageData = useCallback(async () => {
@@ -641,13 +727,13 @@ export function ServerAgyInspectionPage() {
       if (!resolvedBase) {
         throw new Error(t('monitoring.server_codex_inspection_service_unavailable'));
       }
-      const response = await antigravityInspectionApi.getSettings(resolvedBase, managementKey, 'server');
+      const response = await adapter.getSettings(resolvedBase, managementKey);
 
       setServiceBase(resolvedBase);
       setManagerConfig({ agyInspection: response.settings });
-      setDraft(toDraft(response.settings));
+      setDraft(toDraft(response.settings, adapter.defaultConfig));
 
-      const runsResponse = await antigravityInspectionApi.listRuns(
+      const runsResponse = await adapter.listRuns(
         resolvedBase,
         managementKey,
         RUNS_LIMIT
@@ -669,6 +755,7 @@ export function ServerAgyInspectionPage() {
       setLoading(false);
     }
   }, [
+    adapter,
     featureAvailability.managerServiceBase,
     loadRunDetail,
     managementKey,
@@ -693,13 +780,19 @@ export function ServerAgyInspectionPage() {
   ]);
 
   const selectedConfig = useMemo(
-    () => resolveServerAgyConfig(managerConfig?.agyInspection),
-    [managerConfig?.agyInspection]
+    () => resolveServerInspectionConfig(managerConfig?.agyInspection, adapter.defaultConfig),
+    [adapter.defaultConfig, managerConfig?.agyInspection]
   );
-  const draftConfig = useMemo(() => createConfigFromDraft(draft, t), [draft, t]);
+  const draftConfig = useMemo(
+    () => createConfigFromDraft(draft, t, adapter.defaultConfig),
+    [adapter.defaultConfig, draft, t]
+  );
   const normalizedDraftConfig = useMemo(
-    () => (draftConfig ? resolveServerAgyConfig(draftConfig) : null),
-    [draftConfig]
+    () =>
+      draftConfig
+        ? resolveServerInspectionConfig(draftConfig, adapter.defaultConfig)
+        : null,
+    [adapter.defaultConfig, draftConfig]
   );
   const hasUnsavedChanges = Boolean(
     managerConfig && (!normalizedDraftConfig || !configsEquivalent(selectedConfig, normalizedDraftConfig))
@@ -709,6 +802,9 @@ export function ServerAgyInspectionPage() {
   const latestRun = runs[0] ?? null;
   const activeRun = detail?.run ?? latestRun;
   const activeTone = getRunTone(activeRun);
+  const abnormalLabel =
+    adapter.abnormalLabel ?? String(t('monitoring.codex_inspection_action_reauth'));
+  const supportsActionExecution = adapter.supportsActionExecution !== false;
   const actionCounts = activeRun
     ? activeRun.deleteCount +
       activeRun.disableCount +
@@ -718,8 +814,8 @@ export function ServerAgyInspectionPage() {
 
   const resultRows = useMemo(() => detail?.results ?? [], [detail?.results]);
   const resultItems = useMemo(
-    () => resultRows.map((item) => toServerResultItem(item, t)),
-    [resultRows, t]
+    () => resultRows.map((item) => toServerResultItem(item, t, adapter)),
+    [adapter, resultRows, t]
   );
   const resultByKey = useMemo(() => {
     const map = new Map<string, AgyInspectionResult>();
@@ -807,7 +903,7 @@ export function ServerAgyInspectionPage() {
       setError('');
     }
     try {
-      const response = await antigravityInspectionApi.listRuns(
+      const response = await adapter.listRuns(
         serviceBase,
         managementKey,
         RUNS_LIMIT
@@ -837,7 +933,7 @@ export function ServerAgyInspectionPage() {
       if (!silent) setLoading(false);
       refreshInFlightRef.current = false;
     }
-  }, [detail, loadPageData, loadRunDetail, managementKey, selectedRunId, serviceBase, t]);
+  }, [adapter, detail, loadPageData, loadRunDetail, managementKey, selectedRunId, serviceBase, t]);
 
   useEffect(() => {
     if (!serviceBase || (!selectedConfig.enabled && !hasRunningRun)) return;
@@ -854,21 +950,20 @@ export function ServerAgyInspectionPage() {
       showNotification(t('monitoring.server_codex_inspection_service_unavailable'), 'warning');
       return;
     }
-    const agyInspection = createConfigFromDraft(draft, t);
+    const agyInspection = createConfigFromDraft(draft, t, adapter.defaultConfig);
     if (!agyInspection) {
       showNotification(t('monitoring.server_codex_inspection_config_invalid'), 'warning');
       return;
     }
     setSaving(true);
     try {
-      const response = await antigravityInspectionApi.saveSettings(
+      const response = await adapter.saveSettings(
         serviceBase,
         managementKey,
-        agyInspection,
-        'server'
+        agyInspection
       );
       setManagerConfig({ agyInspection: response.settings });
-      setDraft(toDraft(response.settings));
+      setDraft(toDraft(response.settings, adapter.defaultConfig));
       showNotification(t('monitoring.server_codex_inspection_config_saved'), 'success');
       setConfigDrawerOpen(false);
     } catch (error: unknown) {
@@ -890,14 +985,14 @@ export function ServerAgyInspectionPage() {
         cancelText: t('common.cancel'),
         variant: 'danger',
         onConfirm: () => {
-          setDraft(toDraft(managerConfig?.agyInspection));
+          setDraft(toDraft(managerConfig?.agyInspection, adapter.defaultConfig));
           setConfigDrawerOpen(false);
         },
       });
       return;
     }
     setConfigDrawerOpen(false);
-  }, [hasUnsavedChanges, managerConfig, showConfirmation, t]);
+  }, [adapter.defaultConfig, hasUnsavedChanges, managerConfig, showConfirmation, t]);
 
   const openConfigDrawer = useCallback((field?: string) => {
     setConfigFocusField(field ?? null);
@@ -912,10 +1007,10 @@ export function ServerAgyInspectionPage() {
     setRunning(true);
     setError('');
     try {
-      const nextDetail = await antigravityInspectionApi.run(serviceBase, managementKey, 'server');
+      const nextDetail = await adapter.run(serviceBase, managementKey);
       setDetail(nextDetail);
       setSelectedRunId(nextDetail.run.id);
-      const response = await antigravityInspectionApi.listRuns(
+      const response = await adapter.listRuns(
         serviceBase,
         managementKey,
         RUNS_LIMIT
@@ -929,7 +1024,7 @@ export function ServerAgyInspectionPage() {
     } finally {
       setRunning(false);
     }
-  }, [managementKey, refreshRuns, serviceBase, showNotification, t]);
+  }, [adapter, managementKey, refreshRuns, serviceBase, showNotification, t]);
 
   const handleRunNow = () => {
     showConfirmation({
@@ -959,7 +1054,7 @@ export function ServerAgyInspectionPage() {
       setExecutingAllActions(scope === 'bulk');
       actionInFlightRef.current = true;
       try {
-        const response = await antigravityInspectionApi.executeActions(
+        const response = await adapter.executeActions(
           serviceBase,
           managementKey,
           detail.run.id,
@@ -968,7 +1063,7 @@ export function ServerAgyInspectionPage() {
         setDetail(response.detail);
         setSelectedRunId(response.detail.run.id);
 
-        const runsResponse = await antigravityInspectionApi.listRuns(
+        const runsResponse = await adapter.listRuns(
           serviceBase,
           managementKey,
           RUNS_LIMIT
@@ -998,7 +1093,7 @@ export function ServerAgyInspectionPage() {
         setExecutingAllActions(false);
       }
     },
-    [detail, managementKey, serviceBase, showNotification, t]
+    [adapter, detail, managementKey, serviceBase, showNotification, t]
   );
 
   const handleExecuteServerActions = useCallback(
@@ -1160,9 +1255,14 @@ export function ServerAgyInspectionPage() {
             },
             {
               key: 'disable',
-              label: t('monitoring.codex_inspection_disable_count'),
-              value: activeRun ? String(activeRun.disableCount) : summaryBlankValue,
-              meta: `${t('monitoring.codex_inspection_threshold')}: ${selectedConfig.usedPercentThreshold}%`,
+              label:
+                adapter.quotaExhaustedLabel ?? t('monitoring.codex_inspection_disable_count'),
+              value: activeRun
+                ? String(adapter.getQuotaExhaustedCount?.(activeRun) ?? activeRun.disableCount)
+                : summaryBlankValue,
+              meta: adapter.showsPriorityAdjustmentSummary
+                ? adapter.autoActionDescription
+                : `${t('monitoring.codex_inspection_threshold')}: ${selectedConfig.usedPercentThreshold}%`,
               tone: 'warn',
               Icon: IconShield,
               accent: 'amber' as const,
@@ -1180,14 +1280,24 @@ export function ServerAgyInspectionPage() {
             },
             {
               key: 'reauth',
-              label: t('monitoring.codex_inspection_reauth_count'),
-              value: activeRun ? String(activeRun.reauthCount) : summaryBlankValue,
-              meta: t('monitoring.codex_inspection_action_reauth'),
+              label: abnormalLabel,
+              value: activeRun
+                ? String(adapter.getAbnormalCount?.(activeRun) ?? activeRun.reauthCount)
+                : summaryBlankValue,
+              meta: abnormalLabel,
               tone: 'info',
               Icon: IconRefreshCw,
               accent: 'violet' as const,
             },
           ].map((card) => {
+            const hidesUnsupportedActionCard =
+              !supportsActionExecution &&
+              (card.key === 'delete' ||
+                card.key === 'enable' ||
+                (card.key === 'disable' && !adapter.showsPriorityAdjustmentSummary));
+            if (hidesUnsupportedActionCard) {
+              return null;
+            }
             const SummaryIcon = card.Icon;
             return (
               <div
@@ -1224,7 +1334,7 @@ export function ServerAgyInspectionPage() {
 
   const handleDiscard = () => {
     if (!managerConfig) return;
-    setDraft(toDraft(managerConfig.agyInspection));
+    setDraft(toDraft(managerConfig.agyInspection, adapter.defaultConfig));
   };
 
   const renderConfigDrawer = () => {
@@ -1302,7 +1412,7 @@ export function ServerAgyInspectionPage() {
                           'scheduleMode',
                           isScheduleMode(opt.value)
                             ? opt.value
-                            : DEFAULT_SERVER_CODEX_CONFIG.schedule.mode
+                            : adapter.defaultConfig.schedule.mode
                         )
                       }
                     >
@@ -1352,6 +1462,10 @@ export function ServerAgyInspectionPage() {
           </div>
         </section>
 
+        {adapter.autoActionDescription ? (
+          <p className={styles.infoNote}>{adapter.autoActionDescription}</p>
+        ) : null}
+
         <InspectionConfigFields
           draft={draft}
           errors={fieldErrors}
@@ -1396,24 +1510,28 @@ export function ServerAgyInspectionPage() {
                   <span>{formatTrigger(run, t)} · {t('monitoring.codex_inspection_sampled_accounts')}: {run.sampledCount}</span>
                 </div>
                 <div className={styles.runHistoryCardActionPills}>
-                  {run.deleteCount > 0 ? (
-                    <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillDelete}`}>
-                      {t('monitoring.codex_inspection_action_delete')} {run.deleteCount}
-                    </span>
-                  ) : null}
-                  {run.disableCount > 0 ? (
-                    <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillDisable}`}>
-                      {t('monitoring.codex_inspection_action_disable')} {run.disableCount}
-                    </span>
-                  ) : null}
-                  {run.enableCount > 0 ? (
-                    <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillEnable}`}>
-                      {t('monitoring.codex_inspection_action_enable')} {run.enableCount}
-                    </span>
+                  {supportsActionExecution ? (
+                    <>
+                      {run.deleteCount > 0 ? (
+                        <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillDelete}`}>
+                          {t('monitoring.codex_inspection_action_delete')} {run.deleteCount}
+                        </span>
+                      ) : null}
+                      {run.disableCount > 0 ? (
+                        <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillDisable}`}>
+                          {t('monitoring.codex_inspection_action_disable')} {run.disableCount}
+                        </span>
+                      ) : null}
+                      {run.enableCount > 0 ? (
+                        <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillEnable}`}>
+                          {t('monitoring.codex_inspection_action_enable')} {run.enableCount}
+                        </span>
+                      ) : null}
+                    </>
                   ) : null}
                   {run.reauthCount > 0 ? (
                     <span className={`${styles.runHistoryCardPill} ${styles.runHistoryCardPillReauth}`}>
-                      {t('monitoring.codex_inspection_action_reauth')} {run.reauthCount}
+                      {abnormalLabel} {run.reauthCount}
                     </span>
                   ) : null}
                   {run.keepCount > 0 ? (
@@ -1485,7 +1603,7 @@ export function ServerAgyInspectionPage() {
         case 'enable':
           return t('monitoring.codex_inspection_filter_enable');
         case 'reauth':
-          return t('monitoring.codex_inspection_filter_reauth');
+          return abnormalLabel;
         case 'keep':
           return t('monitoring.codex_inspection_action_keep');
         case 'all':
@@ -1513,7 +1631,7 @@ export function ServerAgyInspectionPage() {
       }
 
       const actionStatus = normalizeServerCodexInspectionActionStatus(source);
-      const detailText = formatServerResultStateDetail(source, t);
+      const detailText = formatServerResultStateDetail(source, t, adapter);
       const showDetail =
         detailText &&
         detailText !== '--' &&
@@ -1548,9 +1666,7 @@ export function ServerAgyInspectionPage() {
               {t('monitoring.server_codex_inspection_file_level_action_hint')}
             </span>
           ) : source.action === 'reauth' ? (
-            <span className={styles.primaryReason}>
-              {t('monitoring.codex_inspection_action_reauth')}
-            </span>
+            <span className={styles.primaryReason}>{abnormalLabel}</span>
           ) : source.action === 'keep' ? (
             <span className={styles.primaryReason}>
               {t('monitoring.codex_inspection_no_action')}
@@ -1589,6 +1705,17 @@ export function ServerAgyInspectionPage() {
         filterLabel={filterLabel}
         handlingFilterLabel={handlingFilterLabel}
         renderOperation={renderOperation}
+        summarizeError={adapter.resultStatusLabel ? (item) => item.error : undefined}
+        formatAction={(action) =>
+          action === 'reauth' ? abnormalLabel : formatActionLabel(action, t)
+        }
+        formatState={
+          adapter.resultStatusLabel
+            ? (item) => formatServerResultStateDetail(resultByKey.get(item.key)!, t, adapter)
+            : undefined
+        }
+        manualActionLabel={adapter.abnormalLabel ? abnormalLabel : undefined}
+        showActionControls={supportsActionExecution}
       />
     );
   };
@@ -1722,7 +1849,7 @@ export function ServerAgyInspectionPage() {
 
   return (
     <div className={styles.page}>
-      <AgyInspectionModeTabs activeMode="server" />
+      {adapter.renderModeTabs()}
 
       {error ? (
         <div className={styles.topErrorBar} role="alert" aria-live="polite">

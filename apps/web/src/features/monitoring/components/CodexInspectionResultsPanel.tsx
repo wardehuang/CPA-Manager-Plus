@@ -56,6 +56,11 @@ type CodexInspectionResultsPanelProps = {
   filterLabel: (filter: ActionFilter) => string;
   handlingFilterLabel: (filter: HandlingFilter) => string;
   renderOperation?: (item: CodexInspectionResultItem) => ReactNode;
+  summarizeError?: (item: CodexInspectionResultItem) => string;
+  formatAction?: (action: CodexInspectionAction) => string;
+  formatState?: (item: CodexInspectionResultItem) => string;
+  manualActionLabel?: string;
+  showActionControls?: boolean;
 };
 
 const actionToneClass: Record<CodexInspectionAction, string> = {
@@ -98,6 +103,11 @@ export function CodexInspectionResultsPanel({
   filterLabel,
   handlingFilterLabel,
   renderOperation,
+  summarizeError,
+  formatAction,
+  formatState,
+  manualActionLabel,
+  showActionControls = true,
 }: CodexInspectionResultsPanelProps) {
   const reauthDeleteAvailable = Boolean(onDeleteReauthPlanned);
   const headerButtonText = executing
@@ -105,7 +115,9 @@ export function CodexInspectionResultsPanel({
     : pendingActionCount > 0
       ? t('monitoring.codex_inspection_execute_now')
       : manualActionCount > 0 && !reauthDeleteAvailable
-        ? t('monitoring.codex_inspection_pending_reauth_count', { count: manualActionCount })
+        ? manualActionLabel
+          ? `${manualActionLabel} ${manualActionCount}`
+          : t('monitoring.codex_inspection_pending_reauth_count', { count: manualActionCount })
         : t('monitoring.codex_inspection_no_executable_actions');
 
   return (
@@ -113,30 +125,32 @@ export function CodexInspectionResultsPanel({
       title={title ?? t('monitoring.codex_inspection_results_title')}
       subtitle={subtitle ?? t('monitoring.codex_inspection_results_desc')}
       extra={
-        <div className={styles.resultsHeaderActions}>
-          {onDeleteReauthPlanned ? (
+        showActionControls ? (
+          <div className={styles.resultsHeaderActions}>
+            {onDeleteReauthPlanned ? (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={onDeleteReauthPlanned}
+                disabled={!result || isInspectionInFlight || executing || reauthActionCount === 0}
+              >
+                <IconTrash2 size={14} />
+                {t('monitoring.codex_inspection_delete_reauth_count', {
+                  count: reauthActionCount,
+                })}
+              </Button>
+            ) : null}
             <Button
-              variant="danger"
+              variant={pendingActionCount > 0 ? 'danger' : 'secondary'}
               size="sm"
-              onClick={onDeleteReauthPlanned}
-              disabled={!result || isInspectionInFlight || executing || reauthActionCount === 0}
+              onClick={onExecutePlanned}
+              loading={executing}
+              disabled={!result || isInspectionInFlight || executing || pendingActionCount === 0}
             >
-              <IconTrash2 size={14} />
-              {t('monitoring.codex_inspection_delete_reauth_count', {
-                count: reauthActionCount,
-              })}
+              {headerButtonText}
             </Button>
-          ) : null}
-          <Button
-            variant={pendingActionCount > 0 ? 'danger' : 'secondary'}
-            size="sm"
-            onClick={onExecutePlanned}
-            loading={executing}
-            disabled={!result || isInspectionInFlight || executing || pendingActionCount === 0}
-          >
-            {headerButtonText}
-          </Button>
-        </div>
+          </div>
+        ) : undefined
       }
     >
       {result ? (
@@ -169,32 +183,34 @@ export function CodexInspectionResultsPanel({
               </div>
             </div>
 
-            <div
-              className={styles.segmentedGroup}
-              role="group"
-              aria-label={t('monitoring.codex_inspection_action_filter_label')}
-            >
-              <span className={styles.segmentedLabel}>
-                {t('monitoring.codex_inspection_action_filter_label')}
-              </span>
-              <div className={styles.segmentedControl}>
-                {ACTION_FILTERS.map((filter) => {
-                  const count = filterCounts[filter];
-                  const isActive = actionFilter === filter;
-                  return (
-                    <button
-                      key={filter}
-                      type="button"
-                      className={`${styles.segmentButton} ${isActive ? styles.segmentButtonActive : ''}`}
-                      onClick={() => onActionFilterChange(filter)}
-                    >
-                      <span>{filterLabel(filter)}</span>
-                      <span className={styles.segmentCount}>{count}</span>
-                    </button>
-                  );
-                })}
+            {showActionControls ? (
+              <div
+                className={styles.segmentedGroup}
+                role="group"
+                aria-label={t('monitoring.codex_inspection_action_filter_label')}
+              >
+                <span className={styles.segmentedLabel}>
+                  {t('monitoring.codex_inspection_action_filter_label')}
+                </span>
+                <div className={styles.segmentedControl}>
+                  {ACTION_FILTERS.map((filter) => {
+                    const count = filterCounts[filter];
+                    const isActive = actionFilter === filter;
+                    return (
+                      <button
+                        key={filter}
+                        type="button"
+                        className={`${styles.segmentButton} ${isActive ? styles.segmentButtonActive : ''}`}
+                        onClick={() => onActionFilterChange(filter)}
+                      >
+                        <span>{filterLabel(filter)}</span>
+                        <span className={styles.segmentCount}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           <div className={styles.tableWrap}>
@@ -204,8 +220,8 @@ export function CodexInspectionResultsPanel({
                 <col className={styles.stateColumn} />
                 <col className={styles.httpColumn} />
                 <col className={styles.usageColumn} />
-                <col className={styles.actionColumn} />
-                <col className={styles.operationColumn} />
+                {showActionControls ? <col className={styles.actionColumn} /> : null}
+                {showActionControls ? <col className={styles.operationColumn} /> : null}
               </colgroup>
               <thead>
                 <tr>
@@ -213,8 +229,10 @@ export function CodexInspectionResultsPanel({
                   <th>{stateHeaderLabel ?? t('monitoring.codex_inspection_current_state')}</th>
                   <th>{t('monitoring.codex_inspection_http_status')}</th>
                   <th>{t('monitoring.codex_inspection_used_percent')}</th>
-                  <th>{t('monitoring.codex_inspection_next_action')}</th>
-                  <th>{t('common.action')}</th>
+                  {showActionControls ? (
+                    <th>{t('monitoring.codex_inspection_next_action')}</th>
+                  ) : null}
+                  {showActionControls ? <th>{t('common.action')}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -223,7 +241,9 @@ export function CodexInspectionResultsPanel({
                     const planLabel = getCodexPlanLabel(item.planType, t);
                     const quotaWindows = item.quotaWindows ?? [];
                     const errorText = item.errorDetail || item.error;
-                    const errorSummary = summarizeInspectionError(item, t);
+                    const errorSummary = summarizeError
+                      ? summarizeError(item)
+                      : summarizeInspectionError(item, t);
                     const operation = renderOperation?.(item);
 
                     return (
@@ -270,7 +290,7 @@ export function CodexInspectionResultsPanel({
                               item.disabled ? styles.stateDisabled : styles.stateEnabled
                             }`}
                           >
-                            {formatCurrentStateLabel(item, t)}
+                            {formatState ? formatState(item) : formatCurrentStateLabel(item, t)}
                           </span>
                         </td>
                         <td className={styles.monoCell}>
@@ -283,63 +303,71 @@ export function CodexInspectionResultsPanel({
                             t={t}
                           />
                         </td>
-                        <td>
-                          <span className={`${styles.actionBadge} ${actionToneClass[item.action]}`}>
-                            {formatActionLabel(item.action, t)}
-                          </span>
-                        </td>
-                        <td>
-                          {operation ??
-                            (isExecutableAction(item) ? (
-                              <Button
-                                size="sm"
-                                variant={item.action === 'delete' ? 'danger' : 'secondary'}
-                                onClick={() => onExecuteSingle(item)}
-                                disabled={isInspectionInFlight || executing}
-                              >
-                                {formatActionLabel(item.action, t)}
-                              </Button>
-                            ) : item.action === 'reauth' ? (
-                              <div className={styles.resultsHeaderActions}>
-                                {onReauthAccount ? (
+                        {showActionControls ? (
+                          <>
+                            <td>
+                              <span className={`${styles.actionBadge} ${actionToneClass[item.action]}`}>
+                                {formatAction
+                                  ? formatAction(item.action)
+                                  : formatActionLabel(item.action, t)}
+                              </span>
+                            </td>
+                            <td>
+                              {operation ??
+                                (isExecutableAction(item) ? (
                                   <Button
                                     size="sm"
-                                    variant="secondary"
-                                    onClick={() => onReauthAccount(item)}
+                                    variant={item.action === 'delete' ? 'danger' : 'secondary'}
+                                    onClick={() => onExecuteSingle(item)}
                                     disabled={isInspectionInFlight || executing}
                                   >
-                                    <IconRefreshCw size={14} />
-                                    {t('codex_reauth.button')}
+                                    {formatAction
+                                      ? formatAction(item.action)
+                                      : formatActionLabel(item.action, t)}
                                   </Button>
+                                ) : item.action === 'reauth' ? (
+                                  <div className={styles.resultsHeaderActions}>
+                                    {onReauthAccount ? (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => onReauthAccount(item)}
+                                        disabled={isInspectionInFlight || executing}
+                                      >
+                                        <IconRefreshCw size={14} />
+                                        {t('codex_reauth.button')}
+                                      </Button>
+                                    ) : (
+                                      <span className={styles.primaryReason}>
+                                        {t('monitoring.codex_inspection_manual_required')}
+                                      </span>
+                                    )}
+                                    {onDeleteReauthSingle ? (
+                                      <Button
+                                        size="sm"
+                                        variant="danger"
+                                        onClick={() => onDeleteReauthSingle(item)}
+                                        disabled={isInspectionInFlight || executing}
+                                      >
+                                        <IconTrash2 size={14} />
+                                        {t('monitoring.codex_inspection_action_delete')}
+                                      </Button>
+                                    ) : null}
+                                  </div>
                                 ) : (
                                   <span className={styles.primaryReason}>
-                                    {t('monitoring.codex_inspection_manual_required')}
+                                    {t('monitoring.codex_inspection_no_action')}
                                   </span>
-                                )}
-                                {onDeleteReauthSingle ? (
-                                  <Button
-                                    size="sm"
-                                    variant="danger"
-                                    onClick={() => onDeleteReauthSingle(item)}
-                                    disabled={isInspectionInFlight || executing}
-                                  >
-                                    <IconTrash2 size={14} />
-                                    {t('monitoring.codex_inspection_action_delete')}
-                                  </Button>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <span className={styles.primaryReason}>
-                                {t('monitoring.codex_inspection_no_action')}
-                              </span>
-                            ))}
-                        </td>
+                                ))}
+                            </td>
+                          </>
+                        ) : null}
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={showActionControls ? 6 : 4}>
                       <div className={styles.emptyBlockSmall}>
                         {suggestedResults.length === 0
                           ? t('monitoring.codex_inspection_no_pending_actions')

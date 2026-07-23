@@ -83,9 +83,10 @@ const formatWindowCostTokenBreakdown = (cost: CodexAccountWindowCost) =>
 
 const formatWindowCostCachePercent = (cost: CodexAccountWindowCost) => {
   const inputTokens = typeof cost.inputTokens === 'number' && Number.isFinite(cost.inputTokens) ? cost.inputTokens : 0;
+  // cachedTokens is cache-hit total from API (residual + cache_read).
   const cachedTokens = typeof cost.cachedTokens === 'number' && Number.isFinite(cost.cachedTokens) ? cost.cachedTokens : 0;
   if (inputTokens <= 0 || cachedTokens <= 0) return '0%';
-  return `${((cachedTokens / inputTokens) * 100).toFixed(1)}%`;
+  return `${Math.min(100, (cachedTokens / inputTokens) * 100).toFixed(1)}%`;
 };
 
 const formatDateTime = (value: number | null, language: string) => {
@@ -305,7 +306,7 @@ export function CodexAccountStatusPage() {
   const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>('all');
   const [sortKey, setSortKey] = useState<AccountStatusSortKey>('priority');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [maskMode, setMaskMode] = useState<AccountMaskMode>('masked');
+  const [maskMode, setMaskMode] = useState<AccountMaskMode>('full');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [loadError, setLoadError] = useState<string | null>(null);

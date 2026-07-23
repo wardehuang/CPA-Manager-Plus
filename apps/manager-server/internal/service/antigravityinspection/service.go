@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,11 +22,12 @@ import (
 )
 
 const (
-	antigravityProbeURL         = "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
-	defaultAntigravityUserAgent = "antigravity/1.11.5 windows/amd64"
-	legacyAntigravityUserAgent  = "cpa-manager-plus-antigravity-inspection"
-	defaultAntigravityProjectID = "bamboo-precept-lgxtn"
-	maxStoredBodyText           = 2048
+	antigravityQuotaSummaryURL    = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	antigravityAvailableModelsURL = "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+	defaultAntigravityUserAgent   = "antigravity/1.11.5 windows/amd64"
+	legacyAntigravityUserAgent    = "cpa-manager-plus-antigravity-inspection"
+	defaultAntigravityProjectID   = "bamboo-precept-lgxtn"
+	maxStoredBodyText             = 2048
 )
 
 var (
@@ -470,13 +470,16 @@ func (s *Service) writeAccountStatusDetails(ctx context.Context, runID int64, ta
 	checkedAt := time.Now().UnixMilli()
 	for _, provider := range providers {
 		detailPriority := readPriority(item.File, provider)
-		detailUsedPercent := result.UsedPercent
-		if detailUsedPercent == nil {
-			detailUsedPercent = readAntigravityCreditsUsedPercent(item.File)
-		}
+		providerQuotaWindows := model.FilterAntigravityQuotaWindows(result.QuotaWindows, provider)
+		detailUsedPercent := model.MaxAntigravityQuotaUsedPercent(providerQuotaWindows)
 		if result.IsQuota {
 			quotaPriority := -1
 			detailPriority = &quotaPriority
+		}
+		providerQuotaExhausted := result.IsQuota || (detailPriority != nil && *detailPriority == -1)
+		if detailUsedPercent == nil && providerQuotaExhausted {
+			usedPercent := float64(100)
+			detailUsedPercent = &usedPercent
 		}
 		_ = s.store.UpsertAntigravityAccountStatusDetail(ctx, model.AntigravityAccountStatusDetail{
 			RunID:          runID,
@@ -484,7 +487,7 @@ func (s *Service) writeAccountStatusDetails(ctx context.Context, runID int64, ta
 			TargetProvider: provider,
 			Priority:       detailPriority,
 			UsedPercent:    detailUsedPercent,
-			ResetAtMS:      firstAntigravityQuotaResetAt(result.QuotaWindows),
+			ResetAtMS:      model.FirstAntigravityQuotaResetAt(providerQuotaWindows),
 			CheckedAtMS:    checkedAt,
 		})
 	}
@@ -578,7 +581,53 @@ func (s *Service) requestAntigravityProbe(ctx context.Context, setup store.Setup
 	}
 	dataPayload, _ := json.Marshal(map[string]string{"project": projectID})
 	data := string(dataPayload)
-	payload := map[string]any{"authIndex": item.AuthIndex, "method": http.MethodPost, "url": antigravityProbeURL, "header": headers, "data": data}
+
+	quotaSummaryResponse, quotaSummaryError := s.requestAntigravityEndpoint(
+		ctx,
+		setup,
+		settings,
+		item.AuthIndex,
+		antigravityQuotaSummaryURL,
+		headers,
+		data,
+	)
+	quotaSummarySucceeded := quotaSummaryError == nil &&
+		quotaSummaryResponse.StatusCode >= http.StatusOK &&
+		quotaSummaryResponse.StatusCode < http.StatusMultipleChoices
+	if quotaSummarySucceeded {
+		if root, ok := quotaSummaryResponse.Body.(map[string]any); ok && len(buildAntigravityQuotaWindowsFromGroups(root)) > 0 {
+			return quotaSummaryResponse, nil
+		}
+	}
+
+	availableModelsResponse, availableModelsError := s.requestAntigravityEndpoint(
+		ctx,
+		setup,
+		settings,
+		item.AuthIndex,
+		antigravityAvailableModelsURL,
+		headers,
+		data,
+	)
+	if availableModelsError != nil {
+		if quotaSummaryError != nil {
+			return apiCallResponse{}, fmt.Errorf("quota summary failed: %v; available models failed: %w", quotaSummaryError, availableModelsError)
+		}
+		return apiCallResponse{}, availableModelsError
+	}
+	return availableModelsResponse, nil
+}
+
+func (s *Service) requestAntigravityEndpoint(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerAntigravityInspectionConfig,
+	authIndex string,
+	targetURL string,
+	headers map[string]string,
+	data string,
+) (apiCallResponse, error) {
+	payload := map[string]any{"authIndex": authIndex, "method": http.MethodPost, "url": targetURL, "header": headers, "data": data}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return apiCallResponse{}, err
@@ -833,30 +882,6 @@ func readAuthFileValue(file authFile, key string) (any, bool) {
 	return nil, false
 }
 
-func readAntigravityCreditsUsedPercent(file authFile) *float64 {
-	known, hasKnown := readAuthFileBool(file, "antigravity_credits_known", "antigravityCreditsKnown")
-	if hasKnown && !known {
-		return nil
-	}
-	if available, ok := readAuthFileBool(file, "antigravity_credits_available", "antigravityCreditsAvailable"); ok {
-		usedPercent := float64(100)
-		if available {
-			usedPercent = 0
-		}
-		return &usedPercent
-	}
-	creditAmount, okCredit := readAuthFileFloat(file, "antigravity_credit_amount", "antigravityCreditAmount")
-	minCreditAmount, okMin := readAuthFileFloat(file, "antigravity_min_credit_amount", "antigravityMinCreditAmount")
-	if okCredit && okMin && minCreditAmount > 0 {
-		usedPercent := float64(100)
-		if creditAmount >= minCreditAmount {
-			usedPercent = 0
-		}
-		return &usedPercent
-	}
-	return nil
-}
-
 func applyAntigravityQuotaSnapshot(result *model.AntigravityInspectionResult, response apiCallResponse) {
 	if result == nil {
 		return
@@ -882,9 +907,10 @@ func buildAntigravityQuotaWindows(body any) []model.AntigravityInspectionQuotaWi
 	if !ok || root == nil {
 		return nil
 	}
+	groupWindows := buildAntigravityQuotaWindowsFromGroups(root)
 	models, ok := readMapValue(root, "models")
 	if !ok || len(models) == 0 {
-		return nil
+		return groupWindows
 	}
 	type quotaCandidate struct {
 		id        string
@@ -924,7 +950,7 @@ func buildAntigravityQuotaWindows(body any) []model.AntigravityInspectionQuotaWi
 		})
 	}
 	if len(candidates) == 0 {
-		return nil
+		return groupWindows
 	}
 	windows := make([]model.AntigravityInspectionQuotaWindow, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -943,7 +969,7 @@ func buildAntigravityQuotaWindows(body any) []model.AntigravityInspectionQuotaWi
 			ResetLabel:  candidate.resetText,
 		})
 	}
-	return windows
+	return mergeAntigravityQuotaWindows(groupWindows, windows)
 }
 
 func readMapValue(raw map[string]any, keys ...string) (map[string]any, bool) {
@@ -996,58 +1022,6 @@ func parseAntigravityResetTime(value string) int64 {
 		}
 	}
 	return 0
-}
-
-func firstAntigravityQuotaResetAt(windows []model.AntigravityInspectionQuotaWindow) int64 {
-	for _, window := range windows {
-		if window.ResetAtMS > 0 {
-			return window.ResetAtMS
-		}
-	}
-	return 0
-}
-
-func readAuthFileBool(file authFile, keys ...string) (bool, bool) {
-	for _, key := range keys {
-		value, ok := readAuthFileValue(file, key)
-		if !ok || value == nil {
-			continue
-		}
-		switch typed := value.(type) {
-		case bool:
-			return typed, true
-		case string:
-			trimmed := strings.TrimSpace(typed)
-			if parsed, err := strconv.ParseBool(trimmed); err == nil {
-				return parsed, true
-			}
-			if trimmed == "1" {
-				return true, true
-			}
-			if trimmed == "0" {
-				return false, true
-			}
-		case float64:
-			return typed != 0, true
-		case int:
-			return typed != 0, true
-		}
-	}
-	return false, false
-}
-
-func readAuthFileFloat(file authFile, keys ...string) (float64, bool) {
-	for _, key := range keys {
-		value, ok := readAuthFileValue(file, key)
-		if !ok || value == nil {
-			continue
-		}
-		parsed, ok := readFloatStrict(value)
-		if ok {
-			return parsed, true
-		}
-	}
-	return 0, false
 }
 
 func readInt(value any) (int, bool) {

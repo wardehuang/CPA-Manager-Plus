@@ -2369,34 +2369,42 @@ func readNumberPtr(record map[string]any, keys ...string) (*float64, bool) {
 		if !ok || value == nil {
 			continue
 		}
-		switch typed := value.(type) {
-		case float64:
-			return &typed, true
-		case int:
-			value := float64(typed)
-			return &value, true
-		case string:
-			parsed, err := strconvParseFloat(typed)
-			if err == nil {
-				return &parsed, true
-			}
+		if parsed, ok := coerceJSONNumber(value); ok {
+			return &parsed, true
 		}
 	}
 	return nil, false
 }
 
 func readFloat(value any, fallback float64) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case int:
-		return float64(typed)
-	case string:
-		if parsed, err := strconvParseFloat(typed); err == nil {
-			return parsed
-		}
+	if parsed, ok := coerceJSONNumber(value); ok {
+		return parsed
 	}
 	return fallback
+}
+
+// coerceJSONNumber accepts float64/int and json.Number from decoder.UseNumber().
+func coerceJSONNumber(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	case string:
+		parsed, err := strconvParseFloat(typed)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func strconvParseFloat(value string) (float64, error) {

@@ -21,6 +21,7 @@ import (
 	sqliterepo "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageevent"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagerollup"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/wxaipriorityadjustment"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 )
@@ -48,6 +49,7 @@ type QuotaCooldownUpsert = model.QuotaCooldownUpsert
 type AccountActionCandidate = model.AccountActionCandidate
 type AccountActionCandidateUpsert = model.AccountActionCandidateUpsert
 type CodexPriorityAdjustment = model.CodexPriorityAdjustment
+type WxaiPriorityAdjustment = model.WxaiPriorityAdjustment
 type AutomationSettings = model.AutomationSettings
 
 var DefaultCodexInspectionConfig = model.DefaultCodexInspectionConfig
@@ -87,6 +89,7 @@ type Store struct {
 
 	CodexAccountWindowCosts  codexaccountwindowcost.Repository
 	CodexPriorityAdjustments codexpriorityadjustment.Repository
+	WxaiPriorityAdjustments  wxaipriorityadjustment.Repository
 	CodexAccountStatus       codexaccountstatus.Repository
 	Settings                 setting.Repository
 	UsageEvents              usageevent.Repository
@@ -112,6 +115,7 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		db:                       db,
 		CodexAccountWindowCosts:  codexaccountwindowcost.New(db),
 		CodexPriorityAdjustments: codexpriorityadjustment.New(db),
+		WxaiPriorityAdjustments:  wxaipriorityadjustment.New(db),
 		CodexAccountStatus:       codexaccountstatus.New(db),
 		Settings:                 setting.New(db, protector...),
 		UsageEvents:              usageevent.New(db),
@@ -262,6 +266,22 @@ func (s *Store) ListDueCodexPriorityAdjustments(ctx context.Context, nowMS int64
 
 func (s *Store) UpsertCodexPriorityAdjustment(ctx context.Context, adjustment model.CodexPriorityAdjustment) error {
 	return s.CodexPriorityAdjustments.Upsert(ctx, adjustment)
+}
+
+func (s *Store) DeleteWxaiPriorityAdjustment(ctx context.Context, accountKey string) error {
+	return s.WxaiPriorityAdjustments.Delete(ctx, accountKey)
+}
+
+func (s *Store) GetWxaiPriorityAdjustment(ctx context.Context, accountKey string) (model.WxaiPriorityAdjustment, bool, error) {
+	return s.WxaiPriorityAdjustments.Get(ctx, accountKey)
+}
+
+func (s *Store) ListDueWxaiPriorityAdjustments(ctx context.Context, nowMS int64) ([]model.WxaiPriorityAdjustment, error) {
+	return s.WxaiPriorityAdjustments.ListDue(ctx, nowMS)
+}
+
+func (s *Store) UpsertWxaiPriorityAdjustment(ctx context.Context, adjustment model.WxaiPriorityAdjustment) error {
+	return s.WxaiPriorityAdjustments.Upsert(ctx, adjustment)
 }
 
 func (s *Store) UpsertCodexAccountStatusDetail(ctx context.Context, detail model.CodexAccountStatusDetail) error {

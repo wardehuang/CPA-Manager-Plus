@@ -368,6 +368,9 @@ func Migrate(db *sql.DB) error {
 	if err := migrateAntigravityInspection(db); err != nil {
 		return err
 	}
+	if err := migrateWxaiInspection(db); err != nil {
+		return err
+	}
 	return ensureModelPriceColumns(db)
 }
 

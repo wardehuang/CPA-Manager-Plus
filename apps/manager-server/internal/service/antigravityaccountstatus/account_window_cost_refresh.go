@@ -82,7 +82,9 @@ func (s *Service) refreshAntigravityAccountWindowCost(ctx context.Context, targe
 		}
 		inputTokens += aggregate.InputTokens
 		outputTokens += aggregate.OutputTokens
-		cachedTokens += aggregate.CachedTokens
+		// Display/API cachedTokens uses hit total (residual + cache_read), same as usage.CacheHitTotals.
+		// Pricing still receives residual CachedTokens and fine-grained cache_read separately.
+		cachedTokens += aggregate.CachedTokens + aggregate.CacheReadTokens
 		estimatedCost += pricing.CostForModelWithServiceTier(aggregate.Model, aggregate.ServiceTier, pricing.ModelTokens{
 			InputTokens:         aggregate.InputTokens,
 			OutputTokens:        aggregate.OutputTokens,
@@ -112,17 +114,30 @@ func (s *Service) refreshAntigravityAccountWindowCost(ctx context.Context, targe
 func antigravityAccountWindowCostSpecs(item model.AntigravityAccountStatusItem, targetProvider string, nowMS int64) []antigravityAccountStatusWindowCostSpec {
 	targetProvider = model.NormalizeAntigravityTargetProvider(targetProvider, model.AntigravityTargetProviderClaude)
 	specs := make([]antigravityAccountStatusWindowCostSpec, 0, len(item.QuotaWindows)+3)
-	seen := map[string]struct{}{}
+	specIndexByWindowType := make(map[string]int, 3)
 	add := func(windowType string, seconds int64, resetAtMS int64, usedPercent *float64) {
 		if windowType == "" || seconds <= 0 || resetAtMS <= 0 {
 			return
 		}
-		key := windowType + "\x00" + strconv.FormatInt(resetAtMS, 10)
-		if _, ok := seen[key]; ok {
+		candidate := antigravityAccountStatusWindowCostSpec{
+			targetProvider: targetProvider,
+			windowType:     windowType,
+			seconds:        seconds,
+			resetAtMS:      resetAtMS,
+			usedPercent:    usedPercent,
+		}
+		existingIndex, exists := specIndexByWindowType[windowType]
+		if !exists {
+			specIndexByWindowType[windowType] = len(specs)
+			specs = append(specs, candidate)
 			return
 		}
-		seen[key] = struct{}{}
-		specs = append(specs, antigravityAccountStatusWindowCostSpec{targetProvider: targetProvider, windowType: windowType, seconds: seconds, resetAtMS: resetAtMS, usedPercent: usedPercent})
+		existing := specs[existingIndex]
+		candidateUsedPercent := antigravityUsedPercentValue(candidate.usedPercent)
+		existingUsedPercent := antigravityUsedPercentValue(existing.usedPercent)
+		if candidateUsedPercent > existingUsedPercent {
+			specs[existingIndex] = candidate
+		}
 	}
 	for _, window := range item.QuotaWindows {
 		if antigravityQuotaWindowProvider(window, targetProvider) != targetProvider {
@@ -149,6 +164,13 @@ func antigravityAccountWindowCostSpecs(item model.AntigravityAccountStatusItem, 
 	return specs
 }
 
+func antigravityUsedPercentValue(usedPercent *float64) float64 {
+	if usedPercent == nil {
+		return -1
+	}
+	return *usedPercent
+}
+
 func filterAntigravityWindowCosts(item model.AntigravityAccountStatusItem, costs []model.AntigravityAccountWindowCost, targetProvider string) []model.AntigravityAccountWindowCost {
 	if len(costs) == 0 {
 		return nil
@@ -158,7 +180,7 @@ func filterAntigravityWindowCosts(item model.AntigravityAccountStatusItem, costs
 		valid[spec.windowType+"\x00"+strconv.FormatInt(spec.resetAtMS, 10)] = struct{}{}
 	}
 	if len(valid) == 0 {
-		return costs
+		return latestAntigravityWindowCost(costs)
 	}
 	out := make([]model.AntigravityAccountWindowCost, 0, len(costs))
 	for _, cost := range costs {
@@ -166,7 +188,26 @@ func filterAntigravityWindowCosts(item model.AntigravityAccountStatusItem, costs
 			out = append(out, cost)
 		}
 	}
+	if len(out) == 0 {
+		return latestAntigravityWindowCost(costs)
+	}
 	return out
+}
+
+func latestAntigravityWindowCost(costs []model.AntigravityAccountWindowCost) []model.AntigravityAccountWindowCost {
+	if len(costs) == 0 {
+		return nil
+	}
+	latestCost := costs[0]
+	for _, candidate := range costs[1:] {
+		candidateIsNewer := candidate.WindowResetAtMS > latestCost.WindowResetAtMS ||
+			(candidate.WindowResetAtMS == latestCost.WindowResetAtMS && candidate.CalculatedAtMS > latestCost.CalculatedAtMS) ||
+			(candidate.WindowResetAtMS == latestCost.WindowResetAtMS && candidate.CalculatedAtMS == latestCost.CalculatedAtMS && candidate.UpdatedAtMS > latestCost.UpdatedAtMS)
+		if candidateIsNewer {
+			latestCost = candidate
+		}
+	}
+	return []model.AntigravityAccountWindowCost{latestCost}
 }
 
 func antigravityQuotaWindowProvider(window model.AntigravityInspectionQuotaWindow, fallback string) string {
@@ -198,7 +239,7 @@ func antigravityQuotaWindowType(window model.AntigravityInspectionQuotaWindow, t
 	}
 	text := strings.ToLower(strings.TrimSpace(window.ID + " " + window.LabelKey + " " + window.ResetLabel))
 	switch {
-	case strings.Contains(text, "five") || strings.Contains(text, "5") || strings.Contains(text, "hour"):
+	case strings.Contains(text, "five") || strings.Contains(text, "hour"):
 		return "five_hour", antigravityAccountStatusFiveHourWindowSeconds
 	case strings.Contains(text, "month") || strings.Contains(text, "monthly") || strings.Contains(text, "gemini"):
 		return "monthly", antigravityAccountStatusMonthWindowSeconds
