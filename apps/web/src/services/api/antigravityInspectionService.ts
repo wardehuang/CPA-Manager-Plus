@@ -24,6 +24,8 @@ export interface ManagerAntigravityInspectionConfig {
   deleteWorkers?: number;
   timeout?: number;
   retries?: number;
+  workerStartStaggerMs?: number;
+  accountTakeStaggerMs?: number;
   userAgent?: string;
   usedPercentThreshold?: number;
   sampleSize?: number;

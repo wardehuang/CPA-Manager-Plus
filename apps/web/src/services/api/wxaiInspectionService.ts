@@ -137,6 +137,10 @@ export interface ManagerWxaiInspectionConfig {
   deleteWorkers?: number;
   timeout?: number;
   retries?: number;
+  /** worker 错峰启动间隔（毫秒）；0=不交错 */
+  workerStartStaggerMs?: number;
+  /** 全局取账号间隔（毫秒）；0=不限流 */
+  accountTakeStaggerMs?: number;
   userAgent?: string;
   usedPercentThreshold?: number;
   sampleSize?: number;

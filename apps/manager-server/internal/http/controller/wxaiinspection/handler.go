@@ -165,7 +165,9 @@ func wxaiInspectionErrorStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, wxaiinspectionsvc.ErrRunAlreadyActive), errors.Is(err, wxaiinspectionsvc.ErrRunNotCompleted):
 		return http.StatusConflict
-	case errors.Is(err, wxaiinspectionsvc.ErrActionIDsRequired), errors.Is(err, wxaiinspectionsvc.ErrNoActionableResults):
+	case errors.Is(err, wxaiinspectionsvc.ErrActionIDsRequired),
+		errors.Is(err, wxaiinspectionsvc.ErrNoActionableResults),
+		errors.Is(err, wxaiinspectionsvc.ErrManualRefreshRequiresServerRun):
 		return http.StatusBadRequest
 	case errors.Is(err, wxaiinspectionsvc.ErrNotConfigured):
 		return http.StatusPreconditionFailed

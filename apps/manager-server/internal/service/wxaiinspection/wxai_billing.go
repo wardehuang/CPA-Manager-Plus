@@ -1,10 +1,8 @@
 package wxaiinspection
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -14,14 +12,15 @@ import (
 const (
 	wxaiBillingURL           = "https://cli-chat-proxy.grok.com/v1/billing"
 	wxaiBillingCreditsURL    = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
-	wxaiBillingUserAgent     = "grok-shell/0.2.99 (linux; x86_64)"
-	wxaiBillingClientVersion = "0.2.99"
+	wxaiBillingUserAgent     = "grok-pager/0.2.101 grok-shell/0.2.101 (macos; aarch64)"
+	wxaiBillingClientVersion = "0.2.101"
 )
 
 type wxaiBillingSnapshot struct {
 	QuotaWindows      []model.WxaiInspectionQuotaWindow
 	MonthlyLimitCents *float64
 	MonthlyUsedCents  *float64
+	RecoveryAtMS      int64
 }
 
 type wxaiMonthlyBillingResponse struct {
@@ -42,92 +41,6 @@ type wxaiCreditsBillingResponse struct {
 			End   string `json:"end"`
 		} `json:"currentPeriod"`
 	} `json:"config"`
-}
-
-func (service *Service) refreshWxaiBillingMetadata(
-	ctx context.Context,
-	client *http.Client,
-	timeoutMilliseconds int,
-	accessToken string,
-	accountType string,
-) (wxaiBillingSnapshot, string, error) {
-	normalizedAccountType := normalizeWxaiAccountType(accountType)
-	switch normalizedAccountType {
-	case wxaiAccountTypeFree:
-		return wxaiBillingSnapshot{}, normalizedAccountType, nil
-	case wxaiAccountTypeSuper:
-		snapshot, err := service.fetchWxaiCreditsBilling(ctx, client, timeoutMilliseconds, accessToken)
-		return snapshot, normalizedAccountType, err
-	}
-
-	snapshot, err := service.fetchWxaiMonthlyBilling(ctx, client, timeoutMilliseconds, accessToken)
-	if err != nil {
-		return wxaiBillingSnapshot{}, "", err
-	}
-	resolvedAccountType := resolveWxaiAccountType(snapshot.MonthlyLimitCents)
-	if resolvedAccountType == wxaiAccountTypeFree {
-		return snapshot, resolvedAccountType, nil
-	}
-
-	creditsSnapshot, creditsErr := service.fetchWxaiCreditsBilling(ctx, client, timeoutMilliseconds, accessToken)
-	mergeWxaiBillingSnapshot(&snapshot, creditsSnapshot)
-	return snapshot, resolvedAccountType, creditsErr
-}
-
-func (service *Service) fetchWxaiMonthlyBilling(
-	ctx context.Context,
-	client *http.Client,
-	timeoutMilliseconds int,
-	accessToken string,
-) (wxaiBillingSnapshot, error) {
-	response, err := service.performWxaiRequest(
-		ctx,
-		client,
-		timeoutMilliseconds,
-		http.MethodGet,
-		wxaiBillingURL,
-		nil,
-		wxaiBillingHeaders(accessToken),
-	)
-	if err != nil {
-		return wxaiBillingSnapshot{}, fmt.Errorf("billing request: %w", err)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return wxaiBillingSnapshot{}, fmt.Errorf("billing returned HTTP %d", response.StatusCode)
-	}
-	snapshot := wxaiBillingSnapshot{QuotaWindows: make([]model.WxaiInspectionQuotaWindow, 0, 1)}
-	if err := parseWxaiMonthlyBilling(response.Body, &snapshot); err != nil {
-		return wxaiBillingSnapshot{}, fmt.Errorf("parse billing response: %w", err)
-	}
-	return snapshot, nil
-}
-
-func (service *Service) fetchWxaiCreditsBilling(
-	ctx context.Context,
-	client *http.Client,
-	timeoutMilliseconds int,
-	accessToken string,
-) (wxaiBillingSnapshot, error) {
-	response, err := service.performWxaiRequest(
-		ctx,
-		client,
-		timeoutMilliseconds,
-		http.MethodGet,
-		wxaiBillingCreditsURL,
-		nil,
-		wxaiBillingHeaders(accessToken),
-	)
-	if err != nil {
-		return wxaiBillingSnapshot{}, fmt.Errorf("billing credits request: %w", err)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return wxaiBillingSnapshot{}, fmt.Errorf("billing credits returned HTTP %d", response.StatusCode)
-	}
-	snapshot := wxaiBillingSnapshot{QuotaWindows: make([]model.WxaiInspectionQuotaWindow, 0, 1)}
-	if err := parseWxaiCreditsBilling(response.Body, &snapshot); err != nil {
-		return wxaiBillingSnapshot{}, fmt.Errorf("parse billing credits response: %w", err)
-	}
-	return snapshot, nil
 }
 
 func parseWxaiMonthlyBilling(body []byte, snapshot *wxaiBillingSnapshot) error {
@@ -174,14 +87,12 @@ func parseWxaiCreditsBilling(body []byte, snapshot *wxaiBillingSnapshot) error {
 		response.Config.CurrentPeriod.End,
 		response.Config.BillingPeriodEnd,
 	))
-	if periodType == "" || resetAtMS <= 0 {
+	snapshot.RecoveryAtMS = resetAtMS
+	if response.Config.CreditUsagePercent == nil || periodType == "" || resetAtMS <= 0 {
 		return nil
 	}
 
-	usedPercent := 0.0
-	if response.Config.CreditUsagePercent != nil {
-		usedPercent = *response.Config.CreditUsagePercent
-	}
+	usedPercent := *response.Config.CreditUsagePercent
 	windowID := model.WxaiAccountWindowTypeWeekly
 	windowLabel := "周限额"
 	if periodType == "USAGE_PERIOD_TYPE_MONTHLY" {
@@ -248,6 +159,9 @@ func mergeWxaiBillingSnapshot(target *wxaiBillingSnapshot, source wxaiBillingSna
 	if source.MonthlyUsedCents != nil {
 		target.MonthlyUsedCents = source.MonthlyUsedCents
 	}
+	if source.RecoveryAtMS > 0 {
+		target.RecoveryAtMS = source.RecoveryAtMS
+	}
 }
 
 func resolveWxaiAccountType(monthlyLimitCents *float64) string {
@@ -257,17 +171,25 @@ func resolveWxaiAccountType(monthlyLimitCents *float64) string {
 	return wxaiAccountTypeFree
 }
 
-func wxaiBillingHeaders(accessToken string) map[string]string {
-	return map[string]string{
-		"Authorization":            "Bearer " + accessToken,
-		"Accept":                   "application/json",
-		"X-XAI-Token-Auth":         "xai-grok-cli",
-		"x-grok-client-version":    wxaiBillingClientVersion,
-		"x-grok-client-identifier": "grok-shell",
-		"x-grok-client-surface":    "tui",
-		"x-grok-client-name":       "grok-shell",
-		"User-Agent":               wxaiBillingUserAgent,
+func resolveWxaiBillingUserID(authFile map[string]any, accountID string) string {
+	return firstNonEmpty(
+		firstString(authFile, "sub", "subject", "user_id", "userId"),
+		strings.TrimSpace(accountID),
+	)
+}
+
+func wxaiBillingHeaders(accessToken string, userID string) map[string]string {
+	headers := map[string]string{
+		"Authorization":         "Bearer " + accessToken,
+		"Accept":                "*/*",
+		"X-XAI-Token-Auth":      "xai-grok-cli",
+		"x-grok-client-version": wxaiBillingClientVersion,
+		"User-Agent":            wxaiBillingUserAgent,
 	}
+	if normalizedUserID := strings.TrimSpace(userID); normalizedUserID != "" {
+		headers["x-userid"] = normalizedUserID
+	}
+	return headers
 }
 
 func floatPointer(value float64) *float64 {

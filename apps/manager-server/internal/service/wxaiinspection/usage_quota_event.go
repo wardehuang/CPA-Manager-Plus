@@ -27,16 +27,23 @@ type UsageQuotaExhaustedRequest struct {
 }
 
 type UsageQuotaExhaustedResult struct {
-	Applied     bool
-	AccountKey  string
-	FileName    string
-	RunID       int64
-	RecoverAtMS int64
+	Applied            bool
+	AccountKey         string
+	FileName           string
+	AccountType        string
+	RunID              int64
+	RecoverAtMS        int64
+	RecoverySource     string
+	CreditsAttempted   bool
+	CreditsRecoverAtMS int64
+	CreditsError       string
+	SkippedReason      string
 }
 
 // ApplyUsageQuotaExhausted consumes a quota result already proven by the
-// original xAI request. It updates priority and inspection persistence without
-// downloading the auth JSON or sending another xAI probe request.
+// original xAI request. FREE accounts keep the direct persistence path. SUPER
+// accounts query billing credits only when the original response has no usable
+// recovery time.
 func (service *Service) ApplyUsageQuotaExhausted(
 	ctx context.Context,
 	request UsageQuotaExhaustedRequest,
@@ -76,6 +83,14 @@ func (service *Service) ApplyUsageQuotaExhausted(
 			request.EventHash,
 		)
 	}
+	if isWxaiBotFlaggedAccount(matchedAccount) {
+		return UsageQuotaExhaustedResult{
+			AccountKey:    matchedAccount.Key,
+			FileName:      matchedAccount.FileName,
+			AccountType:   normalizeWxaiAccountType(matchedAccount.AccountType),
+			SkippedReason: "priority=-6 bot account",
+		}, nil
+	}
 
 	inspectionTime := time.Now()
 	runID, err := service.latestReusableWxaiRunID(ctx)
@@ -83,10 +98,8 @@ func (service *Service) ApplyUsageQuotaExhausted(
 		return UsageQuotaExhaustedResult{}, err
 	}
 	logger := runLogger{service: service, runID: runID, prefix: "【wXAi 请求额度落盘】 "}
-	quotaRecovery := quotaRecoveryFromUsageEvent(request)
-	resolvedRecovery := resolveWxaiQuotaRecovery(quotaRecovery, inspectionTime)
 
-	if normalizeWxaiAccountType(matchedAccount.AccountType) == "" {
+	if wxaiAccountTypeNeedsResolution(matchedAccount.AccountType) {
 		matchedAccount.AccountType = wxaiAccountTypeFree
 		if err := service.persistWxaiAccountType(ctx, matchedAccount.Key, wxaiAccountTypeFree); err != nil {
 			logger.warning(context.WithoutCancel(ctx), "保存 wXAi 账号类型失败", map[string]any{
@@ -95,6 +108,17 @@ func (service *Service) ApplyUsageQuotaExhausted(
 			})
 		}
 	}
+	quotaRecoveryResolution := service.resolveWxaiUsageQuotaRecovery(
+		ctx,
+		setup,
+		settings,
+		matchedAccount,
+		runID,
+		request,
+		inspectionTime,
+		logger,
+	)
+	resolvedRecovery := resolveWxaiQuotaRecovery(quotaRecoveryResolution.Recovery, inspectionTime)
 
 	result := model.WxaiInspectionResult{
 		RunID:          runID,
@@ -109,7 +133,7 @@ func (service *Service) ApplyUsageQuotaExhausted(
 		State:          matchedAccount.State,
 		Action:         "keep",
 		ActionStatus:   model.WxaiInspectionActionStatusNone,
-		PlanType:       wxaiAccountTypeFree,
+		PlanType:       normalizeWxaiAccountType(matchedAccount.AccountType),
 		CreatedAtMS:    inspectionTime.UnixMilli(),
 	}
 	result, effectivePriority := service.applyWxaiProbeFailure(
@@ -122,7 +146,7 @@ func (service *Service) ApplyUsageQuotaExhausted(
 			StatusCode:    request.StatusCode,
 			ErrorKind:     "quota_exhausted",
 			Detail:        request.Detail,
-			QuotaRecovery: quotaRecovery,
+			QuotaRecovery: quotaRecoveryResolution.Recovery,
 		},
 		inspectionTime,
 		logger,
@@ -142,21 +166,22 @@ func (service *Service) ApplyUsageQuotaExhausted(
 		logWxaiConditionalResult(persistContext, logger, result, []string{"request_quota_exhausted"})
 	}
 
-	if result.Error != "" {
-		return UsageQuotaExhaustedResult{
-			AccountKey:  matchedAccount.Key,
-			FileName:    matchedAccount.FileName,
-			RunID:       runID,
-			RecoverAtMS: resolvedRecovery.recoverAtMS,
-		}, errors.New(result.Error)
+	usageResult := UsageQuotaExhaustedResult{
+		AccountKey:         matchedAccount.Key,
+		FileName:           matchedAccount.FileName,
+		AccountType:        normalizeWxaiAccountType(matchedAccount.AccountType),
+		RunID:              runID,
+		RecoverAtMS:        resolvedRecovery.recoverAtMS,
+		RecoverySource:     resolvedRecovery.source,
+		CreditsAttempted:   quotaRecoveryResolution.CreditsAttempted,
+		CreditsRecoverAtMS: quotaRecoveryResolution.CreditsRecoverAtMS,
+		CreditsError:       quotaRecoveryResolution.CreditsError,
 	}
-	return UsageQuotaExhaustedResult{
-		Applied:     true,
-		AccountKey:  matchedAccount.Key,
-		FileName:    matchedAccount.FileName,
-		RunID:       runID,
-		RecoverAtMS: resolvedRecovery.recoverAtMS,
-	}, nil
+	if result.Error != "" {
+		return usageResult, errors.New(result.Error)
+	}
+	usageResult.Applied = true
+	return usageResult, nil
 }
 
 func (service *Service) latestReusableWxaiRunID(ctx context.Context) (int64, error) {

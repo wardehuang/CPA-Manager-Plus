@@ -12,12 +12,21 @@ import (
 type wxaiServerInspectionSelection struct {
 	inspectionAccounts          []account
 	disabledAccounts            []account
+	botFlaggedAccounts          []account
 	quotaCooldownAccounts       []account
 	cooldownUntilByAccountKeyMS map[string]int64
 }
 
 func isWxaiServerAccountDisabled(currentAccount account) bool {
 	return currentAccount.Priority != nil && *currentAccount.Priority == wxaiDisabledPriorityValue
+}
+
+func isWxaiBotFlaggedAccount(currentAccount account) bool {
+	return isWxaiBotFlaggedPriority(currentAccount.Priority)
+}
+
+func isWxaiInspectionExcluded(currentAccount account) bool {
+	return isWxaiServerAccountDisabled(currentAccount) || isWxaiBotFlaggedAccount(currentAccount)
 }
 
 func (service *Service) resolveWxaiServerInspectionSelection(
@@ -28,6 +37,7 @@ func (service *Service) resolveWxaiServerInspectionSelection(
 	selection := wxaiServerInspectionSelection{
 		inspectionAccounts:          make([]account, 0, len(accounts)),
 		disabledAccounts:            make([]account, 0),
+		botFlaggedAccounts:          make([]account, 0),
 		quotaCooldownAccounts:       make([]account, 0),
 		cooldownUntilByAccountKeyMS: make(map[string]int64),
 	}
@@ -35,6 +45,10 @@ func (service *Service) resolveWxaiServerInspectionSelection(
 	for _, currentAccount := range accounts {
 		if isWxaiServerAccountDisabled(currentAccount) {
 			selection.disabledAccounts = append(selection.disabledAccounts, currentAccount)
+			continue
+		}
+		if isWxaiBotFlaggedAccount(currentAccount) {
+			selection.botFlaggedAccounts = append(selection.botFlaggedAccounts, currentAccount)
 			continue
 		}
 		cooldownUntilMS, cooldownActive, err := service.resolveWxaiQuotaCooldown(ctx, currentAccount, now)
@@ -215,6 +229,7 @@ func buildPreservedWxaiAccountState(
 	if hasPreviousItem {
 		result = previousItem.WxaiInspectionResult
 	}
+	previousErrorDetail := result.ErrorDetail
 
 	result.ID = 0
 	result.RunID = runID
@@ -239,6 +254,10 @@ func buildPreservedWxaiAccountState(
 	result.PlanType = firstNonEmpty(normalizeWxaiAccountType(currentAccount.AccountType), normalizeWxaiAccountType(result.PlanType))
 	if result.Disabled {
 		result.ActionReason = "账号已停用，未调用测活请求，保持停用状态"
+	} else if isWxaiBotFlaggedAccount(currentAccount) {
+		result.ErrorKind = "account_abnormal"
+		result.ErrorDetail = previousErrorDetail
+		result.ActionReason = "账号命中 bot_flag_source，priority 为 -6，永久跳过巡检"
 	} else {
 		result.ActionReason = "账号未参与本轮网络探测，保持当前状态"
 	}

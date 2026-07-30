@@ -358,15 +358,10 @@ export const buildAnalyticsFilters = (
     }
   }
   if (isActiveFilterValue(scopeFilters.provider)) {
-    const provider = scopeFilters.provider!.trim();
-    const normalizedProvider = normalizeFilterText(provider);
-    const providerAuthIndices = Array.from(authMetaMap.entries())
-      .filter(([, meta]) => normalizeFilterText(meta.provider) === normalizedProvider)
-      .map(([authIndex]) => authIndex);
-    authIndices = addAuthIndexConstraint(authIndices, providerAuthIndices);
-    if (providerAuthIndices.length === 0) {
-      filters.providers = [provider];
-    }
+    // Always filter by provider column. Expanding to every matching auth_index
+    // (common for large xAI fleets) overflows SQLite's bound-variable limit:
+    // "SQL logic error: too many SQL variables".
+    filters.providers = [scopeFilters.provider!.trim()];
   }
   if (isActiveFilterValue(scopeFilters.channel)) {
     const channel = scopeFilters.channel!.trim();

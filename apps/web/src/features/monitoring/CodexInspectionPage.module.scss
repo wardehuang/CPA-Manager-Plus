@@ -61,6 +61,24 @@
   min-width: 0;
 }
 
+.modeSwitchCopy {
+  margin-left: 10px;
+  min-width: 0;
+  font-size: 75%;
+  line-height: 1.4;
+  color: var(--inspect-muted);
+
+  p {
+    margin: 0;
+  }
+}
+
+.modeSwitchEyebrow {
+  display: block;
+  font-weight: 600;
+  color: var(--inspect-ink);
+}
+
 .panel {
   position: relative;
   border: 1px solid var(--inspect-line);
@@ -2534,6 +2552,11 @@
   .modeSwitchMain {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .modeSwitchCopy {
+    margin-left: 0;
+    margin-top: 10px;
   }
 
   .statusBar {

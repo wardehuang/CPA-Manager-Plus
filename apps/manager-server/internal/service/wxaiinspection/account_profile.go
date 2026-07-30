@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	wxaiAccountTypeFree  = "FREE"
-	wxaiAccountTypeSuper = "SUPER"
+	wxaiAccountTypeUnknown = "UNKNOWN"
+	wxaiAccountTypeFree    = "FREE"
+	wxaiAccountTypeSuper   = "SUPER"
 )
 
 func (service *Service) attachWxaiAccountProfiles(ctx context.Context, accounts []account) error {
@@ -40,6 +41,8 @@ func (service *Service) persistWxaiAccountType(ctx context.Context, accountKey s
 
 func normalizeWxaiAccountType(accountType string) string {
 	switch strings.ToUpper(strings.TrimSpace(accountType)) {
+	case wxaiAccountTypeUnknown:
+		return wxaiAccountTypeUnknown
 	case wxaiAccountTypeFree:
 		return wxaiAccountTypeFree
 	case wxaiAccountTypeSuper:
@@ -47,4 +50,9 @@ func normalizeWxaiAccountType(accountType string) string {
 	default:
 		return ""
 	}
+}
+
+func wxaiAccountTypeNeedsResolution(accountType string) bool {
+	normalizedAccountType := normalizeWxaiAccountType(accountType)
+	return normalizedAccountType == "" || normalizedAccountType == wxaiAccountTypeUnknown
 }

@@ -68,7 +68,7 @@ func (service *Service) resolveConditionalAccounts(
 
 func (candidates *wxaiConditionalCandidateSet) add(currentAccount account, reason string) {
 	quotaExhausted := currentAccount.Priority != nil && *currentAccount.Priority == wxaiQuotaPriorityValue
-	if isWxaiServerAccountDisabled(currentAccount) || quotaExhausted {
+	if isWxaiInspectionExcluded(currentAccount) || quotaExhausted {
 		return
 	}
 	accountKey := strings.TrimSpace(currentAccount.Key)

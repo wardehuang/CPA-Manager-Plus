@@ -928,20 +928,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 38px;
+  gap: 5px;
+  min-height: 24px;
   margin: auto;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, #94a3b8 24%, var(--monitor-line));
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #94a3b8 20%, var(--monitor-line));
   border-radius: 999px;
-  color: color-mix(in srgb, var(--monitor-muted) 88%, #cbd5e1);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #94a3b8 9%, transparent), transparent),
-    color-mix(in srgb, var(--monitor-surface-elevated) 82%, transparent);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent);
+  color: color-mix(in srgb, var(--monitor-muted) 86%, #cbd5e1);
+  background: color-mix(in srgb, var(--monitor-surface-elevated) 76%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .accountStatusNoQuotaState span {

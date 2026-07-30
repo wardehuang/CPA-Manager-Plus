@@ -23,11 +23,14 @@ const WXAI_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
     deleteWorkers: 4,
     timeout: 25000,
     retries: 1,
+    workerStartStaggerMs: 10000,
+    accountTakeStaggerMs: 10000,
     userAgent: 'grok-shell/0.2.99 (linux; x86_64)',
     usedPercentThreshold: 100,
     sampleSize: 0,
     autoActionMode: 'none',
   },
+  supportsProbeStagger: true,
   renderModeTabs: () => <WxaiInspectionModeTabs activeMode="server" />,
   getSettings: (base, managementKey) => wxaiInspectionApi.getSettings(base, managementKey),
   saveSettings: (base, managementKey, settings) =>
@@ -41,6 +44,7 @@ const WXAI_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
     wxaiInspectionApi.executeActions(base, managementKey, runId, resultIds),
   supportsActionExecution: false,
   showsPriorityAdjustmentSummary: true,
+  userAgentSectionLabel: 'Grok',
   quotaExhaustedLabel: '额度耗尽',
   getQuotaExhaustedCount: (run) =>
     (run as unknown as WxaiInspectionRun).quotaExhaustedCount,

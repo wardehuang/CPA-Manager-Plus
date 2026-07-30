@@ -23,6 +23,9 @@ type InspectionConfigFieldsProps = {
   draft: SharedInspectionConfigDraft;
   errors: InspectionConfigFieldErrors;
   t: TFunction;
+  showTargetConfiguration?: boolean;
+  autoRecoveryAvailable?: boolean;
+  userAgentSectionLabel?: string;
   onFieldChange: (field: SharedInspectionConfigField, value: string) => void;
   onXaiInferenceEnabledChange: (enabled: boolean) => void;
   onAutoActionModeChange: (mode: CodexInspectionAutoActionMode) => void;
@@ -35,6 +38,9 @@ export function InspectionConfigFields({
   draft,
   errors,
   t,
+  showTargetConfiguration = true,
+  autoRecoveryAvailable = true,
+  userAgentSectionLabel,
   onFieldChange,
   onXaiInferenceEnabledChange,
   onAutoActionModeChange,
@@ -71,11 +77,12 @@ export function InspectionConfigFields({
 
   return (
     <>
-      <section
-        className={styles.configSection}
-        aria-label={t('monitoring.codex_inspection_settings_group_scope')}
-      >
-        <div className={styles.serverConfigGrid}>
+      {showTargetConfiguration ? (
+        <section
+          className={styles.configSection}
+          aria-label={t('monitoring.codex_inspection_settings_group_scope')}
+        >
+          <div className={styles.serverConfigGrid}>
           <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
             <div className="form-group">
               <label className={styles.serverFieldLabel} htmlFor="targetTypes">
@@ -130,9 +137,10 @@ export function InspectionConfigFields({
                 </div>
               ) : null}
             </>
-          ) : null}
-        </div>
-      </section>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className={`${styles.configSection} ${styles.configSectionStrategy}`}>
         <header className={styles.configSectionHeader}>
@@ -177,6 +185,7 @@ export function InspectionConfigFields({
           <CodexInspectionAutoActionEditor
             value={draft.autoActionMode}
             autoRecoverEnabled={draft.autoRecoverEnabled}
+            autoRecoveryAvailable={autoRecoveryAvailable}
             t={t}
             onChange={onAutoActionModeChange}
             onAutoRecoverChange={onAutoRecoverEnabledChange}
@@ -254,7 +263,7 @@ export function InspectionConfigFields({
           {userAgentVisibility.codex ? (
             <section className={styles.advancedGroup}>
               <h3 className={styles.advancedGroupTitle}>
-                <span>{t('monitoring.codex_inspection_target_codex')}</span>
+                <span>{userAgentSectionLabel ?? t('monitoring.codex_inspection_target_codex')}</span>
               </h3>
               <div className={styles.advancedGroupGrid}>
                 <div className={`${styles.serverField} ${styles.serverFieldWide}`}>

@@ -816,6 +816,8 @@ type BuildConfigOverviewItemsOptions =
       t: TFunction;
       scheduleEnabled: boolean;
       scheduleLabel: string;
+      includeProviderItems?: boolean;
+      includeAutoRecoverItem?: boolean;
     };
 
 export const buildConfigOverviewItems = (
@@ -893,14 +895,18 @@ export const buildConfigOverviewItems = (
         tone: getAutoActionTone(autoActionMode),
         field: 'autoActionMode',
       },
-      {
-        key: 'recover',
-        label: t('monitoring.codex_inspection_settings_auto_recover_label'),
-        value: settings.autoRecoverEnabled ? t('common.enabled') : t('common.disabled'),
-        tone: settings.autoRecoverEnabled ? 'good' : 'idle',
-        field: 'autoActionMode',
-      },
-      ...providerItems,
+      ...(options.includeAutoRecoverItem === false
+        ? []
+        : [
+            {
+              key: 'recover',
+              label: t('monitoring.codex_inspection_settings_auto_recover_label'),
+              value: settings.autoRecoverEnabled ? t('common.enabled') : t('common.disabled'),
+              tone: settings.autoRecoverEnabled ? ('good' as const) : ('idle' as const),
+              field: 'autoActionMode',
+            },
+          ]),
+      ...(options.includeProviderItems === false ? [] : providerItems),
     ];
   }
 

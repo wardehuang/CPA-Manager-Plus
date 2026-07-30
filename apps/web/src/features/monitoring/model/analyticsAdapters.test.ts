@@ -200,16 +200,49 @@ describe('buildAnalyticsFilters', () => {
     });
   });
 
-  it('falls back to provider filters when auth metadata cannot resolve a provider', () => {
-    const filters = buildAnalyticsFilters(
-      {
-        provider: 'legacy-provider',
-      },
-      new Map(),
-      []
+  it('maps provider scope to backend providers filter without expanding auth indices', () => {
+    const authMetaMap = new Map(
+      Array.from({ length: 3 }, (_, index) => {
+        const authIndex = `xai-auth-${index}`;
+        return [
+          authIndex,
+          {
+            authIndex,
+            label: `xAI ${index}`,
+            account: `user${index}@example.com`,
+            provider: 'xai',
+            status: 'active',
+            disabled: false,
+            unavailable: false,
+            runtimeOnly: false,
+            planType: 'free',
+            updatedAt: '',
+          },
+        ] as const;
+      })
     );
 
-    expect(filters).toEqual({
+    expect(
+      buildAnalyticsFilters(
+        {
+          provider: 'xai',
+        },
+        authMetaMap,
+        []
+      )
+    ).toEqual({
+      providers: ['xai'],
+    });
+
+    expect(
+      buildAnalyticsFilters(
+        {
+          provider: 'legacy-provider',
+        },
+        new Map(),
+        []
+      )
+    ).toEqual({
       providers: ['legacy-provider'],
     });
   });

@@ -3,6 +3,7 @@ package wxaiinspection
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
@@ -16,7 +17,7 @@ const (
 	wxaiLegacyPriorityValue       = -3
 	wxaiUnauthorizedPriorityValue = -4
 	wxaiDisabledPriorityValue     = -5
-	wxaiDefaultRestorePriority    = 1
+	wxaiBotFlaggedPriorityValue   = -6
 	wxaiPriorityRecheckInterval   = 30 * time.Second
 )
 
@@ -105,6 +106,7 @@ func (service *Service) restoreWxaiPriority(
 	ctx context.Context,
 	setup store.Setup,
 	currentAccount account,
+	accountType string,
 	logger runLogger,
 ) (*int, error) {
 	adjustment, adjustmentExists, err := service.store.GetWxaiPriorityAdjustment(ctx, currentAccount.Key)
@@ -126,7 +128,10 @@ func (service *Service) restoreWxaiPriority(
 		return currentAccount.Priority, nil
 	}
 
-	targetPriority := wxaiDefaultRestorePriority
+	targetPriority, err := resolveWxaiRestorePriority(currentAccount.DisplayAccount, accountType)
+	if err != nil {
+		return currentAccount.Priority, err
+	}
 	authFilesClient := cpaauthfiles.New(service.client, cpaauthfiles.DefaultTimeout)
 	if err := authFilesClient.PatchPriority(
 		ctx,
@@ -156,11 +161,73 @@ func (service *Service) restoreWxaiPriority(
 	return intPointer(targetPriority), nil
 }
 
+func (service *Service) setWxaiBotFlaggedPriority(
+	ctx context.Context,
+	setup store.Setup,
+	currentAccount account,
+	logger runLogger,
+) (*int, error) {
+	if currentAccount.Priority == nil || *currentAccount.Priority != wxaiBotFlaggedPriorityValue {
+		authFilesClient := cpaauthfiles.New(service.client, cpaauthfiles.DefaultTimeout)
+		if err := authFilesClient.PatchPriority(
+			ctx,
+			setup.CPAUpstreamURL,
+			setup.ManagementKey,
+			currentAccount.FileName,
+			wxaiBotFlaggedPriorityValue,
+		); err != nil {
+			return currentAccount.Priority, fmt.Errorf("设置 wXAi bot priority %d: %w", wxaiBotFlaggedPriorityValue, err)
+		}
+	}
+	if err := service.store.DeleteWxaiPriorityAdjustment(ctx, currentAccount.Key); err != nil {
+		return intPointer(wxaiBotFlaggedPriorityValue), fmt.Errorf("删除 bot 账号 priority adjustment: %w", err)
+	}
+	if !isWxaiManagedPriority(currentAccount.Priority) && !isWxaiBotFlaggedPriority(currentAccount.Priority) {
+		if err := service.store.MarkWxaiAccountPriorityAbnormal(ctx, currentAccount.Key, time.Now().UnixMilli()); err != nil {
+			return intPointer(wxaiBotFlaggedPriorityValue), fmt.Errorf("记录 wXAi bot 账号异常时间: %w", err)
+		}
+	}
+	logger.warning(context.WithoutCancel(ctx), "wXAi bot 账号 priority 已设为 -6", map[string]any{
+		"fileName":       currentAccount.FileName,
+		"displayAccount": currentAccount.DisplayAccount,
+		"authIndex":      currentAccount.AuthIndex,
+		"priority":       wxaiBotFlaggedPriorityValue,
+	})
+	return intPointer(wxaiBotFlaggedPriorityValue), nil
+}
+
+func resolveWxaiRestorePriority(displayAccount string, accountType string) (int, error) {
+	switch normalizeWxaiAccountType(accountType) {
+	case wxaiAccountTypeSuper:
+		return 3, nil
+	case wxaiAccountTypeFree:
+		if wxaiEmailDomain(displayAccount) == "gmail.com" {
+			return 2, nil
+		}
+		return 1, nil
+	default:
+		return 0, fmt.Errorf("无法恢复 wXAi priority：账号类型 %q 未判定", accountType)
+	}
+}
+
+func wxaiEmailDomain(displayAccount string) string {
+	normalizedAccount := strings.ToLower(strings.TrimSpace(displayAccount))
+	separatorIndex := strings.LastIndex(normalizedAccount, "@")
+	if separatorIndex < 0 || separatorIndex == len(normalizedAccount)-1 {
+		return ""
+	}
+	return normalizedAccount[separatorIndex+1:]
+}
+
 func isWxaiManagedPriority(priority *int) bool {
 	return priority != nil && (*priority == wxaiQuotaPriorityValue ||
 		*priority == wxaiAbnormalPriorityValue ||
 		*priority == wxaiLegacyPriorityValue ||
 		*priority == wxaiUnauthorizedPriorityValue)
+}
+
+func isWxaiBotFlaggedPriority(priority *int) bool {
+	return priority != nil && *priority == wxaiBotFlaggedPriorityValue
 }
 
 func intPointer(value int) *int {

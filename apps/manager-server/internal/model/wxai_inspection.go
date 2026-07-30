@@ -41,10 +41,14 @@ type ManagerWxaiInspectionConfig struct {
 	DeleteWorkers        int                                 `json:"deleteWorkers,omitempty"`
 	Timeout              int                                 `json:"timeout,omitempty"`
 	Retries              int                                 `json:"retries,omitempty"`
-	UserAgent            string                              `json:"userAgent,omitempty"`
-	UsedPercentThreshold float64                             `json:"usedPercentThreshold,omitempty"`
-	SampleSize           int                                 `json:"sampleSize,omitempty"`
-	AutoActionMode       string                              `json:"autoActionMode,omitempty"`
+	// WorkerStartStaggerMs: worker 错峰启动间隔（毫秒）。nil=默认；0=不交错（同时启动）。
+	WorkerStartStaggerMs *int `json:"workerStartStaggerMs,omitempty"`
+	// AccountTakeStaggerMs: 全局取账号间隔（毫秒）。nil=默认；0=不限流。
+	AccountTakeStaggerMs *int `json:"accountTakeStaggerMs,omitempty"`
+	UserAgent                 string  `json:"userAgent,omitempty"`
+	UsedPercentThreshold      float64 `json:"usedPercentThreshold,omitempty"`
+	SampleSize                int     `json:"sampleSize,omitempty"`
+	AutoActionMode            string  `json:"autoActionMode,omitempty"`
 }
 
 type ManagerWxaiInspectionScheduleConfig struct {
@@ -165,6 +169,11 @@ type WxaiAccountStatusResponse struct {
 	Items []WxaiAccountStatusItem `json:"items"`
 }
 
+const (
+	DefaultWxaiWorkerStartStaggerMs = 10000
+	DefaultWxaiAccountTakeStaggerMs = 10000
+)
+
 func DefaultWxaiInspectionConfig() ManagerWxaiInspectionConfig {
 	return ManagerWxaiInspectionConfig{
 		Enabled: wxaiBoolPointer(false),
@@ -172,15 +181,17 @@ func DefaultWxaiInspectionConfig() ManagerWxaiInspectionConfig {
 			Mode:            WxaiInspectionScheduleModeInterval,
 			IntervalMinutes: 60,
 		},
-		TargetType:           "xai",
-		Workers:              4,
-		DeleteWorkers:        4,
-		Timeout:              25000,
-		Retries:              1,
-		UserAgent:            "grok-shell/0.2.99 (linux; x86_64)",
-		UsedPercentThreshold: 100,
-		SampleSize:           0,
-		AutoActionMode:       WxaiInspectionAutoActionNone,
+		TargetType:               "xai",
+		Workers:                  4,
+		DeleteWorkers:            4,
+		Timeout:                  25000,
+		Retries:                  1,
+		WorkerStartStaggerMs:     wxaiIntPointer(DefaultWxaiWorkerStartStaggerMs),
+		AccountTakeStaggerMs:     wxaiIntPointer(DefaultWxaiAccountTakeStaggerMs),
+		UserAgent:                "grok-shell/0.2.99 (linux; x86_64)",
+		UsedPercentThreshold:     100,
+		SampleSize:               0,
+		AutoActionMode:           WxaiInspectionAutoActionNone,
 	}
 }
 
@@ -199,6 +210,16 @@ func NormalizeWxaiInspectionConfig(input ManagerWxaiInspectionConfig, fallback M
 	next.DeleteWorkers = wxaiPositiveOr(input.DeleteWorkers, wxaiPositiveOr(input.Workers, base.DeleteWorkers))
 	next.Timeout = wxaiPositiveOr(input.Timeout, base.Timeout)
 	next.Retries = 1
+	next.WorkerStartStaggerMs = wxaiNonNegativeMsPointer(
+		input.WorkerStartStaggerMs,
+		base.WorkerStartStaggerMs,
+		DefaultWxaiWorkerStartStaggerMs,
+	)
+	next.AccountTakeStaggerMs = wxaiNonNegativeMsPointer(
+		input.AccountTakeStaggerMs,
+		base.AccountTakeStaggerMs,
+		DefaultWxaiAccountTakeStaggerMs,
+	)
 	next.UserAgent = wxaiValueOr(input.UserAgent, base.UserAgent)
 	next.UsedPercentThreshold = normalizeWxaiPercent(input.UsedPercentThreshold, base.UsedPercentThreshold)
 	if input.SampleSize >= 0 {
@@ -396,11 +417,56 @@ func wxaiBoolPointer(value bool) *bool {
 	return &value
 }
 
+func wxaiIntPointer(value int) *int {
+	return &value
+}
+
 func wxaiPositiveOr(value int, fallback int) int {
 	if value > 0 {
 		return value
 	}
 	return fallback
+}
+
+// wxaiNonNegativeMsPointer 归一化错峰毫秒：input 非 nil 且 >=0 时采用 input；
+// 否则采用 fallback；再否则采用 defaultMs。0 表示关闭错峰。
+func wxaiNonNegativeMsPointer(input *int, fallback *int, defaultMs int) *int {
+	if input != nil && *input >= 0 {
+		return wxaiIntPointer(*input)
+	}
+	if fallback != nil && *fallback >= 0 {
+		return wxaiIntPointer(*fallback)
+	}
+	if defaultMs < 0 {
+		defaultMs = 0
+	}
+	return wxaiIntPointer(defaultMs)
+}
+
+// WxaiWorkerStartStagger 返回 worker 错峰启动间隔；nil/负按默认；0 表示不交错。
+func WxaiWorkerStartStagger(settings ManagerWxaiInspectionConfig) time.Duration {
+	return wxaiStaggerDuration(settings.WorkerStartStaggerMs, DefaultWxaiWorkerStartStaggerMs)
+}
+
+// WxaiAccountTakeStagger 返回全局取账号间隔；nil/负按默认；0 表示不限流。
+func WxaiAccountTakeStagger(settings ManagerWxaiInspectionConfig) time.Duration {
+	return wxaiStaggerDuration(settings.AccountTakeStaggerMs, DefaultWxaiAccountTakeStaggerMs)
+}
+
+func wxaiStaggerDuration(milliseconds *int, defaultMs int) time.Duration {
+	if milliseconds == nil {
+		if defaultMs < 0 {
+			defaultMs = 0
+		}
+		return time.Duration(defaultMs) * time.Millisecond
+	}
+	if *milliseconds < 0 {
+		if defaultMs < 0 {
+			defaultMs = 0
+		}
+		return time.Duration(defaultMs) * time.Millisecond
+	}
+	return time.Duration(*milliseconds) * time.Millisecond
 }
 
 func wxaiValueOr(value string, fallback string) string {

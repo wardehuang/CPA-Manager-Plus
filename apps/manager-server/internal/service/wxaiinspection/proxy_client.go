@@ -18,13 +18,9 @@ type wxaiHTTPClientRuntime struct {
 }
 
 func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
-	managementConfig, err := cpa.FetchManagementConfig(
-		ctx,
-		setup.CPAUpstreamURL,
-		setup.ManagementKey,
-	)
+	runtime, err := service.resolveWxaiBillingHTTPClient(ctx, setup)
 	if err != nil {
-		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA proxy-url: %w", err)
+		return wxaiHTTPClientRuntime{}, err
 	}
 	clientVersion, err := cpa.FetchXAIClientVersion(
 		ctx,
@@ -33,6 +29,19 @@ func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.S
 	)
 	if err != nil {
 		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA xAI client version: %w", err)
+	}
+	runtime.clientVersion = clientVersion
+	return runtime, nil
+}
+
+func (service *Service) resolveWxaiBillingHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
+	managementConfig, err := cpa.FetchManagementConfig(
+		ctx,
+		setup.CPAUpstreamURL,
+		setup.ManagementKey,
+	)
+	if err != nil {
+		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA proxy-url: %w", err)
 	}
 
 	proxyURL := strings.TrimSpace(managementConfig.ProxyURL)
@@ -45,8 +54,7 @@ func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.S
 			Timeout:   60 * time.Second,
 			Transport: transport,
 		},
-		clientVersion: clientVersion,
-		proxySummary:  proxySummary,
+		proxySummary: proxySummary,
 	}, nil
 }
 

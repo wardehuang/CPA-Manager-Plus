@@ -11,6 +11,7 @@ import (
 
 	collectorpkg "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/collector"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/credentialpolicy"
 	wxaiinspectionservice "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/wxaiinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
@@ -99,7 +100,7 @@ func (worker *WxaiConditionalInspectionWorker) applyUsageQuotaEvents(
 		result, err := worker.applyUsageQuotaEvent(ctx, request)
 		if err != nil {
 			log.Printf(
-				"apply xAI free usage exhaustion directly from request event file=%q authIndex=%q event=%q: %v",
+				"apply xAI quota exhaustion directly from request event file=%q authIndex=%q event=%q: %v",
 				request.FileName,
 				request.AuthIndex,
 				request.EventHash,
@@ -107,12 +108,26 @@ func (worker *WxaiConditionalInspectionWorker) applyUsageQuotaEvents(
 			)
 			continue
 		}
+		if result.SkippedReason != "" {
+			log.Printf(
+				"skipped xAI quota request event file=%q accountType=%q reason=%q",
+				result.FileName,
+				result.AccountType,
+				result.SkippedReason,
+			)
+			continue
+		}
 		if result.Applied {
 			log.Printf(
-				"applied xAI free usage exhaustion directly from request event file=%q runID=%d recoverAtMs=%d",
+				"applied xAI quota exhaustion directly from request event file=%q accountType=%q runID=%d recoverAtMs=%d recoverySource=%q creditsAttempted=%t creditsRecoverAtMs=%d creditsError=%q",
 				result.FileName,
+				result.AccountType,
 				result.RunID,
 				result.RecoverAtMS,
+				result.RecoverySource,
+				result.CreditsAttempted,
+				result.CreditsRecoverAtMS,
+				result.CreditsError,
 			)
 		}
 	}
@@ -188,7 +203,7 @@ func isWxaiRateLimitEvent(event usage.Event) bool {
 	if !event.Failed || event.FailStatusCode != http.StatusTooManyRequests {
 		return false
 	}
-	provider := normalizeQuotaProvider(firstNonEmpty(
+	provider := credentialpolicy.NormalizeProvider(firstNonEmpty(
 		event.Provider,
 		event.AuthProviderSnapshot,
 	))

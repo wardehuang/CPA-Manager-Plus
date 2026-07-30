@@ -2,14 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import {
-  IconChartLine,
-  IconCheck,
-  IconInbox,
-  IconRefreshCw,
-  IconShield,
-  IconTrash2,
-} from '@/components/ui/icons';
+import { IconRefreshCw, IconShield, IconTrash2 } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
@@ -20,6 +13,10 @@ import { CodexInspectionResultsPanel } from '@/features/monitoring/components/Co
 import { InspectionConfigDrawer } from '@/features/monitoring/components/InspectionConfigDrawer';
 import { InspectionConfigFields } from '@/features/monitoring/components/InspectionConfigFields';
 import {
+  SummaryCard as MonitoringSummaryCard,
+  type SummaryCardProps as MonitoringSummaryCardProps,
+} from '@/features/monitoring/components/MonitoringShared';
+import {
   type CodexInspectionAction,
   type CodexInspectionResultItem,
   type CodexInspectionRunResult,
@@ -28,7 +25,6 @@ import {
   CODEX_INSPECTION_RESULT_PAGE_SIZE_OPTIONS,
   buildCodexInspectionPaginationState,
   buildConfigOverviewItems,
-  type CodexInspectionSummaryAccent,
   countHandlingStates,
   filterInspectionResults,
   formatActionLabel,
@@ -40,6 +36,8 @@ import {
   normalizeServerCodexInspectionActionStatus,
   type ActionFilter,
   type HandlingFilter,
+  type SharedInspectionConfigDraft,
+  type SharedInspectionConfigField,
   type StatusTone,
   validateInspectionConfigDraft,
   validateInspectionConfigFields,
@@ -73,6 +71,8 @@ type ServerAgyInspectionDraft = {
   deleteWorkers: string;
   timeout: string;
   retries: string;
+  workerStartStaggerMs: string;
+  accountTakeStaggerMs: string;
   userAgent: string;
   usedPercentThreshold: string;
   sampleSize: string;
@@ -92,6 +92,8 @@ export type ServerInspectionDefaultConfig = {
   deleteWorkers: number;
   timeout: number;
   retries: number;
+  workerStartStaggerMs?: number;
+  accountTakeStaggerMs?: number;
   userAgent: string;
   usedPercentThreshold: number;
   sampleSize: number;
@@ -156,10 +158,13 @@ export type ServerInspectionProviderAdapter = {
   abnormalLabel?: string;
   supportsActionExecution?: boolean;
   showsPriorityAdjustmentSummary?: boolean;
+  /** wXAi：高级配置展示 worker/取账号错峰秒数 */
+  supportsProbeStagger?: boolean;
   quotaExhaustedLabel?: string;
   getQuotaExhaustedCount?: (run: AgyInspectionRun) => number;
   getAbnormalCount?: (run: AgyInspectionRun) => number;
   autoActionDescription?: string;
+  userAgentSectionLabel?: string;
 };
 
 const ANTIGRAVITY_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
@@ -239,6 +244,14 @@ const resolveServerInspectionConfig = (
     timeout: config?.timeout && config.timeout > 0 ? config.timeout : defaultConfig.timeout,
     retries:
       config?.retries !== undefined && config.retries >= 0 ? config.retries : defaultConfig.retries,
+    workerStartStaggerMs: resolveNonNegativeMs(
+      config?.workerStartStaggerMs,
+      defaultConfig.workerStartStaggerMs ?? 10000
+    ),
+    accountTakeStaggerMs: resolveNonNegativeMs(
+      config?.accountTakeStaggerMs,
+      defaultConfig.accountTakeStaggerMs ?? 10000
+    ),
     userAgent: config?.userAgent || defaultConfig.userAgent,
     usedPercentThreshold:
       config?.usedPercentThreshold !== undefined
@@ -268,12 +281,47 @@ const toDraft = (
     deleteWorkers: String(resolved.deleteWorkers),
     timeout: String(resolved.timeout),
     retries: String(resolved.retries),
+    workerStartStaggerMs: String(resolved.workerStartStaggerMs ?? 10000),
+    accountTakeStaggerMs: String(resolved.accountTakeStaggerMs ?? 10000),
     userAgent: resolved.userAgent,
     usedPercentThreshold: String(resolved.usedPercentThreshold),
     sampleSize: String(resolved.sampleSize),
     autoActionMode: resolved.autoActionMode,
   };
 };
+
+const toSharedInspectionDraft = (
+  draft: ServerAgyInspectionDraft
+): SharedInspectionConfigDraft => ({
+  targetTypes: 'codex',
+  workers: draft.workers,
+  deleteWorkers: draft.deleteWorkers,
+  timeout: draft.timeout,
+  retries: draft.retries,
+  userAgent: draft.userAgent,
+  xaiInferenceUserAgent: '',
+  xaiInferenceEnabled: false,
+  xaiInferenceModel: '',
+  xaiInferencePrompt: '',
+  usedPercentThreshold: draft.usedPercentThreshold,
+  sampleSize: draft.sampleSize,
+  autoActionMode: draft.autoActionMode,
+  autoRecoverEnabled: false,
+});
+
+const toConfigOverviewSettings = (config: ServerInspectionDefaultConfig) => ({
+  targetTypes: ['codex'],
+  targetType: config.targetType,
+  workers: config.workers,
+  timeout: config.timeout,
+  usedPercentThreshold: config.usedPercentThreshold,
+  sampleSize: config.sampleSize,
+  xaiInferenceEnabled: false,
+  xaiInferenceModel: '',
+  xaiInferencePrompt: '',
+  autoActionMode: config.autoActionMode,
+  autoRecoverEnabled: false,
+});
 
 const normalizeTimePoint = (value: string): string | null => {
   const match = value.trim().match(/^(\d{1,2}):(\d{1,2})$/);
@@ -315,12 +363,27 @@ const readScheduleInteger = (raw: string, min: number): number | null => {
   return value;
 };
 
+const resolveNonNegativeMs = (value: number | undefined, fallback: number): number => {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  return fallback;
+};
+
+const readNonNegativeMs = (raw: string): number | null => {
+  const value = Number(raw.trim());
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    return null;
+  }
+  return value;
+};
+
 const createConfigFromDraft = (
   draft: ServerAgyInspectionDraft,
   t: TFunction,
   defaultConfig: ServerInspectionDefaultConfig
 ): ManagerCodexInspectionConfig | null => {
-  const validation = validateInspectionConfigDraft(draft, t);
+  const validation = validateInspectionConfigDraft(toSharedInspectionDraft(draft), t);
   if (!validation.ok) {
     return null;
   }
@@ -342,6 +405,12 @@ const createConfigFromDraft = (
     return null;
   }
 
+  const workerStartStaggerMs = readNonNegativeMs(draft.workerStartStaggerMs);
+  const accountTakeStaggerMs = readNonNegativeMs(draft.accountTakeStaggerMs);
+  if (workerStartStaggerMs === null || accountTakeStaggerMs === null) {
+    return null;
+  }
+
   return {
     enabled: draft.enabled,
     schedule:
@@ -358,11 +427,13 @@ const createConfigFromDraft = (
             timePoints,
             timeZone: draft.timeZone.trim(),
           },
-    targetType: validation.values.targetType,
+    targetType: draft.targetType.trim(),
     workers: validation.values.workers,
     deleteWorkers: validation.values.deleteWorkers,
     timeout: validation.values.timeout,
     retries: validation.values.retries,
+    workerStartStaggerMs,
+    accountTakeStaggerMs,
     userAgent: validation.values.userAgent,
     usedPercentThreshold: validation.values.usedPercentThreshold,
     sampleSize: validation.values.sampleSize,
@@ -376,15 +447,6 @@ const statusToneClass: Record<StatusTone, string> = {
   good: styles['tone-good'],
   warn: styles['tone-warn'],
   bad: styles['tone-bad'],
-};
-
-const summaryAccentClassMap: Record<CodexInspectionSummaryAccent, string> = {
-  blue: styles.summaryAccentBlue,
-  cyan: styles.summaryAccentCyan,
-  red: styles.summaryAccentRed,
-  amber: styles.summaryAccentAmber,
-  green: styles.summaryAccentGreen,
-  violet: styles.summaryAccentViolet,
 };
 
 const logLevelClass: Record<string, string> = {
@@ -485,6 +547,8 @@ function getComparableConfig(config: ServerInspectionDefaultConfig) {
     deleteWorkers: config.deleteWorkers,
     timeout: config.timeout,
     retries: config.retries,
+    workerStartStaggerMs: config.workerStartStaggerMs ?? 10000,
+    accountTakeStaggerMs: config.accountTakeStaggerMs ?? 10000,
     userAgent: config.userAgent.trim(),
     usedPercentThreshold: config.usedPercentThreshold,
     sampleSize: config.sampleSize,
@@ -600,6 +664,8 @@ function toServerResultItem(
     accountId: item.accountId ?? null,
     provider: item.provider,
     disabled: item.disabled,
+    autoRecoverEligible: false,
+    autoRecoverOwned: false,
     status: item.status ?? '',
     state: item.state ?? '',
     raw: item as unknown as CodexInspectionResultItem['raw'],
@@ -803,14 +869,8 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
   const activeRun = detail?.run ?? latestRun;
   const activeTone = getRunTone(activeRun);
   const abnormalLabel =
-    adapter.abnormalLabel ?? String(t('monitoring.codex_inspection_action_reauth'));
+    adapter.abnormalLabel ?? String(t('monitoring.codex_inspection_reauth_count'));
   const supportsActionExecution = adapter.supportsActionExecution !== false;
-  const actionCounts = activeRun
-    ? activeRun.deleteCount +
-      activeRun.disableCount +
-      activeRun.enableCount +
-      (activeRun.reauthCount ?? 0)
-    : 0;
 
   const resultRows = useMemo(() => detail?.results ?? [], [detail?.results]);
   const resultItems = useMemo(
@@ -884,6 +944,29 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
     value: ServerAgyInspectionDraft[K]
   ) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const updateSharedDraftField = (field: SharedInspectionConfigField, value: string) => {
+    switch (field) {
+      case 'workers':
+      case 'deleteWorkers':
+      case 'timeout':
+      case 'retries':
+      case 'userAgent':
+      case 'usedPercentThreshold':
+      case 'sampleSize':
+        updateDraft(field, value);
+        return;
+      case 'targetTypes':
+      case 'xaiInferenceUserAgent':
+      case 'xaiInferenceModel':
+      case 'xaiInferencePrompt':
+        throw new Error(`Antigravity inspection does not support shared field: ${field}`);
+    }
+  };
+
+  const rejectUnsupportedAgyConfigChange = () => {
+    throw new Error('Antigravity inspection does not support this shared configuration option');
   };
 
   const refreshRuns = useCallback(async (options?: { silent?: boolean }) => {
@@ -1149,11 +1232,13 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
     const durationLabel = formatDuration(activeRun, t);
     const serviceHost = formatServiceHost(serviceBase);
     const summaryBlankValue = '--';
-    const configOverviewItems = buildConfigOverviewItems(selectedConfig, {
+    const configOverviewItems = buildConfigOverviewItems(toConfigOverviewSettings(selectedConfig), {
       mode: 'server',
       t,
       scheduleEnabled: selectedConfig.enabled,
       scheduleLabel: savedScheduleLabel,
+      includeProviderItems: false,
+      includeAutoRecoverItem: false,
     });
 
     return (
@@ -1220,8 +1305,12 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
           title={t('monitoring.codex_inspection_config_overview_title')}
           editLabel={t('monitoring.codex_inspection_config_overview_edit')}
           ariaLabel={t('monitoring.server_codex_inspection_config_summary_title')}
+          copyLabel={t('monitoring.codex_inspection_settings_copy_prompt')}
+          copiedLabel={t('common.copied')}
           items={configOverviewItems}
           onEdit={openConfigDrawer}
+          compact
+          embedded
         />
 
         <div className={styles.summaryGrid}>
@@ -1233,24 +1322,24 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
               meta: t('monitoring.server_codex_inspection_total_files', {
                 count: activeRun?.totalFiles ?? 0,
               }),
-              Icon: IconInbox,
+              icon: 'probe' as const,
               accent: 'blue' as const,
             },
             {
               key: 'sampled',
               label: t('monitoring.codex_inspection_sampled_accounts'),
               value: activeRun ? String(activeRun.sampledCount) : summaryBlankValue,
-              meta: formatTrigger(activeRun, t),
-              Icon: IconChartLine,
+              meta: getRunStatusLabel(activeRun, t),
+              icon: 'sampled' as const,
               accent: 'cyan' as const,
             },
             {
               key: 'delete',
               label: t('monitoring.codex_inspection_delete_count'),
               value: activeRun ? String(activeRun.deleteCount) : summaryBlankValue,
-              meta: t('monitoring.server_codex_inspection_action_total_value', { count: actionCounts }),
-              tone: 'bad',
-              Icon: IconTrash2,
+              meta: t('monitoring.codex_inspection_delete_meta'),
+              tone: 'bad' as const,
+              icon: 'delete' as const,
               accent: 'red' as const,
             },
             {
@@ -1261,21 +1350,19 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
                 ? String(adapter.getQuotaExhaustedCount?.(activeRun) ?? activeRun.disableCount)
                 : summaryBlankValue,
               meta: adapter.showsPriorityAdjustmentSummary
-                ? adapter.autoActionDescription
-                : `${t('monitoring.codex_inspection_threshold')}: ${selectedConfig.usedPercentThreshold}%`,
-              tone: 'warn',
-              Icon: IconShield,
+                ? '仅调整优先级'
+                : `${t('monitoring.codex_inspection_threshold')} ${selectedConfig.usedPercentThreshold}%`,
+              tone: 'warn' as const,
+              icon: 'disable' as const,
               accent: 'amber' as const,
             },
             {
               key: 'enable',
               label: t('monitoring.codex_inspection_enable_count'),
               value: activeRun ? String(activeRun.enableCount) : summaryBlankValue,
-              meta: t('monitoring.server_codex_inspection_keep_count', {
-                count: activeRun?.keepCount ?? 0,
-              }),
-              tone: 'good',
-              Icon: IconCheck,
+              meta: t('monitoring.codex_inspection_enable_meta'),
+              tone: 'good' as const,
+              icon: 'enable' as const,
               accent: 'green' as const,
             },
             {
@@ -1284,47 +1371,24 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
               value: activeRun
                 ? String(adapter.getAbnormalCount?.(activeRun) ?? activeRun.reauthCount)
                 : summaryBlankValue,
-              meta: abnormalLabel,
-              tone: 'info',
-              Icon: IconRefreshCw,
+              meta: adapter.abnormalLabel
+                ? abnormalLabel
+                : t('monitoring.codex_inspection_reauth_meta'),
+              icon: 'reauth' as const,
               accent: 'violet' as const,
             },
           ].map((card) => {
-            const hidesUnsupportedActionCard =
-              !supportsActionExecution &&
-              (card.key === 'delete' ||
-                card.key === 'enable' ||
-                (card.key === 'disable' && !adapter.showsPriorityAdjustmentSummary));
-            if (hidesUnsupportedActionCard) {
-              return null;
-            }
-            const SummaryIcon = card.Icon;
+            const tone: MonitoringSummaryCardProps['tone'] = card.tone;
             return (
-              <div
+              <MonitoringSummaryCard
                 key={card.key}
-                className={[
-                  styles.summaryCard,
-                  summaryAccentClassMap[card.accent],
-                  card.tone ? styles[`tone-${card.tone}`] : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                <div className={styles.summaryHeader}>
-                  <span className={styles.summaryIcon}>
-                    <SummaryIcon size={18} />
-                  </span>
-                  <span className={styles.summaryLabel} title={card.label}>
-                    {card.label}
-                  </span>
-                </div>
-                <div className={styles.summaryBody}>
-                  <strong className={styles.summaryValue}>{card.value}</strong>
-                  <span className={styles.summaryMeta} title={card.meta}>
-                    {card.meta}
-                  </span>
-                </div>
-              </div>
+                label={card.label}
+                value={card.value}
+                meta={card.meta}
+                icon={card.icon}
+                accent={card.accent}
+                tone={tone}
+              />
             );
           })}
         </div>
@@ -1338,7 +1402,8 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
   };
 
   const renderConfigDrawer = () => {
-    const fieldErrors = validateInspectionConfigFields(draft, t);
+    const sharedDraft = toSharedInspectionDraft(draft);
+    const fieldErrors = validateInspectionConfigFields(sharedDraft, t);
 
     return (
       <InspectionConfigDrawer
@@ -1467,12 +1532,55 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
         ) : null}
 
         <InspectionConfigFields
-          draft={draft}
+          draft={sharedDraft}
           errors={fieldErrors}
           t={t}
-          onFieldChange={(field, value) => updateDraft(field, value)}
+          showTargetConfiguration={false}
+          autoRecoveryAvailable={false}
+          userAgentSectionLabel={adapter.userAgentSectionLabel ?? 'Antigravity'}
+          onFieldChange={updateSharedDraftField}
+          onXaiInferenceEnabledChange={rejectUnsupportedAgyConfigChange}
           onAutoActionModeChange={(value) => updateDraft('autoActionMode', value)}
+          onAutoRecoverEnabledChange={rejectUnsupportedAgyConfigChange}
         />
+
+        {adapter.supportsProbeStagger ? (
+          <section className={styles.configSection}>
+            <header className={styles.configSectionHeader}>
+              <span>{t('monitoring.wxai_inspection_settings_group_stagger')}</span>
+            </header>
+            <div className={styles.serverConfigGrid}>
+              <div className={styles.serverField}>
+                <Input
+                  id="workerStartStaggerMs"
+                  label={t('monitoring.wxai_inspection_settings_worker_start_stagger_label')}
+                  hint={t('monitoring.wxai_inspection_settings_worker_start_stagger_hint')}
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={draft.workerStartStaggerMs}
+                  onChange={(event) =>
+                    updateDraft('workerStartStaggerMs', event.target.value)
+                  }
+                />
+              </div>
+              <div className={styles.serverField}>
+                <Input
+                  id="accountTakeStaggerMs"
+                  label={t('monitoring.wxai_inspection_settings_account_take_stagger_label')}
+                  hint={t('monitoring.wxai_inspection_settings_account_take_stagger_hint')}
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={draft.accountTakeStaggerMs}
+                  onChange={(event) =>
+                    updateDraft('accountTakeStaggerMs', event.target.value)
+                  }
+                />
+              </div>
+            </div>
+          </section>
+        ) : null}
       </InspectionConfigDrawer>
     );
   };
@@ -1563,12 +1671,17 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
           settings: {
             baseUrl: serviceBase,
             token: '',
+            targetTypes: ['codex'],
             targetType: selectedConfig.targetType,
             workers: selectedConfig.workers,
             deleteWorkers: selectedConfig.deleteWorkers,
             timeout: selectedConfig.timeout,
             retries: selectedConfig.retries,
             userAgent: selectedConfig.userAgent,
+            xaiInferenceUserAgent: '',
+            xaiInferenceEnabled: false,
+            xaiInferenceModel: '',
+            xaiInferencePrompt: '',
             usedPercentThreshold: selectedConfig.usedPercentThreshold,
             sampleSize: selectedConfig.sampleSize,
           },

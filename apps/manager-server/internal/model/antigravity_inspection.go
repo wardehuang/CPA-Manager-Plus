@@ -147,20 +147,20 @@ type AntigravityAccountStatusDetail struct {
 }
 
 type AntigravityAccountWindowCost struct {
-	AccountKey       string  `json:"accountKey"`
-	TargetProvider   string  `json:"targetProvider"`
-	WindowType       string  `json:"windowType"`
-	WindowStartAtMS  int64   `json:"windowStartAtMs"`
-	WindowResetAtMS  int64   `json:"windowResetAtMs"`
-	EstimatedCost    float64 `json:"estimatedCost"`
-	InputTokens  int64 `json:"inputTokens"`
-	OutputTokens int64 `json:"outputTokens"`
+	AccountKey      string  `json:"accountKey"`
+	TargetProvider  string  `json:"targetProvider"`
+	WindowType      string  `json:"windowType"`
+	WindowStartAtMS int64   `json:"windowStartAtMs"`
+	WindowResetAtMS int64   `json:"windowResetAtMs"`
+	EstimatedCost   float64 `json:"estimatedCost"`
+	InputTokens     int64   `json:"inputTokens"`
+	OutputTokens    int64   `json:"outputTokens"`
 	// CachedTokens is the display cache-hit total: compatible residual + cache_read.
 	CachedTokens     int64 `json:"cachedTokens"`
 	IsQuotaExhausted bool  `json:"isQuotaExhausted"`
 	CalculatedAtMS   int64 `json:"calculatedAtMs"`
-	CreatedAtMS      int64   `json:"createdAtMs"`
-	UpdatedAtMS      int64   `json:"updatedAtMs"`
+	CreatedAtMS      int64 `json:"createdAtMs"`
+	UpdatedAtMS      int64 `json:"updatedAtMs"`
 }
 
 type AntigravityPriorityAdjustment struct {

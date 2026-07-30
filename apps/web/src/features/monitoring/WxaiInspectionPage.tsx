@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -13,6 +14,28 @@ import {
 import { useAuthStore } from '@/stores';
 import { WxaiInspectionModeTabs } from './components/WxaiInspectionModeTabs';
 import styles from './CodexAccountStatusPage.module.scss';
+
+const readWxaiRowActionError = (error: unknown): string => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+    if (data && typeof data === 'object') {
+      const payload = data as { error?: unknown; message?: unknown };
+      if (typeof payload.error === 'string' && payload.error.trim()) {
+        return payload.error.trim();
+      }
+      if (typeof payload.message === 'string' && payload.message.trim()) {
+        return payload.message.trim();
+      }
+    }
+    if (typeof error.message === 'string' && error.message.trim()) {
+      return error.message.trim();
+    }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return '未知错误';
+};
 
 type AccountStatusFilter = 'all' | 'enabled' | 'quota_exhausted' | 'disabled' | 'abnormal';
 type AccountStatusSortKey = 'accountType' | 'priority';
@@ -159,6 +182,14 @@ const formatCents = (value: number | null | undefined) => {
 const formatPercent = (value: number | null) =>
   value === null ? '-' : Math.round(Math.max(0, Math.min(100, value))) + '%';
 
+const getQuotaGradient = (remainingPercent: number | null) => {
+  const value = remainingPercent ?? 100;
+  if (value <= 5) return 'linear-gradient(90deg, #fb7185, #ef4444)';
+  if (value <= 20) return 'linear-gradient(90deg, #fbbf24, #f97316)';
+  if (value <= 40) return 'linear-gradient(90deg, #a3e635, #f59e0b)';
+  return 'linear-gradient(90deg, #34d399, #22c55e)';
+};
+
 const formatUsd = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return USD_SYMBOL + '0.00';
   return USD_SYMBOL + value.toFixed(2);
@@ -186,6 +217,11 @@ const sortWindowCosts = (costs: WxaiAccountWindowCost[]) => [...costs].sort((lef
   return (order[left.windowType] ?? 9) - (order[right.windowType] ?? 9);
 });
 
+const sortQuotaWindows = (windows: WxaiInspectionQuotaWindow[]) => [...windows].sort((left, right) => {
+  const order: Record<string, number> = { weekly: 1, monthly: 2 };
+  return (order[left.id] ?? 9) - (order[right.id] ?? 9);
+});
+
 const getAccountTextSize = (value: string) => {
   if (value.length >= 42) return 10;
   if (value.length >= 34) return 11;
@@ -202,7 +238,7 @@ const getFixedBadgeTextSize = (value: string) => {
 const getQuotaItems = (row: WxaiAccountStatusRow): WxaiInspectionQuotaWindow[] => {
   const windows = Array.isArray(row.raw.quotaWindows) ? row.raw.quotaWindows : [];
   if (windows.length > 0) {
-    return windows.map((window) => {
+    const quotaWindowsWithResetTimes = windows.map((window) => {
       if (window.resetAtMs) return window;
       if (window.id === 'weekly' && row.weeklyResetAtMs !== null) {
         return { ...window, resetAtMs: row.weeklyResetAtMs };
@@ -212,6 +248,7 @@ const getQuotaItems = (row: WxaiAccountStatusRow): WxaiInspectionQuotaWindow[] =
       }
       return window;
     });
+    return sortQuotaWindows(quotaWindowsWithResetTimes);
   }
 
   const fallbackWindows: WxaiInspectionQuotaWindow[] = [];
@@ -231,7 +268,7 @@ const getQuotaItems = (row: WxaiAccountStatusRow): WxaiInspectionQuotaWindow[] =
       resetAtMs: row.monthlyResetAtMs ?? undefined,
     });
   }
-  return fallbackWindows;
+  return sortQuotaWindows(fallbackWindows);
 };
 
 const getRestoredPriority = (row: WxaiAccountStatusRow) => {
@@ -423,7 +460,7 @@ export function WxaiInspectionPage() {
       setPriorityDialogRow(null);
       setPriorityInput('');
     } catch (error) {
-      setRowActionError(error instanceof Error ? error.message : '未知错误');
+      setRowActionError(readWxaiRowActionError(error));
     } finally {
       setPrioritySubmitting(false);
       setRowOperationLoading(false);
@@ -453,7 +490,7 @@ export function WxaiInspectionPage() {
       await patchAccountPriority(row, targetPriority);
       await runManualRefresh(row, isAccountDisabled(row) ? '手动启用后巡检' : '手动禁用后巡检');
     } catch (error) {
-      setRowActionError(error instanceof Error ? error.message : '未知错误');
+      setRowActionError(readWxaiRowActionError(error));
     } finally {
       setRowOperationLoading(false);
       setRowOperationMessage('');
@@ -833,18 +870,16 @@ function AccountRow({
         </td>
         <td>
           <div className={styles.accountStatusQuotaList}>
-            {quotaItems.length === 0 && getAccountTypeLabel(row.accountType) === 'FREE' ? (
+            {quotaItems.length === 0 ? (
               <span className={styles.accountStatusNoQuotaState}>
                 <span aria-hidden="true">—</span>
                 暂无额度
                 <span aria-hidden="true">—</span>
               </span>
-            ) : quotaItems.length === 0 ? (
-              <span className={styles.accountStatusMutedText}>-</span>
             ) : quotaItems.map((item) => {
               const usedPercent = normalizeNumber(item.usedPercent);
               const remainingPercent = usedPercent === null
-                ? 0
+                ? null
                 : Math.max(0, Math.min(100, 100 - usedPercent));
               return (
                 <div key={item.id} className={styles.accountStatusQuotaItem}>
@@ -853,10 +888,15 @@ function AccountRow({
                       {item.labelKey}
                       <small>{formatDateTime(normalizeNumber(item.resetAtMs), language)}</small>
                     </span>
-                    <strong>{formatPercent(usedPercent)}</strong>
+                    <strong>{formatPercent(remainingPercent)}</strong>
                   </div>
                   <div className={styles.accountStatusQuotaMeter}>
-                    <span style={{ width: remainingPercent + '%' }} />
+                    <span
+                      style={{
+                        width: (remainingPercent ?? 0) + '%',
+                        background: getQuotaGradient(remainingPercent),
+                      }}
+                    />
                   </div>
                 </div>
               );

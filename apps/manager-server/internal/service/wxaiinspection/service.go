@@ -21,11 +21,12 @@ import (
 const maxStoredBodyText = 2048
 
 var (
-	ErrRunAlreadyActive             = errors.New("wxai inspection is already running")
-	ErrNotConfigured                = errors.New("usage service is not configured")
-	ErrRunNotFound                  = errors.New("wxai inspection run not found")
-	ErrManualRefreshAccountNotFound = errors.New("wxai inspection account not found")
-	ErrWxaiAutoActionUnsupported    = errors.New("wXAi autoActionMode no longer supports enable, disable, or delete actions")
+	ErrRunAlreadyActive               = errors.New("wxai inspection is already running")
+	ErrNotConfigured                  = errors.New("usage service is not configured")
+	ErrRunNotFound                    = errors.New("wxai inspection run not found")
+	ErrManualRefreshAccountNotFound   = errors.New("wxai inspection account not found")
+	ErrManualRefreshRequiresServerRun = errors.New("至少有过一次服务器巡检")
+	ErrWxaiAutoActionUnsupported      = errors.New("wXAi autoActionMode no longer supports enable, disable, or delete actions")
 )
 
 type Service struct {
@@ -155,6 +156,7 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		"totalCount":             len(accounts),
 		"inspectionCount":        len(selection.inspectionAccounts),
 		"disabledSkipCount":      len(selection.disabledAccounts),
+		"botFlaggedSkipCount":    len(selection.botFlaggedAccounts),
 		"quotaCooldownSkipCount": len(selection.quotaCooldownAccounts),
 	})
 
@@ -182,6 +184,14 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		logger,
 	)
 	results = append(results, preservedResults...)
+	botFlaggedResults := service.preserveWxaiServerInspectionAccounts(
+		ctx,
+		run.ID,
+		selection.botFlaggedAccounts,
+		previousStatusItems,
+		logger,
+	)
+	results = append(results, botFlaggedResults...)
 	cooldownResults := service.preserveWxaiQuotaCooldownAccounts(
 		ctx,
 		run.ID,
@@ -203,80 +213,6 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		return RunDetail{}, err
 	}
 	return service.GetRun(ctx, run.ID)
-}
-
-func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefreshRequest) (RunDetail, error) {
-	if !service.acquireRun() {
-		return RunDetail{}, ErrRunAlreadyActive
-	}
-	defer service.releaseRun()
-
-	settings, setup, err := service.resolveRuntime(ctx)
-	if err != nil {
-		return RunDetail{}, err
-	}
-	if err := validateWxaiPriorityOnlyMode(settings); err != nil {
-		return RunDetail{}, err
-	}
-	run, ok, err := service.store.GetLatestWxaiInspectionRun(ctx)
-	if err != nil {
-		return RunDetail{}, err
-	}
-	if !ok {
-		return RunDetail{}, ErrRunNotFound
-	}
-	accounts, err := service.fetchAccounts(ctx, setup)
-	if err != nil {
-		return RunDetail{}, err
-	}
-	selected, ok := matchAccount(accounts, request)
-	if !ok {
-		return RunDetail{}, fmt.Errorf("%w: %s", ErrManualRefreshAccountNotFound, firstNonEmpty(request.AccountKey, request.FileName, request.AuthIndex))
-	}
-	logger := runLogger{service: service, runID: run.ID, prefix: "【wXAi 手动刷新】 "}
-	if isWxaiServerAccountDisabled(selected) {
-		previousStatusItems, listErr := service.store.ListWxaiAccountStatusItems(ctx, run.ID)
-		if listErr != nil {
-			return RunDetail{}, listErr
-		}
-		service.preserveWxaiServerInspectionAccounts(ctx, run.ID, []account{selected}, previousStatusItems, logger)
-		return service.GetRun(context.WithoutCancel(ctx), run.ID)
-	}
-	cooldownUntilMS, cooldownActive, cooldownErr := service.resolveWxaiQuotaCooldown(ctx, selected, time.Now())
-	if cooldownErr != nil {
-		return RunDetail{}, cooldownErr
-	}
-	if cooldownActive {
-		previousStatusItems, listErr := service.store.ListWxaiAccountStatusItems(ctx, run.ID)
-		if listErr != nil {
-			return RunDetail{}, listErr
-		}
-		service.preserveWxaiQuotaCooldownAccounts(
-			ctx,
-			run.ID,
-			[]account{selected},
-			previousStatusItems,
-			map[string]int64{selected.Key: cooldownUntilMS},
-			logger,
-		)
-		return service.GetRun(context.WithoutCancel(ctx), run.ID)
-	}
-	httpClientRuntime, err := service.resolveWxaiHTTPClient(ctx, setup)
-	if err != nil {
-		return RunDetail{}, err
-	}
-	logger.info(ctx, "wXAi 请求代理已配置", buildWxaiProxyLogDetail(httpClientRuntime.proxySummary, 1))
-	service.inspectAccounts(
-		ctx,
-		setup,
-		settings,
-		httpClientRuntime.client,
-		httpClientRuntime.clientVersion,
-		run.ID,
-		[]account{selected},
-		logger,
-	)
-	return service.GetRun(context.WithoutCancel(ctx), run.ID)
 }
 
 func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResponse, error) {
@@ -445,6 +381,9 @@ func (service *Service) inspectAccounts(
 	if workers <= 0 {
 		workers = 1
 	}
+	if workers > len(accounts) {
+		workers = len(accounts)
+	}
 	type inspectedResult struct {
 		account account
 		result  model.WxaiInspectionResult
@@ -452,11 +391,53 @@ func (service *Service) inspectAccounts(
 	jobs := make(chan account)
 	results := make(chan inspectedResult, len(accounts))
 	var waitGroup sync.WaitGroup
-	for workerIndex := 0; workerIndex < workers && workerIndex < len(accounts); workerIndex++ {
+	workerStartStagger := model.WxaiWorkerStartStagger(settings)
+	accountTakeStagger := model.WxaiAccountTakeStagger(settings)
+	accountTakeGate := &wxaiProbeAccountTakeGate{interval: accountTakeStagger}
+
+	go func() {
+		defer close(jobs)
+		for _, currentAccount := range accounts {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- currentAccount:
+			}
+		}
+	}()
+
+	for workerIndex := 0; workerIndex < workers; workerIndex++ {
+		if workerIndex > 0 && workerStartStagger > 0 {
+			staggerTimer := time.NewTimer(workerStartStagger)
+			select {
+			case <-ctx.Done():
+				if !staggerTimer.Stop() {
+					select {
+					case <-staggerTimer.C:
+					default:
+					}
+				}
+				logger.info(context.WithoutCancel(ctx), "wXAi 探测 worker 错峰启动已中止", map[string]any{
+					"startedWorkers": workerIndex,
+					"plannedWorkers": workers,
+				})
+				goto waitForProbeWorkers
+			case <-staggerTimer.C:
+			}
+		}
 		waitGroup.Add(1)
-		go func() {
+		go func(startedWorkerIndex int) {
 			defer waitGroup.Done()
+			logger.info(context.WithoutCancel(ctx), "wXAi 探测 worker 已启动", map[string]any{
+				"workerIndex":          startedWorkerIndex + 1,
+				"plannedWorkers":       workers,
+				"workerStaggerMs":      int(workerStartStagger / time.Millisecond),
+				"accountTakeStaggerMs": int(accountTakeStagger / time.Millisecond),
+			})
 			for currentAccount := range jobs {
+				if err := accountTakeGate.wait(ctx); err != nil {
+					return
+				}
 				result, effectivePriority := service.inspectSingleAccount(
 					ctx,
 					setup,
@@ -470,18 +451,10 @@ func (service *Service) inspectAccounts(
 				currentAccount.Priority = effectivePriority
 				results <- inspectedResult{account: currentAccount, result: result}
 			}
-		}()
+		}(workerIndex)
 	}
-	go func() {
-		defer close(jobs)
-		for _, currentAccount := range accounts {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- currentAccount:
-			}
-		}
-	}()
+
+waitForProbeWorkers:
 	waitGroup.Wait()
 	close(results)
 
@@ -520,6 +493,51 @@ func (service *Service) inspectAccounts(
 		return output[leftIndex].FileName < output[rightIndex].FileName
 	})
 	return output
+}
+
+// wxaiProbeAccountTakeGate 保证任意 worker 开始探测下一账号时，与上一账号开始时刻至少间隔 interval。
+type wxaiProbeAccountTakeGate struct {
+	mutex      sync.Mutex
+	nextStart  time.Time
+	interval   time.Duration
+	hasStarted bool
+}
+
+func (gate *wxaiProbeAccountTakeGate) wait(ctx context.Context) error {
+	if gate == nil {
+		return nil
+	}
+	interval := gate.interval
+	if interval <= 0 {
+		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		gate.mutex.Lock()
+		now := time.Now()
+		if !gate.hasStarted || !now.Before(gate.nextStart) {
+			gate.hasStarted = true
+			gate.nextStart = now.Add(interval)
+			gate.mutex.Unlock()
+			return nil
+		}
+		waitDuration := gate.nextStart.Sub(now)
+		gate.mutex.Unlock()
+		timer := time.NewTimer(waitDuration)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (service *Service) writeAccountStatusDetail(

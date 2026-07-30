@@ -19,7 +19,6 @@ import (
 
 const (
 	wxaiResponsesURL        = "https://cli-chat-proxy.grok.com/v1/responses"
-	wxaiChatCompletionsURL  = "https://cli-chat-proxy.grok.com/v1/chat/completions"
 	wxaiProbeModel          = "grok-4.5"
 	wxaiProbeInput          = "ping"
 	wxaiProbeBodyLimit      = 1024 * 1024
@@ -52,17 +51,6 @@ type wxaiResponsesRequest struct {
 	Stream bool   `json:"stream"`
 }
 
-type wxaiChatCompletionRequest struct {
-	Model    string                      `json:"model"`
-	Messages []wxaiChatCompletionMessage `json:"messages"`
-	Stream   bool                        `json:"stream"`
-}
-
-type wxaiChatCompletionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
 type wxaiProbeError struct {
 	Code    string
 	Message string
@@ -92,13 +80,13 @@ func (service *Service) inspectSingleAccount(
 		Status:         currentAccount.Status,
 		State:          currentAccount.State,
 		Action:         "keep",
-		ActionReason:   "xAI 对话探测成功",
+		ActionReason:   "xAI 巡检成功",
 		ActionStatus:   model.WxaiInspectionActionStatusNone,
-		PlanType:       normalizeWxaiAccountType(currentAccount.AccountType),
+		PlanType:       firstNonEmpty(normalizeWxaiAccountType(currentAccount.AccountType), wxaiAccountTypeUnknown),
 		CreatedAtMS:    inspectionTime.UnixMilli(),
 	}
-	if result.Disabled {
-		result.ActionReason = "账号已停用，跳过巡检"
+	if isWxaiInspectionExcluded(currentAccount) {
+		result.ActionReason = "账号已排除，跳过巡检"
 		return result, currentAccount.Priority
 	}
 
@@ -132,60 +120,125 @@ func (service *Service) inspectSingleAccount(
 		)
 	}
 
-	probeOutcome := service.probeWxaiConversation(ctx, xaiClient, settings.Timeout, accessToken, xaiClientVersion)
-	if !probeOutcome.Alive {
-		if probeOutcome.Quota && result.PlanType == "" {
-			result.PlanType = wxaiAccountTypeFree
-			if persistErr := service.persistWxaiAccountType(ctx, currentAccount.Key, result.PlanType); persistErr != nil {
-				logger.warning(context.WithoutCancel(ctx), "保存 wXAi 账号类型失败", map[string]any{
-					"fileName": currentAccount.FileName,
-					"error":    persistErr.Error(),
-				})
-			}
-		}
+	botFlagInspection, err := inspectWxaiBotFlagSource(accessToken)
+	if err != nil {
 		return service.applyWxaiProbeFailure(
 			ctx,
 			setup,
 			currentAccount,
 			result,
-			probeOutcome,
+			wxaiAccountFailure(0, "decode access_token JWT: "+err.Error()),
+			inspectionTime,
+			logger,
+		)
+	}
+	if botFlagInspection.Flagged {
+		return service.applyWxaiBotFlagFailure(
+			ctx,
+			setup,
+			currentAccount,
+			result,
+			botFlagInspection.NormalizedValue,
+			logger,
+		)
+	}
+
+	billingUserID := resolveWxaiBillingUserID(authFile, currentAccount.AccountID)
+	billingSnapshot := wxaiBillingSnapshot{}
+	monthlyBillingProbed := false
+	if wxaiAccountTypeNeedsResolution(result.PlanType) {
+		result.PlanType = wxaiAccountTypeUnknown
+		monthlySnapshot, monthlyOutcome := service.probeWxaiMonthlyBilling(
+			ctx,
+			setup,
+			settings.Timeout,
+			currentAccount.AuthIndex,
+			billingUserID,
+			logger,
+		)
+		monthlyBillingProbed = true
+		if !monthlyOutcome.Alive {
+			service.persistResolvedWxaiAccountType(ctx, currentAccount, wxaiAccountTypeUnknown, logger)
+			return service.applyWxaiProbeFailure(
+				ctx,
+				setup,
+				currentAccount,
+				result,
+				monthlyOutcome,
+				inspectionTime,
+				logger,
+			)
+		}
+		mergeWxaiBillingSnapshot(&billingSnapshot, monthlySnapshot)
+		result.PlanType = resolveWxaiAccountType(monthlySnapshot.MonthlyLimitCents)
+		service.persistResolvedWxaiAccountType(ctx, currentAccount, result.PlanType, logger)
+	}
+
+	var healthOutcome wxaiProbeOutcome
+	if isWxaiQuotaRecoveryProbeRequired(currentAccount, result.PlanType) {
+		healthOutcome = service.probeWxaiResponsesOnly(
+			ctx,
+			xaiClient,
+			settings.Timeout,
+			accessToken,
+			xaiClientVersion,
+		)
+		result.ActionReason = "xAI FREE 额度恢复探测成功"
+	} else if normalizeWxaiAccountType(result.PlanType) == wxaiAccountTypeSuper {
+		if monthlyBillingProbed {
+			creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
+				ctx,
+				setup,
+				settings.Timeout,
+				currentAccount.AuthIndex,
+				billingUserID,
+				logger,
+			)
+			mergeWxaiBillingSnapshot(&billingSnapshot, creditsSnapshot)
+			healthOutcome = creditsOutcome
+		} else {
+			superSnapshot, superOutcome := service.probeWxaiSuperBilling(
+				ctx,
+				setup,
+				settings.Timeout,
+				currentAccount.AuthIndex,
+				billingUserID,
+				logger,
+			)
+			mergeWxaiBillingSnapshot(&billingSnapshot, superSnapshot)
+			healthOutcome = superOutcome
+		}
+		result.ActionReason = "xAI SUPER 周/月额度探测成功"
+	} else {
+		creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
+			ctx,
+			setup,
+			settings.Timeout,
+			currentAccount.AuthIndex,
+			billingUserID,
+			runLogger{},
+		)
+		mergeWxaiBillingSnapshot(&billingSnapshot, creditsSnapshot)
+		healthOutcome = creditsOutcome
+		result.ActionReason = "xAI credits 探测成功"
+	}
+	applyWxaiBillingSnapshot(&result, billingSnapshot)
+	if !healthOutcome.Alive {
+		return service.applyWxaiProbeFailure(
+			ctx,
+			setup,
+			currentAccount,
+			result,
+			healthOutcome,
 			inspectionTime,
 			logger,
 		)
 	}
 
-	result.StatusCode = intPointer(probeOutcome.StatusCode)
-	billingSnapshot, resolvedAccountType, billingErr := service.refreshWxaiBillingMetadata(
-		ctx,
-		xaiClient,
-		settings.Timeout,
-		accessToken,
-		result.PlanType,
-	)
-	if resolvedAccountType != "" {
-		result.PlanType = resolvedAccountType
-		if persistErr := service.persistWxaiAccountType(ctx, currentAccount.Key, resolvedAccountType); persistErr != nil {
-			logger.warning(context.WithoutCancel(ctx), "保存 wXAi 账号类型失败", map[string]any{
-				"fileName": currentAccount.FileName,
-				"error":    persistErr.Error(),
-			})
-		}
-	}
-	result.QuotaWindows = billingSnapshot.QuotaWindows
-	result.MonthlyLimitCents = billingSnapshot.MonthlyLimitCents
-	result.MonthlyUsedCents = billingSnapshot.MonthlyUsedCents
-	result.UsedPercent = primaryWxaiUsedPercent(result.QuotaWindows)
-	if billingErr != nil {
-		result.ActionReason = "xAI 对话探测成功；额度信息刷新失败"
-		logger.warning(context.WithoutCancel(ctx), "刷新 wXAi billing 信息失败", map[string]any{
-			"fileName": currentAccount.FileName,
-			"error":    billingErr.Error(),
-		})
-	}
-
+	result.StatusCode = intPointer(healthOutcome.StatusCode)
 	result.ErrorKind = ""
 	result.ErrorDetail = ""
-	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, logger)
+	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, result.PlanType, logger)
 	if restoreErr != nil {
 		applyWxaiPriorityError(&result, "priority_restore_failed", restoreErr)
 		result.ActionReason += "；priority 恢复失败"
@@ -210,7 +263,7 @@ func (service *Service) applyWxaiProbeFailure(
 	if outcome.Quota {
 		result.IsQuota = true
 		result.ErrorKind = "quota_exhausted"
-		result.ActionReason = "xAI FREE 额度耗尽，priority 已降为 -1"
+		result.ActionReason = "xAI 额度耗尽，priority 已降为 -1"
 		resolvedRecovery := resolveWxaiQuotaRecovery(outcome.QuotaRecovery, inspectionTime)
 		logger.info(context.WithoutCancel(ctx), "wXAi 额度耗尽响应已记录", map[string]any{
 			"fileName":            currentAccount.FileName,
@@ -231,7 +284,7 @@ func (service *Service) applyWxaiProbeFailure(
 		)
 		if priorityErr != nil {
 			applyWxaiPriorityError(&result, "priority_adjustment_failed", priorityErr)
-			result.ActionReason = "xAI FREE 额度耗尽；priority 调整失败"
+			result.ActionReason = "xAI 额度耗尽；priority 调整失败"
 		}
 		return result, effectivePriority
 	}
@@ -263,75 +316,13 @@ func (service *Service) applyWxaiProbeFailure(
 		result.ActionReason += "；priority 调整失败"
 	}
 	logger.warning(ctx, "wXAi 巡检请求异常", map[string]any{
-		"fileName":   currentAccount.FileName,
-		"statusCode": outcome.StatusCode,
-		"errorKind":  result.ErrorKind,
+		"fileName":    currentAccount.FileName,
+		"accountType": result.PlanType,
+		"statusCode":  outcome.StatusCode,
+		"errorKind":   result.ErrorKind,
+		"errorDetail": result.ErrorDetail,
 	})
 	return result, effectivePriority
-}
-
-func (service *Service) probeWxaiConversation(
-	ctx context.Context,
-	client *http.Client,
-	timeoutMilliseconds int,
-	accessToken string,
-	clientVersion string,
-) wxaiProbeOutcome {
-	responsesBody, err := json.Marshal(wxaiResponsesRequest{
-		Model:  wxaiProbeModel,
-		Input:  wxaiProbeInput,
-		Stream: false,
-	})
-	if err != nil {
-		return wxaiRequestFailure("encode responses request: " + err.Error())
-	}
-
-	primaryResponse, primaryErr := service.performWxaiRequest(
-		ctx,
-		client,
-		timeoutMilliseconds,
-		http.MethodPost,
-		wxaiResponsesURL,
-		responsesBody,
-		wxaiInspectionHeaders(accessToken, clientVersion),
-	)
-	if primaryErr == nil {
-		primaryOutcome, primaryDefinitive := classifyWxaiProbeResponse(primaryResponse)
-		if primaryDefinitive {
-			return primaryOutcome
-		}
-	}
-
-	chatBody, err := json.Marshal(wxaiChatCompletionRequest{
-		Model: wxaiProbeModel,
-		Messages: []wxaiChatCompletionMessage{
-			{Role: "user", Content: wxaiProbeInput},
-		},
-		Stream: false,
-	})
-	if err != nil {
-		return wxaiRequestFailure("encode chat completions request: " + err.Error())
-	}
-	fallbackResponse, fallbackErr := service.performWxaiRequest(
-		ctx,
-		client,
-		timeoutMilliseconds,
-		http.MethodPost,
-		wxaiChatCompletionsURL,
-		chatBody,
-		wxaiInspectionHeaders(accessToken, clientVersion),
-	)
-	if fallbackErr != nil {
-		return wxaiRequestFailure(joinWxaiProbeErrors(primaryErr, fallbackErr))
-	}
-	fallbackOutcome, fallbackDefinitive := classifyWxaiProbeResponse(fallbackResponse)
-	if fallbackDefinitive {
-		return fallbackOutcome
-	}
-	return wxaiAccountFailure(
-		fallbackResponse.StatusCode,
-		truncate(strings.TrimSpace(string(fallbackResponse.Body)), wxaiProbeDetailLimit),
-	)
 }
 
 func classifyWxaiProbeResponse(response wxaiHTTPResponse) (wxaiProbeOutcome, bool) {
@@ -513,17 +504,6 @@ func isWxaiTimeoutError(err error) bool {
 	}
 	var networkError net.Error
 	return errors.As(err, &networkError) && networkError.Timeout()
-}
-
-func joinWxaiProbeErrors(primaryErr error, fallbackErr error) string {
-	parts := make([]string, 0, 2)
-	if primaryErr != nil {
-		parts = append(parts, "responses request: "+primaryErr.Error())
-	}
-	if fallbackErr != nil {
-		parts = append(parts, "chat completions request: "+fallbackErr.Error())
-	}
-	return strings.Join(parts, "; ")
 }
 
 func wxaiStringValue(value any) string {

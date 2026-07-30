@@ -38,6 +38,9 @@ func (service *Service) captureWxaiHTTPResponse(
 ) error {
 	requestStage := resolveWxaiRequestStage(endpoint)
 	metadata := ctx.Value(wxaiInspectionRequestMetadataContextKey{}).(wxaiInspectionRequestMetadata)
+	if metadata.RunID <= 0 {
+		return nil
+	}
 	_, err := service.store.InsertWxaiInspectionHTTPResponse(context.WithoutCancel(ctx), model.WxaiInspectionHTTPResponse{
 		RunID:                   metadata.RunID,
 		AccountKey:              metadata.AccountKey,
@@ -85,8 +88,6 @@ func resolveWxaiRequestStage(endpoint string) string {
 		return "billing_credits"
 	case wxaiResponsesURL:
 		return "responses"
-	case wxaiChatCompletionsURL:
-		return "chat_completions"
 	default:
 		panic("unsupported xAI inspection endpoint: " + endpoint)
 	}

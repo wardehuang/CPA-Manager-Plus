@@ -19,6 +19,7 @@ import styles from '../CodexInspectionPage.module.scss';
 type CodexInspectionAutoActionEditorProps = {
   value: CodexInspectionAutoActionMode | string;
   autoRecoverEnabled: boolean;
+  autoRecoveryAvailable?: boolean;
   t: TFunction;
   onChange: (value: CodexInspectionAutoActionMode) => void;
   onAutoRecoverChange: (value: boolean) => void;
@@ -44,21 +45,25 @@ const problemActionIcon: Record<CodexInspectionProblemActionMode, typeof IconCro
 export function CodexInspectionAutoActionEditor({
   value,
   autoRecoverEnabled,
+  autoRecoveryAvailable = true,
   t,
   onChange,
   onAutoRecoverChange,
 }: CodexInspectionAutoActionEditorProps) {
   const normalizedValue = normalizeAutoActionMode(value);
-  const autoExecutionEnabled = isCodexInspectionAutoExecutionEnabled(
-    normalizedValue,
-    autoRecoverEnabled
-  );
+  const autoExecutionEnabled = autoRecoveryAvailable
+    ? isCodexInspectionAutoExecutionEnabled(normalizedValue, autoRecoverEnabled)
+    : normalizedValue === 'disable' || normalizedValue === 'delete';
   const problemActionMode = getCodexInspectionProblemActionMode(normalizedValue);
 
   const selectAutoExecution = (enabled: boolean) => {
     if (!enabled) {
       onAutoRecoverChange(false);
       onChange('none');
+      return;
+    }
+    if (!autoRecoveryAvailable && problemActionMode === 'none') {
+      onChange('disable');
       return;
     }
     if (problemActionMode === 'none' && !autoRecoverEnabled) {
@@ -68,7 +73,7 @@ export function CodexInspectionAutoActionEditor({
   };
 
   const selectProblemAction = (mode: CodexInspectionProblemActionMode) => {
-    if (mode === 'none' && !autoRecoverEnabled) {
+    if (mode === 'none' && (!autoRecoveryAvailable || !autoRecoverEnabled)) {
       onChange('none');
       return;
     }
