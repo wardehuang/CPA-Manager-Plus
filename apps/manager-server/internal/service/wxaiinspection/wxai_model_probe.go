@@ -150,9 +150,10 @@ func (service *Service) inspectSingleAccount(
 		result.PlanType = wxaiAccountTypeUnknown
 		monthlySnapshot, monthlyOutcome := service.probeWxaiMonthlyBilling(
 			ctx,
-			setup,
+			xaiClient,
 			settings.Timeout,
 			currentAccount.AuthIndex,
+			accessToken,
 			billingUserID,
 			logger,
 		)
@@ -188,9 +189,10 @@ func (service *Service) inspectSingleAccount(
 		if monthlyBillingProbed {
 			creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 				ctx,
-				setup,
+				xaiClient,
 				settings.Timeout,
 				currentAccount.AuthIndex,
+				accessToken,
 				billingUserID,
 				logger,
 			)
@@ -199,9 +201,10 @@ func (service *Service) inspectSingleAccount(
 		} else {
 			superSnapshot, superOutcome := service.probeWxaiSuperBilling(
 				ctx,
-				setup,
+				xaiClient,
 				settings.Timeout,
 				currentAccount.AuthIndex,
+				accessToken,
 				billingUserID,
 				logger,
 			)
@@ -212,9 +215,10 @@ func (service *Service) inspectSingleAccount(
 	} else {
 		creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 			ctx,
-			setup,
+			xaiClient,
 			settings.Timeout,
 			currentAccount.AuthIndex,
+			accessToken,
 			billingUserID,
 			runLogger{},
 		)

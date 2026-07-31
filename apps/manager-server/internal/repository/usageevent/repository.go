@@ -125,6 +125,13 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 	}
 	defer stmt.Close()
 
+	rawStmt, err := tx.PrepareContext(ctx, `insert or ignore into usage_raw (
+		event_hash, raw_payload, created_at_ms
+	) values (?, ?, ?)`)
+	if err != nil {
+		return model.InsertResult{}, err
+	}
+	defer rawStmt.Close()
 
 	result := model.InsertResult{}
 	for _, event := range events {
@@ -250,6 +257,9 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		}
 		affected, _ := res.RowsAffected()
 		if affected > 0 {
+			if _, err := rawStmt.ExecContext(ctx, event.EventHash, event.RawPayload, event.CreatedAtMS); err != nil {
+				return model.InsertResult{}, err
+			}
 			rawEventID, err := res.LastInsertId()
 			if err != nil {
 				return model.InsertResult{}, err

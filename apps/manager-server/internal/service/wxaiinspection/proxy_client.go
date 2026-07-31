@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
@@ -14,14 +13,11 @@ import (
 type wxaiHTTPClientRuntime struct {
 	client        *http.Client
 	clientVersion string
-	proxySummary  wxaiProxySummary
 }
 
+// resolveWxaiHTTPClient 创建本轮 xAI 探测用 HTTP client：始终直连，不读取 CPA proxy-url，
+// 也不使用进程环境代理。仅从 CPA 读取 xai-client-version。
 func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
-	runtime, err := service.resolveWxaiBillingHTTPClient(ctx, setup)
-	if err != nil {
-		return wxaiHTTPClientRuntime{}, err
-	}
 	clientVersion, err := cpa.FetchXAIClientVersion(
 		ctx,
 		setup.CPAUpstreamURL,
@@ -30,42 +26,26 @@ func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.S
 	if err != nil {
 		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA xAI client version: %w", err)
 	}
-	runtime.clientVersion = clientVersion
-	return runtime, nil
-}
-
-func (service *Service) resolveWxaiBillingHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
-	managementConfig, err := cpa.FetchManagementConfig(
-		ctx,
-		setup.CPAUpstreamURL,
-		setup.ManagementKey,
-	)
-	if err != nil {
-		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA proxy-url: %w", err)
-	}
-
-	proxyURL := strings.TrimSpace(managementConfig.ProxyURL)
-	transport, proxySummary, err := buildWxaiProxyTransport(proxyURL)
-	if err != nil {
-		return wxaiHTTPClientRuntime{}, fmt.Errorf("CPA proxy-url 无效: %w", err)
-	}
 	return wxaiHTTPClientRuntime{
-		client: &http.Client{
-			Timeout:   60 * time.Second,
-			Transport: transport,
-		},
-		proxySummary: proxySummary,
+		client:        newWxaiDirectHTTPClient(),
+		clientVersion: clientVersion,
 	}, nil
 }
 
-func buildWxaiProxyLogDetail(proxySummary wxaiProxySummary, accountCount int) map[string]any {
-	detail := map[string]any{
-		"proxyConfigured": proxySummary.configured,
-		"proxyMode":       proxySummary.mode,
+func newWxaiDirectHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// 显式关闭代理：忽略 CPA proxy-url 与 HTTP(S)_PROXY 环境变量。
+	transport.Proxy = nil
+	return &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: transport,
+	}
+}
+
+func buildWxaiDirectClientLogDetail(accountCount int) map[string]any {
+	return map[string]any{
+		"proxyConfigured": false,
+		"proxyMode":       "direct",
 		"accountCount":    accountCount,
 	}
-	if proxySummary.configured {
-		detail["proxyHost"] = proxySummary.host
-	}
-	return detail
 }

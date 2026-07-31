@@ -165,13 +165,12 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	if len(selection.inspectionAccounts) > 0 {
 		httpClientRuntime, clientErr := service.resolveWxaiHTTPClient(ctx, setup)
 		if clientErr != nil {
-			logger.error(ctx, "创建 wXAi 代理客户端失败", map[string]any{"error": clientErr.Error()})
+			logger.error(ctx, "创建 wXAi HTTP 客户端失败", map[string]any{"error": clientErr.Error()})
 			return service.failRun(ctx, run, clientErr)
 		}
 		xaiClient = httpClientRuntime.client
 		xaiClientVersion = httpClientRuntime.clientVersion
-		logger.info(ctx, "wXAi 请求代理已配置", buildWxaiProxyLogDetail(
-			httpClientRuntime.proxySummary,
+		logger.info(ctx, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(
 			len(selection.inspectionAccounts),
 		))
 	}

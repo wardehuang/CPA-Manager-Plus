@@ -14,18 +14,20 @@ import (
 
 func (service *Service) probeWxaiMonthlyBilling(
 	ctx context.Context,
-	setup store.Setup,
+	client *http.Client,
 	timeoutMilliseconds int,
 	authIndex string,
+	accessToken string,
 	userID string,
 	logger runLogger,
 ) (wxaiBillingSnapshot, wxaiProbeOutcome) {
-	response, err := service.performWxaiBillingAPICall(
+	response, err := service.performWxaiBillingDirectCall(
 		ctx,
-		setup,
+		client,
 		timeoutMilliseconds,
 		authIndex,
 		wxaiBillingURL,
+		accessToken,
 		userID,
 		logger,
 	)
@@ -46,18 +48,20 @@ func (service *Service) probeWxaiMonthlyBilling(
 
 func (service *Service) probeWxaiCreditsBilling(
 	ctx context.Context,
-	setup store.Setup,
+	client *http.Client,
 	timeoutMilliseconds int,
 	authIndex string,
+	accessToken string,
 	userID string,
 	logger runLogger,
 ) (wxaiBillingSnapshot, wxaiProbeOutcome) {
-	response, err := service.performWxaiBillingAPICall(
+	response, err := service.performWxaiBillingDirectCall(
 		ctx,
-		setup,
+		client,
 		timeoutMilliseconds,
 		authIndex,
 		wxaiBillingCreditsURL,
+		accessToken,
 		userID,
 		logger,
 	)
@@ -84,9 +88,10 @@ type wxaiConcurrentBillingProbeResult struct {
 
 func (service *Service) probeWxaiSuperBilling(
 	ctx context.Context,
-	setup store.Setup,
+	client *http.Client,
 	timeoutMilliseconds int,
 	authIndex string,
+	accessToken string,
 	userID string,
 	logger runLogger,
 ) (wxaiBillingSnapshot, wxaiProbeOutcome) {
@@ -94,9 +99,10 @@ func (service *Service) probeWxaiSuperBilling(
 	go func() {
 		snapshot, outcome := service.probeWxaiMonthlyBilling(
 			ctx,
-			setup,
+			client,
 			timeoutMilliseconds,
 			authIndex,
+			accessToken,
 			userID,
 			logger,
 		)
@@ -109,9 +115,10 @@ func (service *Service) probeWxaiSuperBilling(
 	go func() {
 		snapshot, outcome := service.probeWxaiCreditsBilling(
 			ctx,
-			setup,
+			client,
 			timeoutMilliseconds,
 			authIndex,
+			accessToken,
 			userID,
 			logger,
 		)

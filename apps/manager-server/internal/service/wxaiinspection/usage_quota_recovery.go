@@ -62,9 +62,10 @@ func (service *Service) resolveWxaiUsageQuotaRecovery(
 
 	creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 		requestContext,
-		setup,
+		newWxaiDirectHTTPClient(),
 		settings.Timeout,
 		currentAccount.AuthIndex,
+		accessToken,
 		billingUserID,
 		logger,
 	)

@@ -1,44 +1,33 @@
 package wxaiinspection
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
 
-const wxaiManagementAPICallResponseLimit = 8 * 1024 * 1024
-
-type wxaiManagementAPICallRequest struct {
-	AuthIndex string            `json:"authIndex"`
-	Method    string            `json:"method"`
-	URL       string            `json:"url"`
-	Header    map[string]string `json:"header"`
-}
-
-type wxaiManagementAPICallResponse struct {
-	StatusCode int                 `json:"status_code"`
-	Header     map[string][]string `json:"header"`
-	Body       string              `json:"body"`
-}
-
-func (service *Service) performWxaiBillingAPICall(
+// performWxaiBillingDirectCall 由 Manager 直连 xAI billing/credits，
+// 不经 CPA /v0/management/api-call，不走 CPA proxy-url 与环境代理。
+func (service *Service) performWxaiBillingDirectCall(
 	ctx context.Context,
-	setup store.Setup,
+	client *http.Client,
 	timeoutMilliseconds int,
 	authIndex string,
 	endpoint string,
+	accessToken string,
 	userID string,
 	logger runLogger,
 ) (wxaiHTTPResponse, error) {
+	if client == nil {
+		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 直连 client 未初始化")
+	}
+	if strings.TrimSpace(accessToken) == "" {
+		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 直连缺少 access_token")
+	}
+
 	requestMetadata := ctx.Value(wxaiInspectionRequestMetadataContextKey{}).(wxaiInspectionRequestMetadata)
 	var lastErr error
 	for attempt := 0; attempt <= wxaiTimeoutRetryCount; attempt++ {
@@ -49,6 +38,10 @@ func (service *Service) performWxaiBillingAPICall(
 		}
 		requestDetail := map[string]any{
 			"requestStage":        resolveWxaiRequestStage(endpoint),
+			"transport":           "direct",
+			"viaCPAApiCall":       false,
+			"endpoint":            endpoint,
+			"method":              http.MethodGet,
 			"accountKey":          requestMetadata.AccountKey,
 			"fileName":            requestMetadata.FileName,
 			"authIndex":           authIndex,
@@ -59,14 +52,15 @@ func (service *Service) performWxaiBillingAPICall(
 			"attempt":             attempt + 1,
 			"maxAttempts":         wxaiTimeoutRetryCount + 1,
 		}
-		logger.info(ctx, "wXAi billing api-call 请求诊断", requestDetail)
-		response, err := service.performWxaiBillingAPICallOnce(
+		logger.info(ctx, "wXAi billing 直连请求诊断", requestDetail)
+		response, err := service.performWxaiRequestOnce(
 			ctx,
-			setup,
+			client,
 			timeoutMilliseconds,
-			authIndex,
+			http.MethodGet,
 			endpoint,
-			userID,
+			nil,
+			wxaiBillingHeaders(accessToken, userID),
 		)
 		if err == nil {
 			responseDetail := buildWxaiBillingResponseDiagnostic(
@@ -78,102 +72,20 @@ func (service *Service) performWxaiBillingAPICall(
 			responseDetail["accountKey"] = requestMetadata.AccountKey
 			responseDetail["fileName"] = requestMetadata.FileName
 			responseDetail["userIdHeaderPresent"] = strings.TrimSpace(userID) != ""
-			logger.info(ctx, "wXAi billing api-call 响应诊断", responseDetail)
+			responseDetail["transport"] = "direct"
+			responseDetail["viaCPAApiCall"] = false
+			logger.info(ctx, "wXAi billing 直连响应诊断", responseDetail)
 			return response, nil
 		}
 		lastErr = err
 		requestDetail["error"] = err.Error()
 		requestDetail["timeout"] = isWxaiTimeoutError(err)
-		logger.warning(ctx, "wXAi billing api-call 请求失败", requestDetail)
+		logger.warning(ctx, "wXAi billing 直连请求失败", requestDetail)
 		if !isWxaiTimeoutError(err) || ctx.Err() != nil {
 			return wxaiHTTPResponse{}, err
 		}
 	}
 	return wxaiHTTPResponse{}, lastErr
-}
-
-func (service *Service) performWxaiBillingAPICallOnce(
-	ctx context.Context,
-	setup store.Setup,
-	timeoutMilliseconds int,
-	authIndex string,
-	endpoint string,
-	userID string,
-) (wxaiHTTPResponse, error) {
-	requestBody, err := json.Marshal(wxaiManagementAPICallRequest{
-		AuthIndex: authIndex,
-		Method:    http.MethodGet,
-		URL:       endpoint,
-		Header:    wxaiBillingHeaders("$TOKEN$", userID),
-	})
-	if err != nil {
-		return wxaiHTTPResponse{}, err
-	}
-
-	requestContext := ctx
-	cancel := func() {}
-	if timeoutMilliseconds > 0 {
-		requestContext, cancel = context.WithTimeout(ctx, time.Duration(timeoutMilliseconds)*time.Millisecond)
-	}
-	defer cancel()
-
-	request, err := http.NewRequestWithContext(
-		requestContext,
-		http.MethodPost,
-		cpa.NormalizeBaseURL(setup.CPAUpstreamURL)+"/v0/management/api-call",
-		bytes.NewReader(requestBody),
-	)
-	if err != nil {
-		return wxaiHTTPResponse{}, err
-	}
-	request.Header.Set("Authorization", "Bearer "+setup.ManagementKey)
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := service.client.Do(request)
-	if err != nil {
-		return wxaiHTTPResponse{}, err
-	}
-	defer response.Body.Close()
-
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, wxaiManagementAPICallResponseLimit+1))
-	if err != nil {
-		return wxaiHTTPResponse{}, err
-	}
-	if len(responseBody) > wxaiManagementAPICallResponseLimit {
-		return wxaiHTTPResponse{}, fmt.Errorf("CPA api-call response exceeds %d bytes", wxaiManagementAPICallResponseLimit)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return wxaiHTTPResponse{}, fmt.Errorf(
-			"CPA api-call returned HTTP %d: %s",
-			response.StatusCode,
-			truncate(string(responseBody), wxaiProbeDetailLimit),
-		)
-	}
-
-	var apiCallResponse wxaiManagementAPICallResponse
-	if err := json.Unmarshal(responseBody, &apiCallResponse); err != nil {
-		return wxaiHTTPResponse{}, fmt.Errorf("decode CPA api-call response: %w", err)
-	}
-	if apiCallResponse.StatusCode <= 0 {
-		return wxaiHTTPResponse{}, fmt.Errorf("CPA api-call response missing status_code")
-	}
-
-	upstreamBody := []byte(apiCallResponse.Body)
-	bodyTruncated := len(upstreamBody) > wxaiProbeBodyLimit
-	if bodyTruncated {
-		upstreamBody = upstreamBody[:wxaiProbeBodyLimit]
-	}
-	upstreamResponse := wxaiHTTPResponse{
-		StatusCode:    apiCallResponse.StatusCode,
-		Header:        http.Header(apiCallResponse.Header),
-		Body:          upstreamBody,
-		FinalURL:      endpoint,
-		BodyTruncated: bodyTruncated,
-	}
-	if err := service.captureWxaiHTTPResponse(ctx, http.MethodGet, endpoint, upstreamResponse); err != nil {
-		return wxaiHTTPResponse{}, fmt.Errorf("保存 xAI 原始响应: %w", err)
-	}
-	return upstreamResponse, nil
 }
 
 func buildWxaiBillingResponseDiagnostic(
@@ -189,6 +101,7 @@ func buildWxaiBillingResponseDiagnostic(
 		"statusCode":    response.StatusCode,
 		"bodyBytes":     len(response.Body),
 		"bodyTruncated": response.BodyTruncated,
+		"finalURL":      response.FinalURL,
 	}
 
 	var payload map[string]any

@@ -13,7 +13,7 @@ import (
 )
 
 // RunManualRefresh 独立于服务器/条件巡检全局锁，任意时刻可执行。
-// 探测顺序：billing 元数据成功后，统一经 CPA proxy-url（含 socks5）调用 POST /v1/responses。
+// 探测顺序：billing/credits 与 responses 均由 Manager 直连 xAI（不经 CPA api-call / proxy-url）。
 func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefreshRequest) (RunDetail, error) {
 	settings, setup, err := service.resolveRuntime(ctx)
 	if err != nil {
@@ -43,7 +43,7 @@ func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefr
 	if err != nil {
 		return RunDetail{}, err
 	}
-	logger.info(ctx, "wXAi 请求代理已配置", buildWxaiProxyLogDetail(httpClientRuntime.proxySummary, 1))
+	logger.info(ctx, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(1))
 	logger.info(ctx, "wXAi 手动刷新开始", map[string]any{
 		"accountKey":     selected.Key,
 		"fileName":       selected.FileName,
@@ -176,9 +176,10 @@ func (service *Service) inspectManualRefreshAccount(
 		result.PlanType = wxaiAccountTypeUnknown
 		monthlySnapshot, monthlyOutcome := service.probeWxaiMonthlyBilling(
 			ctx,
-			setup,
+			xaiClient,
 			settings.Timeout,
 			currentAccount.AuthIndex,
+			accessToken,
 			billingUserID,
 			logger,
 		)
@@ -205,9 +206,10 @@ func (service *Service) inspectManualRefreshAccount(
 		if monthlyBillingProbed {
 			creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 				ctx,
-				setup,
+				xaiClient,
 				settings.Timeout,
 				currentAccount.AuthIndex,
+				accessToken,
 				billingUserID,
 				logger,
 			)
@@ -216,9 +218,10 @@ func (service *Service) inspectManualRefreshAccount(
 		} else {
 			superSnapshot, superOutcome := service.probeWxaiSuperBilling(
 				ctx,
-				setup,
+				xaiClient,
 				settings.Timeout,
 				currentAccount.AuthIndex,
+				accessToken,
 				billingUserID,
 				logger,
 			)
@@ -228,9 +231,10 @@ func (service *Service) inspectManualRefreshAccount(
 	} else {
 		creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 			ctx,
-			setup,
+			xaiClient,
 			settings.Timeout,
 			currentAccount.AuthIndex,
+			accessToken,
 			billingUserID,
 			logger,
 		)

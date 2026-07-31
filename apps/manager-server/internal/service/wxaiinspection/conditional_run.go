@@ -76,11 +76,10 @@ func (service *Service) RunConditional(ctx context.Context, request ConditionalR
 	}
 	httpClientRuntime, err := service.resolveWxaiHTTPClient(ctx, setup)
 	if err != nil {
-		logger.error(persistContext, "创建 wXAi 代理客户端失败", map[string]any{"error": err.Error()})
+		logger.error(persistContext, "创建 wXAi HTTP 客户端失败", map[string]any{"error": err.Error()})
 		return service.getConditionalRunWithCause(persistContext, request.RunID, err)
 	}
-	logger.info(persistContext, "wXAi 请求代理已配置", buildWxaiProxyLogDetail(
-		httpClientRuntime.proxySummary,
+	logger.info(persistContext, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(
 		len(selectedAccounts),
 	))
 
