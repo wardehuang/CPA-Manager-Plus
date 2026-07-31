@@ -577,6 +577,25 @@ func TestCacheHitRateMatchesWebClient(t *testing.T) {
 	}
 }
 
+func TestBuildTimelineIsIndependentOfPointOrder(t *testing.T) {
+	points := []store.TimelinePoint{
+		{BucketMS: 1_000, Model: "z-big", BillingModel: "z-big", Calls: 1, Success: 1, InputTokens: 10_000_000_000_000_000},
+		{BucketMS: 1_000, Model: "a-small", BillingModel: "a-small", Calls: 1, Success: 1, InputTokens: 1},
+		{BucketMS: 1_000, Model: "b-small", BillingModel: "b-small", Calls: 1, Success: 1, InputTokens: 1},
+	}
+	prices := map[string]store.ModelPrice{
+		"z-big":   {Prompt: 1_000_000},
+		"a-small": {Prompt: 1_000_000},
+		"b-small": {Prompt: 1_000_000},
+	}
+
+	forward := buildTimeline(points, nil, "hour", time.UTC, prices)
+	reverse := buildTimeline([]store.TimelinePoint{points[2], points[1], points[0]}, nil, "hour", time.UTC, prices)
+	if !reflect.DeepEqual(forward, reverse) {
+		t.Fatalf("timeline changed with point order\nforward=%#v\nreverse=%#v", forward, reverse)
+	}
+}
+
 func TestModelCacheHitRateUsesBillingModelBeforeAliasAggregation(t *testing.T) {
 	stats := []store.ModelStat{
 		{
@@ -950,6 +969,107 @@ func TestAnalyticsPricesPriorityAndDefaultServiceTiersSeparately(t *testing.T) {
 	if resp.ChannelShare[0].AvgLatencyMS == nil || math.Abs(*resp.ChannelShare[0].AvgLatencyMS-(1300.0/3.0)) > 0.000001 {
 		t.Fatalf("channel latency = %#v, want weighted 433.333333", resp.ChannelShare[0].AvgLatencyMS)
 	}
+	if len(resp.AccountStats) != 1 || len(resp.AccountStats[0].Models) != 1 {
+		t.Fatalf("account stats = %#v", resp.AccountStats)
+	}
+	assertCost("account stats", resp.AccountStats[0].Cost)
+	assertCost("account model stats", resp.AccountStats[0].Models[0].Cost)
+	if len(resp.APIKeyStats) != 1 || len(resp.APIKeyStats[0].Models) != 1 {
+		t.Fatalf("api key stats = %#v", resp.APIKeyStats)
+	}
+	assertCost("api key stats", resp.APIKeyStats[0].Cost)
+	assertCost("api key model stats", resp.APIKeyStats[0].Models[0].Cost)
+}
+
+func TestAnalyticsFilteredPricingUsesStrictHighestContextTier(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	fromMS := int64(1_800_010_000_000)
+	toMS := fromMS + time.Hour.Milliseconds()
+
+	if err := db.SaveModelPrices(ctx, map[string]store.ModelPrice{
+		"tiered-resolved": {
+			Prompt:     10,
+			Completion: 4,
+			ContextTiers: []store.ModelPriceContextTier{
+				{
+					ThresholdTokens:  100_000,
+					Prompt:           20,
+					PromptConfigured: true,
+				},
+				{
+					ThresholdTokens:      200_000,
+					Prompt:               0,
+					Completion:           8,
+					PromptConfigured:     true,
+					CompletionConfigured: true,
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save prices: %v", err)
+	}
+
+	events := []usage.Event{
+		monitoringEvent("filtered-context-exact", fromMS+1_000, "tiered-alias", "auth-tiered", "source-tiered", false, 100_000, 100_000, 0, 0, 200_000, nil),
+		monitoringEvent("filtered-context-first", fromMS+2_000, "tiered-alias", "auth-tiered", "source-tiered", false, 100_001, 100_000, 0, 0, 200_001, nil),
+		monitoringEvent("filtered-context-highest", fromMS+3_000, "tiered-alias", "auth-tiered", "source-tiered", false, 200_001, 100_000, 0, 0, 300_001, nil),
+		monitoringEvent("filtered-context-excluded", fromMS+4_000, "tiered-alias", "auth-other", "source-other", false, 1_000_000, 0, 0, 0, 1_000_000, nil),
+	}
+	for index := range events {
+		events[index].ResolvedModel = "tiered-resolved"
+		events[index].AccountSnapshot = "tier-team@example.com"
+		events[index].AuthLabelSnapshot = "Tier Team"
+		events[index].APIKeyHash = "tier-client-key"
+	}
+	if _, err := db.InsertEvents(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db, true).Analytics(ctx, Request{
+		FromMS: fromMS,
+		ToMS:   toMS,
+		Filters: Filters{
+			AuthIndices: []string{"auth-tiered"},
+		},
+		Include: Include{
+			Summary:      true,
+			Timeline:     true,
+			ModelShare:   true,
+			ModelStats:   true,
+			ChannelShare: true,
+			AccountStats: true,
+			APIKeyStats:  true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("filtered analytics: %v", err)
+	}
+
+	const wantCost = 4.60002
+	assertCost := func(name string, got float64) {
+		t.Helper()
+		if math.Abs(got-wantCost) > 0.000001 {
+			t.Fatalf("%s cost = %v, want %v", name, got, wantCost)
+		}
+	}
+	if resp.Summary == nil || resp.Summary.TotalCalls != 3 {
+		t.Fatalf("summary = %#v", resp.Summary)
+	}
+	assertCost("summary", resp.Summary.TotalCost)
+	if len(resp.Timeline) != 1 || resp.Timeline[0].Calls != 3 {
+		t.Fatalf("timeline = %#v", resp.Timeline)
+	}
+	assertCost("timeline", resp.Timeline[0].Cost)
+	if len(resp.ModelStats) != 1 || resp.ModelStats[0].Calls != 3 || len(resp.ModelShare) != 1 {
+		t.Fatalf("model rows = %#v / %#v", resp.ModelStats, resp.ModelShare)
+	}
+	assertCost("model stats", resp.ModelStats[0].Cost)
+	assertCost("model share", resp.ModelShare[0].Cost)
+	if len(resp.ChannelShare) != 1 || resp.ChannelShare[0].AuthIndex != "auth-tiered" {
+		t.Fatalf("channel share = %#v", resp.ChannelShare)
+	}
+	assertCost("channel share", resp.ChannelShare[0].Cost)
 	if len(resp.AccountStats) != 1 || len(resp.AccountStats[0].Models) != 1 {
 		t.Fatalf("account stats = %#v", resp.AccountStats)
 	}
@@ -1525,7 +1645,7 @@ func TestAnalyticsFilterOptionsIgnoreActiveScopeFilters(t *testing.T) {
 	}
 }
 
-func TestAnalyticsFilterSelectorsReturnOnlyUsageAnalyticsOptions(t *testing.T) {
+func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	db := newMonitoringTestStore(t)
 	ctx := context.Background()
 	fromMS := int64(1_778_350_000_000)
@@ -1541,8 +1661,29 @@ func TestAnalyticsFilterSelectorsReturnOnlyUsageAnalyticsOptions(t *testing.T) {
 	bob.AuthProviderSnapshot = "gemini"
 	bob.AuthFileSnapshot = "bob.json"
 	bob.APIKeyHash = "key-bob"
+	sourceOnly := monitoringEvent("selector-source-only", fromMS+3_000, "gpt-a", "", "source-only", false, 10, 5, 0, 0, 15, nil)
+	sourceOnly.AccountSnapshot = ""
+	sourceOnly.AuthLabelSnapshot = ""
+	sourceOnly.AuthProviderSnapshot = "openai"
+	sourceOnly.AuthFileSnapshot = ""
+	sourceOnly.APIKeyHash = ""
+	sourceOnly.Source = "k:upstream-key"
+	sourceOnlyRotated := monitoringEvent("selector-source-only-rotated", fromMS+4_000, "gpt-b", "", "source-only", false, 10, 5, 0, 0, 15, nil)
+	sourceOnlyRotated.AccountSnapshot = ""
+	sourceOnlyRotated.AuthLabelSnapshot = ""
+	sourceOnlyRotated.AuthProviderSnapshot = "openai"
+	sourceOnlyRotated.AuthFileSnapshot = ""
+	sourceOnlyRotated.APIKeyHash = ""
+	sourceOnlyRotated.Source = "k:z-upstream-key"
+	sourceHashOnly := monitoringEvent("selector-source-hash-only", fromMS+5_000, "gpt-a", "", "source-hash-only", false, 10, 5, 0, 0, 15, nil)
+	sourceHashOnly.AccountSnapshot = ""
+	sourceHashOnly.AuthLabelSnapshot = ""
+	sourceHashOnly.AuthProviderSnapshot = "openai"
+	sourceHashOnly.AuthFileSnapshot = ""
+	sourceHashOnly.APIKeyHash = ""
+	sourceHashOnly.Source = ""
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob}); err != nil {
+	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob, sourceOnly, sourceOnlyRotated, sourceHashOnly}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1567,14 +1708,51 @@ func TestAnalyticsFilterSelectorsReturnOnlyUsageAnalyticsOptions(t *testing.T) {
 	if !slices.Equal(resp.FilterOptions.APIKeyHashes, []string{"key-alice", "key-bob"}) {
 		t.Fatalf("api key hashes = %#v", resp.FilterOptions.APIKeyHashes)
 	}
-	if !slices.Equal(resp.FilterOptions.Providers, []string{"codex", "gemini"}) {
+	if !slices.Equal(resp.FilterOptions.Providers, []string{"codex", "gemini", "openai"}) {
 		t.Fatalf("providers = %#v", resp.FilterOptions.Providers)
 	}
 	if !slices.Equal(resp.FilterOptions.AuthFiles, []string{"alice.json", "bob.json"}) {
 		t.Fatalf("auth files = %#v", resp.FilterOptions.AuthFiles)
 	}
-	if len(resp.FilterOptions.AccountStats) != 0 || len(resp.FilterOptions.APIKeyStats) != 0 ||
-		len(resp.FilterOptions.ChannelShare) != 0 || len(resp.FilterOptions.ModelStats) != 0 {
+	if !slices.Equal(resp.FilterOptions.Accounts, []string{"alice@example.com", "bob@example.com"}) {
+		t.Fatalf("accounts = %#v", resp.FilterOptions.Accounts)
+	}
+	if resp.FilterOptions.AccountCount != 4 || resp.FilterOptions.APIKeyCount != 4 {
+		t.Fatalf(
+			"selector counts account=%d api_key=%d",
+			resp.FilterOptions.AccountCount,
+			resp.FilterOptions.APIKeyCount,
+		)
+	}
+	if len(resp.FilterOptions.AccountStats) != 4 {
+		t.Fatalf("account identity selectors = %#v", resp.FilterOptions.AccountStats)
+	}
+	var sourceOnlySelector *AccountStatRow
+	for i := range resp.FilterOptions.AccountStats {
+		row := &resp.FilterOptions.AccountStats[i]
+		if slices.Contains(row.SourceHashes, "source-only") {
+			sourceOnlySelector = row
+			break
+		}
+	}
+	if sourceOnlySelector == nil || !slices.Equal(sourceOnlySelector.Sources, []string{"k:z-upstream-key"}) {
+		t.Fatalf("missing source-only selector: %#v", resp.FilterOptions.AccountStats)
+	}
+	if sourceOnlySelector.Calls != 0 || len(sourceOnlySelector.Models) != 0 {
+		t.Fatalf("selector unexpectedly returned aggregate metrics: %#v", sourceOnlySelector)
+	}
+	var sourceHashOnlySelector *AccountStatRow
+	for i := range resp.FilterOptions.AccountStats {
+		row := &resp.FilterOptions.AccountStats[i]
+		if slices.Contains(row.SourceHashes, "source-hash-only") {
+			sourceHashOnlySelector = row
+			break
+		}
+	}
+	if sourceHashOnlySelector == nil || len(sourceHashOnlySelector.Sources) != 0 {
+		t.Fatalf("missing source-hash-only selector: %#v", resp.FilterOptions.AccountStats)
+	}
+	if len(resp.FilterOptions.APIKeyStats) != 0 || len(resp.FilterOptions.ChannelShare) != 0 || len(resp.FilterOptions.ModelStats) != 0 {
 		t.Fatalf("filter selectors returned full stats: %#v", resp.FilterOptions)
 	}
 }
@@ -1951,6 +2129,66 @@ func TestAccountHistoryReturnsRollupTotalsAndCost(t *testing.T) {
 	}
 }
 
+func TestAccountHistoryPricesContextTierBands(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	baseMS := int64(1_700_010_000_000)
+	if err := db.SaveModelPrices(ctx, map[string]store.ModelPrice{
+		"tiered-resolved": {
+			Prompt:     10,
+			Completion: 4,
+			ContextTiers: []store.ModelPriceContextTier{
+				{
+					ThresholdTokens:  100_000,
+					Prompt:           20,
+					PromptConfigured: true,
+				},
+				{
+					ThresholdTokens:      200_000,
+					Prompt:               0,
+					Completion:           8,
+					PromptConfigured:     true,
+					CompletionConfigured: true,
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save prices: %v", err)
+	}
+
+	events := []usage.Event{
+		monitoringEvent("history-context-exact", baseMS+1_000, "tiered-alias", "auth-tiered", "source-tiered", false, 100_000, 100_000, 0, 0, 200_000, nil),
+		monitoringEvent("history-context-first", baseMS+2_000, "tiered-alias", "auth-tiered", "source-tiered", false, 100_001, 100_000, 0, 0, 200_001, nil),
+		monitoringEvent("history-context-highest", baseMS+3_000, "tiered-alias", "auth-tiered", "source-tiered", false, 200_001, 100_000, 0, 0, 300_001, nil),
+	}
+	for index := range events {
+		events[index].ResolvedModel = "tiered-resolved"
+		events[index].AccountSnapshot = "tier-history@example.com"
+		events[index].Source = "tier-history@example.com"
+	}
+	if _, err := db.InsertEvents(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db).AccountHistory(ctx, AccountHistoryRequest{
+		Accounts: []AccountHistoryTarget{{AccountSnapshot: "tier-history@example.com"}},
+		CatchUp:  true,
+	})
+	if err != nil {
+		t.Fatalf("account history: %v", err)
+	}
+	if resp.Checkpoint.Pending || resp.Checkpoint.LatestID != 3 || resp.Checkpoint.LastEventID != 3 || resp.Checkpoint.Processed != 3 {
+		t.Fatalf("checkpoint = %#v", resp.Checkpoint)
+	}
+	if len(resp.Items) != 1 || !resp.Items[0].Matched || resp.Items[0].TotalRequests != 3 {
+		t.Fatalf("history item = %#v", resp.Items)
+	}
+	const wantCost = 4.60002
+	if math.Abs(resp.Items[0].TotalCost-wantCost) > 0.000001 {
+		t.Fatalf("history cost = %v, want %v", resp.Items[0].TotalCost, wantCost)
+	}
+}
+
 func TestAccountHistoryEmptyTargetDoesNotMatchAnonymousBucket(t *testing.T) {
 	db := newMonitoringTestStore(t)
 	ctx := context.Background()
@@ -2061,6 +2299,69 @@ func TestAnalyticsHourlyRollupMatchesRawCoreComparisonAndTimeline(t *testing.T) 
 	}
 	if repricedRollup.Summary == nil || rolled.Summary == nil || repricedRollup.Summary.TotalCost != rolled.Summary.TotalCost*2 {
 		t.Fatalf("repriced summary = %#v, original = %#v", repricedRollup.Summary, rolled.Summary)
+	}
+}
+
+func TestAnalyticsHourlyRollupMatchesRawForModelAndOutcomeFilters(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	fromMS := int64(1_800_000_000_000) + 15*time.Minute.Milliseconds()
+	toMS := fromMS + 4*time.Hour.Milliseconds() + 20*time.Minute.Milliseconds()
+	latency := int64(125)
+	events := []usage.Event{
+		monitoringEvent("filtered-edge-success-a", fromMS+time.Minute.Milliseconds(), "model-a", "auth-a", "source-a", false, 10, 1, 0, 0, 11, &latency),
+		monitoringEvent("filtered-full-failed-a", fromMS+time.Hour.Milliseconds(), "model-a", "auth-a", "source-a", true, 20, 2, 0, 0, 22, &latency),
+		monitoringEvent("filtered-full-success-b", fromMS+2*time.Hour.Milliseconds(), "model-b", "auth-b", "source-b", false, 30, 3, 0, 0, 33, &latency),
+		monitoringEvent("filtered-edge-failed-b", toMS-time.Minute.Milliseconds(), "model-b", "auth-b", "source-b", true, 40, 4, 0, 0, 44, &latency),
+	}
+	if _, err := db.InsertEvents(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	catchUpMonitoringHourlyRollup(t, ctx, db)
+	if _, err := db.InsertEvents(ctx, []usage.Event{
+		monitoringEvent("filtered-late-success-a", fromMS+90*time.Minute.Milliseconds(), "model-a", "auth-a", "source-a", false, 50, 5, 0, 0, 55, &latency),
+	}); err != nil {
+		t.Fatalf("insert late event: %v", err)
+	}
+
+	includeFailed := false
+	tests := []struct {
+		name    string
+		filters Filters
+	}{
+		{name: "model", filters: Filters{Models: []string{"model-a"}}},
+		{name: "success only", filters: Filters{IncludeFailed: &includeFailed}},
+		{name: "failed only", filters: Filters{FailedOnly: true}},
+		{name: "model and failed", filters: Filters{Models: []string{"model-b"}, FailedOnly: true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := Request{
+				FromMS:   fromMS,
+				ToMS:     toMS,
+				NowMS:    toMS,
+				TimeZone: "UTC",
+				Filters:  test.filters,
+				Include: Include{
+					Summary:     true,
+					Timeline:    true,
+					ModelStats:  true,
+					Granularity: "hour",
+				},
+			}
+			raw, err := New(db, false).Analytics(ctx, req)
+			if err != nil {
+				t.Fatalf("raw analytics: %v", err)
+			}
+			rolled, err := New(db, true).Analytics(ctx, req)
+			if err != nil {
+				t.Fatalf("rollup analytics: %v", err)
+			}
+			raw.GeneratedAtMS = rolled.GeneratedAtMS
+			if !reflect.DeepEqual(rolled, raw) {
+				t.Fatalf("filtered analytics mismatch\nrollup=%#v\nraw=%#v", rolled, raw)
+			}
+		})
 	}
 }
 
@@ -2185,7 +2486,6 @@ func TestAnalyticsHourlyRollupEligibilityIsStrict(t *testing.T) {
 	}{
 		{name: "search", mutate: func(filter *store.AnalyticsFilter) { filter.SearchQuery = "model" }},
 		{name: "search api key", mutate: func(filter *store.AnalyticsFilter) { filter.SearchAPIKeyHash = "key" }},
-		{name: "models", mutate: func(filter *store.AnalyticsFilter) { filter.Models = []string{"model-a"} }},
 		{name: "providers", mutate: func(filter *store.AnalyticsFilter) { filter.Providers = []string{"codex"} }},
 		{name: "accounts", mutate: func(filter *store.AnalyticsFilter) { filter.Accounts = []string{"account"} }},
 		{name: "credential ids", mutate: func(filter *store.AnalyticsFilter) { filter.CredentialIDs = []string{"credential"} }},
@@ -2199,8 +2499,6 @@ func TestAnalyticsHourlyRollupEligibilityIsStrict(t *testing.T) {
 		{name: "header error codes", mutate: func(filter *store.AnalyticsFilter) { filter.HeaderErrorCodes = []string{"429"} }},
 		{name: "header quota plans", mutate: func(filter *store.AnalyticsFilter) { filter.HeaderQuotaPlans = []string{"pro"} }},
 		{name: "header trace ids", mutate: func(filter *store.AnalyticsFilter) { filter.HeaderTraceIDs = []string{"trace"} }},
-		{name: "exclude failed", mutate: func(filter *store.AnalyticsFilter) { filter.IncludeFailed = false }},
-		{name: "failed only", mutate: func(filter *store.AnalyticsFilter) { filter.FailedOnly = true }},
 		{name: "minimum latency", mutate: func(filter *store.AnalyticsFilter) { filter.MinLatencyMS = 100 }},
 		{name: "cache status", mutate: func(filter *store.AnalyticsFilter) { filter.CacheStatus = "hit" }},
 	}
@@ -2213,14 +2511,33 @@ func TestAnalyticsHourlyRollupEligibilityIsStrict(t *testing.T) {
 			}
 		})
 	}
+
+	for _, supported := range []store.AnalyticsFilter{
+		{IncludeFailed: true, Models: []string{"model-a"}},
+		{IncludeFailed: false},
+		{IncludeFailed: true, FailedOnly: true},
+	} {
+		if !analyticsHourlyRollupEligible(supported) {
+			t.Fatalf("supported filter unexpectedly ineligible: %#v", supported)
+		}
+	}
 }
 
 func catchUpMonitoringHourlyRollup(t *testing.T, ctx context.Context, db *store.Store) {
 	t.Helper()
 	for {
-		result, err := db.CatchUpDashboardHourlyRollups(ctx, 100, time.Now().UnixMilli())
+		result, err := db.CatchUpUsageHourlyAggregate(ctx, 100, time.Now().UnixMilli())
 		if err != nil {
 			t.Fatalf("catch up hourly rollup: %v", err)
+		}
+		if !result.Pending {
+			break
+		}
+	}
+	for {
+		result, err := db.CatchUpUsagePricing(ctx, 100, time.Now().UnixMilli())
+		if err != nil {
+			t.Fatalf("catch up pricing rollup: %v", err)
 		}
 		if !result.Pending {
 			return

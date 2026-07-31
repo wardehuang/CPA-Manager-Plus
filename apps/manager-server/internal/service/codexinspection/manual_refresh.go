@@ -35,7 +35,9 @@ func (s *Service) RunManualRefresh(ctx context.Context, req ManualRefreshRequest
 
 	persistCtx := context.WithoutCancel(ctx)
 	logger := runLogger{service: s, runID: run.ID, prefix: "【手动刷新】 "}
-	quietLogger := runLogger{}
+	// Keep runID so account-status hooks still attach to the parent run; omit
+	// service so per-account probe chatter stays quiet.
+	quietLogger := runLogger{runID: run.ID}
 
 	files, err := s.fetchAuthFiles(ctx, setup)
 	if err != nil {
@@ -62,10 +64,17 @@ func (s *Service) RunManualRefresh(ctx context.Context, req ManualRefreshRequest
 		return s.getRunWithCause(persistCtx, run.ID, err)
 	}
 
-	results := s.inspectAccounts(ctx, setup, settings, run.ID, []account{selected}, quietLogger)
+	results := s.inspectAccounts(ctx, setup, settings, []account{selected}, quietLogger)
 	if err := ctx.Err(); err != nil {
+		_ = s.persistInspectionResults(persistCtx, run.ID, results, logger)
 		logger.warning(persistCtx, "账号刷新已取消", map[string]any{"error": run.Error})
 		return s.getRunWithCause(persistCtx, run.ID, err)
+	}
+	if failures := s.persistInspectionResults(persistCtx, run.ID, results, logger); failures > 0 {
+		logger.warning(persistCtx, "部分手动刷新结果写入失败", map[string]any{
+			"failureCount": failures,
+			"resultCount":  len(results),
+		})
 	}
 
 	reason := strings.TrimSpace(req.Reason)

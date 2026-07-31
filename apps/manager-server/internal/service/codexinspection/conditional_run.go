@@ -36,7 +36,9 @@ func (s *Service) RunConditional(ctx context.Context, req ConditionalRunRequest)
 
 	persistCtx := context.WithoutCancel(ctx)
 	logger := runLogger{service: s, runID: req.RunID, prefix: "[条件巡检] "}
-	quietLogger := runLogger{}
+	// Keep runID so account-status hooks still attach to the parent run; omit
+	// service so per-account probe chatter stays quiet.
+	quietLogger := runLogger{runID: req.RunID}
 	files, err := s.fetchAuthFiles(ctx, setup)
 	if err != nil {
 		logger.error(persistCtx, "加载认证文件列表失败", map[string]any{"error": err.Error()})
@@ -64,14 +66,21 @@ func (s *Service) RunConditional(ctx context.Context, req ConditionalRunRequest)
 		return s.GetRun(persistCtx, req.RunID)
 	}
 
-	results := s.inspectAccounts(ctx, setup, settings, req.RunID, selected, quietLogger)
+	results := s.inspectAccounts(ctx, setup, settings, selected, quietLogger)
 	if err := ctx.Err(); err != nil {
+		_ = s.persistInspectionResults(persistCtx, req.RunID, results, logger)
 		logger.warning(persistCtx, "刷新已取消", map[string]any{
 			"error":          err.Error(),
 			"candidateCount": len(selected),
 			"finishedCount":  len(results),
 		})
 		return s.getRunWithCause(persistCtx, req.RunID, err)
+	}
+	if failures := s.persistInspectionResults(persistCtx, req.RunID, results, logger); failures > 0 {
+		logger.warning(persistCtx, "部分条件巡检结果写入失败", map[string]any{
+			"failureCount": failures,
+			"resultCount":  len(results),
+		})
 	}
 
 	for _, result := range results {

@@ -259,7 +259,9 @@ export function CodexInspectionResultsPanel({
                 const errorText = item.errorDetail || item.error;
                 const errorSummary = summarizeError
                   ? summarizeError(item)
-                  : summarizeInspectionError(item, t);
+                  : summarizeInspectionError(item, t, {
+                      xaiInferenceEnabled,
+                    });
                 const conclusionReason = item.actionReason?.startsWith('monitoring.')
                   ? t(item.actionReason)
                   : item.actionReason;
