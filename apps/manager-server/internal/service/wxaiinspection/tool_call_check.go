@@ -1,0 +1,258 @@
+package wxaiinspection
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/toolcallcheck"
+)
+
+var ErrWxaiToolCallCheckAccountNotFound = errors.New("wxai tool call check account not found")
+
+type ToolCallCheckRequest struct {
+	AccountKey string `json:"accountKey,omitempty"`
+	FileName   string `json:"fileName,omitempty"`
+	AuthIndex  string `json:"authIndex,omitempty"`
+}
+
+type ToolCallCheckResponse struct {
+	AccountKey     string               `json:"accountKey"`
+	FileName       string               `json:"fileName"`
+	DisplayAccount string               `json:"displayAccount"`
+	AuthIndex      string               `json:"authIndex,omitempty"`
+	Result         toolcallcheck.Result `json:"result"`
+}
+
+func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCheckRequest) (ToolCallCheckResponse, error) {
+	operationStartedAt := time.Now()
+	executionID, err := toolcallcheck.NewExecutionID()
+	if err != nil {
+		logWxaiToolCallCheck("", operationStartedAt, "generate_check_id_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return ToolCallCheckResponse{}, err
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "started", map[string]any{
+		"accountKey": request.AccountKey,
+		"fileName":   request.FileName,
+		"authIndex":  request.AuthIndex,
+	})
+
+	logWxaiToolCallCheck(executionID, operationStartedAt, "resolve_runtime_started", nil)
+	settings, setup, err := service.resolveRuntime(ctx)
+	if err != nil {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "resolve_runtime_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return ToolCallCheckResponse{}, err
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "resolve_runtime_completed", map[string]any{
+		"timeoutMs": settings.Timeout,
+	})
+
+	logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_accounts_started", nil)
+	accounts, err := service.fetchAccounts(ctx, setup)
+	if err != nil {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_accounts_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return ToolCallCheckResponse{}, err
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_accounts_completed", map[string]any{
+		"accountCount": len(accounts),
+	})
+
+	selectedAccount, matched := matchAccount(accounts, ManualRefreshRequest{
+		AccountKey: request.AccountKey,
+		FileName:   request.FileName,
+		AuthIndex:  request.AuthIndex,
+	})
+	if !matched {
+		err = fmt.Errorf(
+			"%w: %s",
+			ErrWxaiToolCallCheckAccountNotFound,
+			firstNonEmpty(request.AccountKey, request.FileName, request.AuthIndex),
+		)
+		logWxaiToolCallCheck(executionID, operationStartedAt, "match_account_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return ToolCallCheckResponse{}, err
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "account_matched", map[string]any{
+		"accountKey": selectedAccount.Key,
+		"fileName":   selectedAccount.FileName,
+		"authIndex":  selectedAccount.AuthIndex,
+	})
+
+	response := ToolCallCheckResponse{
+		AccountKey:     selectedAccount.Key,
+		FileName:       selectedAccount.FileName,
+		DisplayAccount: selectedAccount.DisplayAccount,
+		AuthIndex:      selectedAccount.AuthIndex,
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "download_auth_file_started", map[string]any{
+		"fileName": selectedAccount.FileName,
+	})
+	authFile, err := cpaauthfiles.New(service.client).DownloadJSON(
+		ctx,
+		setup.CPAUpstreamURL,
+		setup.ManagementKey,
+		selectedAccount.FileName,
+	)
+	if err != nil {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "download_auth_file_failed", map[string]any{
+			"fileName": selectedAccount.FileName,
+			"error":    err.Error(),
+		})
+		return response, err
+	}
+	accessToken := strings.TrimSpace(firstString(authFile, "access_token"))
+	authProxyURL := firstString(authFile, "proxy_url", "proxyUrl", "proxy-url")
+	logWxaiToolCallCheck(executionID, operationStartedAt, "download_auth_file_completed", map[string]any{
+		"fileName":            selectedAccount.FileName,
+		"accessTokenPresent":  accessToken != "",
+		"authProxyConfigured": strings.TrimSpace(authProxyURL) != "",
+	})
+	if accessToken == "" {
+		err = errors.New("xAI auth file access_token is missing")
+		logWxaiToolCallCheck(executionID, operationStartedAt, "read_access_token_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return response, err
+	}
+
+	globalProxyURL := ""
+	if strings.TrimSpace(authProxyURL) == "" {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_global_proxy_started", nil)
+		managementConfig, configErr := cpa.FetchManagementConfig(
+			ctx,
+			setup.CPAUpstreamURL,
+			setup.ManagementKey,
+		)
+		if configErr != nil {
+			logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_global_proxy_failed", map[string]any{
+				"error": configErr.Error(),
+			})
+			return response, fmt.Errorf("读取 CPA 全局 proxy-url: %w", configErr)
+		}
+		globalProxyURL = managementConfig.ProxyURL
+		logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_global_proxy_completed", map[string]any{
+			"globalProxyConfigured": strings.TrimSpace(globalProxyURL) != "",
+			"globalProxyURL":        toolcallcheck.RedactProxyURL(globalProxyURL),
+		})
+	} else {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_global_proxy_skipped", map[string]any{
+			"reason": "auth_proxy_configured",
+		})
+	}
+	proxySelection := toolcallcheck.ResolveProxy(authProxyURL, globalProxyURL)
+	logWxaiToolCallCheck(executionID, operationStartedAt, "proxy_resolved", map[string]any{
+		"proxySource": proxySelection.Source,
+		"proxyURL":    toolcallcheck.RedactProxyURL(proxySelection.URL),
+	})
+
+	logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_client_version_started", nil)
+	clientVersion, err := cpa.FetchXAIClientVersion(
+		ctx,
+		setup.CPAUpstreamURL,
+		setup.ManagementKey,
+	)
+	if err != nil {
+		logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_client_version_failed", map[string]any{
+			"error": err.Error(),
+		})
+		return response, fmt.Errorf("读取 CPA xAI client version: %w", err)
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_client_version_completed", map[string]any{
+		"clientVersion": clientVersion,
+	})
+
+	logWxaiToolCallCheck(executionID, operationStartedAt, "upstream_request_started", map[string]any{
+		"endpoint":        wxaiResponsesURL,
+		"model":           wxaiProbeModel,
+		"prompt":          wxaiToolCallCheckPrompt,
+		"expectedMarker":  toolcallcheck.ExpectedQualityMarker,
+		"stream":          true,
+		"maxOutputTokens": wxaiQualityProbeMaxTokens,
+		"timeoutMs":       settings.Timeout,
+		"proxySource":     proxySelection.Source,
+		"proxyURL":        toolcallcheck.RedactProxyURL(proxySelection.URL),
+	})
+	checkResult, err := toolcallcheck.Run(ctx, toolcallcheck.Request{
+		CheckID:     executionID,
+		Endpoint:    wxaiResponsesURL,
+		AccessToken: accessToken,
+		Headers:     wxaiToolCallCheckHeaders(accessToken, clientVersion),
+		Body:        buildWxaiResponsesStreamingProbePayload(),
+		Proxy:       proxySelection,
+		Timeout:     time.Duration(settings.Timeout) * time.Millisecond,
+		Stream:      true,
+	})
+	if err != nil {
+		checkResult.Error = err.Error()
+	}
+	var outputTokensPerSecond any
+	if checkResult.OutputTokensPerSecond != nil {
+		outputTokensPerSecond = *checkResult.OutputTokensPerSecond
+	}
+	logWxaiToolCallCheck(executionID, operationStartedAt, "upstream_request_completed", map[string]any{
+		"statusCode":            checkResult.StatusCode,
+		"ttfbMs":                checkResult.TTFBMS,
+		"firstTokenMs":          checkResult.FirstTokenMS,
+		"generationMs":          checkResult.GenerationMS,
+		"totalMs":               checkResult.TotalMS,
+		"outputTokensPerSecond": outputTokensPerSecond,
+		"outputTokens":          checkResult.OutputTokens,
+		"reasoningTokens":       checkResult.ReasoningTokens,
+		"visibleTokens":         checkResult.VisibleTokens,
+		"expectedMatched":       checkResult.ExpectedMatched,
+		"classification":        checkResult.Classification,
+		"qualityLevel":          checkResult.QualityLevel,
+		"classificationReason":  checkResult.ClassificationReason,
+		"errorCode":             checkResult.ErrorCode,
+		"proxyMode":             checkResult.ProxyMode,
+		"error":                 checkResult.Error,
+		"operationContextError": contextError(ctx),
+	})
+	response.Result = checkResult
+	return response, nil
+}
+
+func logWxaiToolCallCheck(checkID string, startedAt time.Time, stage string, detail map[string]any) {
+	if detail == nil {
+		detail = make(map[string]any)
+	}
+	detail["checkId"] = checkID
+	detail["elapsedMs"] = time.Since(startedAt).Milliseconds()
+	log.Printf("wXAi 降智检测操作日志 stage=%s detail=%v", stage, detail)
+}
+
+func contextError(ctx context.Context) string {
+	if err := ctx.Err(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func wxaiToolCallCheckHeaders(accessToken string, clientVersion string) map[string]string {
+	headers := wxaiInspectionHeaders(accessToken, clientVersion)
+	headers["Accept"] = "text/event-stream"
+	return headers
+}
+
+const wxaiToolCallCheckPrompt = "Write exactly 16 numbered lines about reliable distributed systems. Each line must be one complete English sentence, with no markdown heading. The final line must end with the exact marker QUALITY_OK."
+
+func buildWxaiResponsesStreamingProbePayload() map[string]any {
+	return map[string]any{
+		"model":             wxaiProbeModel,
+		"input":             wxaiToolCallCheckPrompt,
+		"stream":            true,
+		"max_output_tokens": wxaiQualityProbeMaxTokens,
+	}
+}

@@ -54,6 +54,22 @@ func (handler *Handler) Handle(responseWriter http.ResponseWriter, request *http
 			return
 		}
 		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/tool-call-check":
+		if request.Method != http.MethodPost {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		var payload wxaiinspectionsvc.ToolCallCheckRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		result, err := handler.App.WxaiInspectionService.RunToolCallCheck(request.Context(), payload)
+		if err != nil {
+			response.Error(responseWriter, wxaiInspectionErrorStatus(err), err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, result)
 	case path == "/v0/management/wxai-inspection/run":
 		if request.Method != http.MethodPost {
 			response.MethodNotAllowed(responseWriter)
@@ -161,7 +177,9 @@ func (handler *Handler) handleSettings(responseWriter http.ResponseWriter, reque
 
 func wxaiInspectionErrorStatus(err error) int {
 	switch {
-	case errors.Is(err, wxaiinspectionsvc.ErrRunNotFound), errors.Is(err, wxaiinspectionsvc.ErrManualRefreshAccountNotFound):
+	case errors.Is(err, wxaiinspectionsvc.ErrRunNotFound),
+		errors.Is(err, wxaiinspectionsvc.ErrManualRefreshAccountNotFound),
+		errors.Is(err, wxaiinspectionsvc.ErrWxaiToolCallCheckAccountNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, wxaiinspectionsvc.ErrRunAlreadyActive), errors.Is(err, wxaiinspectionsvc.ErrRunNotCompleted):
 		return http.StatusConflict

@@ -3,6 +3,7 @@ import { normalizeApiBase } from '@/utils/connection';
 
 const REQUEST_TIMEOUT_MS = 15000;
 const RUN_TIMEOUT_MS = 180000;
+const TOOL_CALL_CHECK_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type ManagerWxaiInspectionScheduleMode = 'interval' | 'time_points';
 export type ManagerWxaiInspectionAutoActionMode = 'none' | 'enable' | 'disable' | 'delete';
@@ -179,6 +180,60 @@ export interface WxaiManualRefreshRequest {
   reason?: string;
 }
 
+export interface WxaiToolCallCheckRequest {
+  accountKey?: string;
+  fileName?: string;
+  authIndex?: string;
+}
+
+export interface WxaiToolCallCheckResult {
+  checkId: string;
+  endpoint: string;
+  proxySource: 'auth' | 'global' | 'direct' | string;
+  proxyMode: 'proxy' | 'direct' | string;
+  proxyUrl?: string;
+  stream: boolean;
+  startedAtMs: number;
+  finishedAtMs: number;
+  durationMs: number;
+  totalMs: number;
+  ttfbMs?: number;
+  firstTokenMs?: number;
+  generationMs?: number;
+  statusCode?: number;
+  errorCode?: string;
+  classification?: 'normal' | 'suspected_degradation' | 'quota_exhausted' | 'unknown' | string;
+  qualityLevel?: 'healthy' | 'soft' | 'hard' | 'quota_exhausted' | 'unknown' | string;
+  classificationReason?: string;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  visibleTokens?: number;
+  expectedMarker?: string;
+  expectedMatched: boolean;
+  outputTokensPerSecond?: number;
+  modelAnswer?: string;
+  requestBody?: unknown;
+  requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string[]>;
+  responseBody?: string;
+  responseBodyTruncated: boolean;
+  toolCallDetected: boolean;
+  toolCallNames?: string[];
+  error?: string;
+  cleanupPath?: string;
+  cleanupAttempted: boolean;
+  cleanupDeleted: boolean;
+  cleanupError?: string;
+}
+
+export interface WxaiToolCallCheckResponse {
+  accountKey: string;
+  fileName: string;
+  displayAccount: string;
+  authIndex?: string;
+  result: WxaiToolCallCheckResult;
+}
+
 const buildUrl = (base: string, path: string): string => {
   const normalizedBase = normalizeApiBase(base).replace(/\/+$/, '');
   return `${normalizedBase}${path}`;
@@ -268,6 +323,19 @@ export const wxaiInspectionApi = {
       buildUrl(base, '/v0/management/wxai-inspection/manual-refresh'),
       payload,
       { timeout: RUN_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
+  runToolCallCheck: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: WxaiToolCallCheckRequest
+  ): Promise<WxaiToolCallCheckResponse> => {
+    const response = await axios.post<WxaiToolCallCheckResponse>(
+      buildUrl(base, '/v0/management/wxai-inspection/tool-call-check'),
+      payload,
+      { timeout: TOOL_CALL_CHECK_TIMEOUT_MS, headers: authHeaders(managementKey) }
     );
     return response.data;
   },

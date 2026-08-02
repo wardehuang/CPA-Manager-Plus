@@ -129,6 +129,69 @@ const readBooleanPath = (record: RawRecord | null, ...paths: string[][]) => {
   return null;
 };
 
+const readProxyMetadata = (record: RawRecord | null, field: string) =>
+  readStringPath(
+    record,
+    ['metadata', `cpa.proxy.${field}`],
+    ['metadata', 'cpa', 'proxy', field],
+    [`cpa.proxy.${field}`],
+    ['cpa', 'proxy', field]
+  );
+
+const formatProxyRoute = (mode: string, scheme: string) => {
+  switch (mode) {
+    case 'direct':
+      return '直连';
+    case 'proxy':
+      return scheme ? `代理（${scheme}）` : '代理';
+    case 'relay':
+      return 'WebSocket Relay';
+    case 'unknown':
+      return '未知';
+    default:
+      return mode || '未记录';
+  }
+};
+
+const formatProxySource = (source: string) => {
+  switch (source) {
+    case 'auth':
+      return '账号代理';
+    case 'global':
+      return '全局代理';
+    case 'environment':
+      return '环境变量';
+    case 'context':
+      return '上下文 Transport';
+    case 'fallback':
+      return '回退路径';
+    case 'websocket':
+      return 'WebSocket';
+    case 'default':
+      return '默认 Transport';
+    case 'unknown':
+      return '未知';
+    default:
+      return source || '未记录';
+  }
+};
+
+const formatEgressIP = (ip: string, status: string) => {
+  if (ip) return ip;
+  switch (status) {
+    case 'verified':
+      return '已验证，但未返回 IP';
+    case 'unavailable':
+      return '未获取';
+    case 'not_supported':
+      return '当前传输方式不支持探测';
+    case 'pending':
+      return '探测中';
+    default:
+      return '未记录';
+  }
+};
+
 const formatTokenCount = (value: number | null | undefined) => {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-';
   const abs = Math.abs(value);
@@ -221,17 +284,22 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
       readNumberPath(rawRecord, ['tokens', 'reasoning_tokens']) ?? data.event.reasoning_tokens;
     const cachedTokens = readNumberPath(rawRecord, ['tokens', 'cached_tokens']) ?? data.event.cached_tokens;
     const cacheDenominator = inputTokens + outputTokens + reasoningTokens;
-	const compactDetected =
-		readBooleanPath(
-			rawRecord,
-			['metadata', 'cpa.compact.detected'],
-			['cpa.compact.detected'],
-			['cpa', 'compact', 'detected']
-		) ?? false;
+    const compactDetected =
+      readBooleanPath(
+        rawRecord,
+        ['metadata', 'cpa.compact.detected'],
+        ['cpa.compact.detected'],
+        ['cpa', 'compact', 'detected']
+      ) ?? false;
     const endpoint =
       readStringPath(rawRecord, ['endpoint']) ||
       data.event.endpoint ||
       `${data.event.method} ${data.event.path}`.trim();
+    const proxyMode = readProxyMetadata(rawRecord, 'mode');
+    const proxySource = readProxyMetadata(rawRecord, 'source');
+    const proxyScheme = readProxyMetadata(rawRecord, 'scheme');
+    const egressIP = readProxyMetadata(rawRecord, 'egress_ip');
+    const egressIPStatus = readProxyMetadata(rawRecord, 'egress_ip_status');
 
     return [
       {
@@ -256,24 +324,36 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
         value: readStringPath(rawRecord, ['request_id'], ['requestId']) || data.event.request_id,
       },
       { label: 'Endpoint', value: endpoint },
-		{ label: '账号', value: readStringPath(rawRecord, ['metadata', 'selected_auth_id'], ['selected_auth_id']) },
-      { label: '总时间', value: formatDuration(readNumberPath(rawRecord, ['latency_ms']) ?? data.event.latency_ms) },
-      { label: '首字时间', value: formatDuration(readNumberPath(rawRecord, ['ttft_ms']) ?? data.event.ttft_ms) },
-		{
-			label: '项目 ID',
-			value: readStringPath(rawRecord, ['metadata', 'project_id'], ['metadata', 'cpa.project_id'], ['project_id']),
-		},
+      {
+        label: '账号',
+        value: readStringPath(rawRecord, ['metadata', 'selected_auth_id'], ['selected_auth_id']),
+      },
+      {
+        label: '总时间',
+        value: formatDuration(readNumberPath(rawRecord, ['latency_ms']) ?? data.event.latency_ms),
+      },
+      {
+        label: '首字时间',
+        value: formatDuration(readNumberPath(rawRecord, ['ttft_ms']) ?? data.event.ttft_ms),
+      },
+      {
+        label: '项目 ID',
+        value: readStringPath(rawRecord, ['metadata', 'project_id'], ['metadata', 'cpa.project_id'], ['project_id']),
+      },
       {
         label: 'prompt_cache_key',
-			value: readStringPath(
-				rawRecord,
-				['metadata', 'upstream_prompt_cache_key'],
-				['metadata', 'cpa.upstream_prompt_cache_key'],
-				['upstream_prompt_cache_key'],
-				['cpa.upstream_prompt_cache_key']
-			),
-		},
+        value: readStringPath(
+          rawRecord,
+          ['metadata', 'upstream_prompt_cache_key'],
+          ['metadata', 'cpa.upstream_prompt_cache_key'],
+          ['upstream_prompt_cache_key'],
+          ['cpa.upstream_prompt_cache_key']
+        ),
+      },
       { label: 'compact', value: compactDetected ? 'True' : 'False' },
+      { label: '网络路径', value: formatProxyRoute(proxyMode, proxyScheme) },
+      { label: '网络来源', value: formatProxySource(proxySource) },
+      { label: '出口 IP', value: formatEgressIP(egressIP, egressIPStatus) },
     ];
   }, [data, rawRecord]);
 

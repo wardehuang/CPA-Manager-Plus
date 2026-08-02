@@ -15,8 +15,7 @@ type wxaiHTTPClientRuntime struct {
 	clientVersion string
 }
 
-// resolveWxaiHTTPClient 创建本轮 xAI 探测用 HTTP client：始终直连，不读取 CPA proxy-url，
-// 也不使用进程环境代理。仅从 CPA 读取 xai-client-version。
+// resolveWxaiHTTPClient 条件巡检、手动刷新和服务器巡检共用直连 client + CPA xai-client-version。
 func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
 	clientVersion, err := cpa.FetchXAIClientVersion(
 		ctx,
@@ -34,7 +33,7 @@ func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.S
 
 func newWxaiDirectHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// 显式关闭代理：忽略 CPA proxy-url 与 HTTP(S)_PROXY 环境变量。
+	// 显式关闭代理：忽略 HTTP(S)_PROXY 环境变量。
 	transport.Proxy = nil
 	return &http.Client{
 		Timeout:   60 * time.Second,

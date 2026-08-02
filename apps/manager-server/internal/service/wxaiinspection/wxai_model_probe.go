@@ -18,13 +18,15 @@ import (
 )
 
 const (
-	wxaiResponsesURL        = "https://cli-chat-proxy.grok.com/v1/responses"
-	wxaiProbeModel          = "grok-4.5"
-	wxaiProbeInput          = "ping"
-	wxaiProbeBodyLimit      = 1024 * 1024
-	wxaiProbeDetailLimit    = 400
-	wxaiTimeoutRetryBackoff = 400 * time.Millisecond
-	wxaiTimeoutRetryCount   = 1
+	wxaiResponsesURL          = "https://cli-chat-proxy.grok.com/v1/responses"
+	wxaiChatCompletionsURL    = "https://cli-chat-proxy.grok.com/v1/chat/completions"
+	wxaiProbeModel            = "grok-4.5"
+	wxaiProbeInput            = "ping"
+	wxaiQualityProbeMaxTokens = 384
+	wxaiProbeBodyLimit        = 1024 * 1024
+	wxaiProbeDetailLimit      = 400
+	wxaiTimeoutRetryBackoff   = 400 * time.Millisecond
+	wxaiTimeoutRetryCount     = 1
 )
 
 type wxaiProbeOutcome struct {

@@ -34,21 +34,21 @@ const (
 )
 
 type ManagerWxaiInspectionConfig struct {
-	Enabled              *bool                               `json:"enabled,omitempty"`
-	Schedule             ManagerWxaiInspectionScheduleConfig `json:"schedule"`
-	TargetType           string                              `json:"targetType,omitempty"`
-	Workers              int                                 `json:"workers,omitempty"`
-	DeleteWorkers        int                                 `json:"deleteWorkers,omitempty"`
-	Timeout              int                                 `json:"timeout,omitempty"`
-	Retries              int                                 `json:"retries,omitempty"`
+	Enabled       *bool                               `json:"enabled,omitempty"`
+	Schedule      ManagerWxaiInspectionScheduleConfig `json:"schedule"`
+	TargetType    string                              `json:"targetType,omitempty"`
+	Workers       int                                 `json:"workers,omitempty"`
+	DeleteWorkers int                                 `json:"deleteWorkers,omitempty"`
+	Timeout       int                                 `json:"timeout,omitempty"`
+	Retries       int                                 `json:"retries,omitempty"`
 	// WorkerStartStaggerMs: worker 错峰启动间隔（毫秒）。nil=默认；0=不交错（同时启动）。
 	WorkerStartStaggerMs *int `json:"workerStartStaggerMs,omitempty"`
 	// AccountTakeStaggerMs: 全局取账号间隔（毫秒）。nil=默认；0=不限流。
-	AccountTakeStaggerMs *int `json:"accountTakeStaggerMs,omitempty"`
-	UserAgent                 string  `json:"userAgent,omitempty"`
-	UsedPercentThreshold      float64 `json:"usedPercentThreshold,omitempty"`
-	SampleSize                int     `json:"sampleSize,omitempty"`
-	AutoActionMode            string  `json:"autoActionMode,omitempty"`
+	AccountTakeStaggerMs *int    `json:"accountTakeStaggerMs,omitempty"`
+	UserAgent            string  `json:"userAgent,omitempty"`
+	UsedPercentThreshold float64 `json:"usedPercentThreshold,omitempty"`
+	SampleSize           int     `json:"sampleSize,omitempty"`
+	AutoActionMode       string  `json:"autoActionMode,omitempty"`
 }
 
 type ManagerWxaiInspectionScheduleConfig struct {
@@ -181,17 +181,17 @@ func DefaultWxaiInspectionConfig() ManagerWxaiInspectionConfig {
 			Mode:            WxaiInspectionScheduleModeInterval,
 			IntervalMinutes: 60,
 		},
-		TargetType:               "xai",
-		Workers:                  4,
-		DeleteWorkers:            4,
-		Timeout:                  25000,
-		Retries:                  1,
-		WorkerStartStaggerMs:     wxaiIntPointer(DefaultWxaiWorkerStartStaggerMs),
-		AccountTakeStaggerMs:     wxaiIntPointer(DefaultWxaiAccountTakeStaggerMs),
-		UserAgent:                "grok-shell/0.2.99 (linux; x86_64)",
-		UsedPercentThreshold:     100,
-		SampleSize:               0,
-		AutoActionMode:           WxaiInspectionAutoActionNone,
+		TargetType:           "xai",
+		Workers:              4,
+		DeleteWorkers:        4,
+		Timeout:              25000,
+		Retries:              1,
+		WorkerStartStaggerMs: wxaiIntPointer(DefaultWxaiWorkerStartStaggerMs),
+		AccountTakeStaggerMs: wxaiIntPointer(DefaultWxaiAccountTakeStaggerMs),
+		UserAgent:            "grok-shell/0.2.99 (linux; x86_64)",
+		UsedPercentThreshold: 100,
+		SampleSize:           0,
+		AutoActionMode:       WxaiInspectionAutoActionNone,
 	}
 }
 

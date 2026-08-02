@@ -10,6 +10,7 @@ import {
   type WxaiAccountStatusItem,
   type WxaiAccountWindowCost,
   type WxaiInspectionQuotaWindow,
+  type WxaiToolCallCheckResponse,
 } from '@/services/api/wxaiInspectionService';
 import { useAuthStore } from '@/stores';
 import { WxaiInspectionModeTabs } from './components/WxaiInspectionModeTabs';
@@ -41,7 +42,7 @@ type AccountStatusFilter = 'all' | 'enabled' | 'quota_exhausted' | 'disabled' | 
 type AccountStatusSortKey = 'accountType' | 'priority';
 type SortDirection = 'asc' | 'desc';
 type AccountMaskMode = 'masked' | 'full';
-type AccountRowAction = 'refresh' | 'toggleDisabled' | 'priority';
+type AccountRowAction = 'refresh' | 'toggleDisabled' | 'priority' | 'toolCallCheck';
 
 type WxaiAccountStatusRow = {
   id: number;
@@ -64,6 +65,8 @@ type WxaiAccountStatusRow = {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 150];
 const USD_SYMBOL = String.fromCharCode(36);
+
+let cachedLastToolCallCheckResult: WxaiToolCallCheckResponse | null = null;
 
 const normalizeNumber = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -300,6 +303,10 @@ export function WxaiInspectionPage() {
   const [priorityDialogRow, setPriorityDialogRow] = useState<WxaiAccountStatusRow | null>(null);
   const [priorityInput, setPriorityInput] = useState('');
   const [prioritySubmitting, setPrioritySubmitting] = useState(false);
+  const [lastToolCallCheckResult, setLastToolCallCheckResult] = useState<WxaiToolCallCheckResponse | null>(
+    () => cachedLastToolCallCheckResult
+  );
+  const [toolCallCheckDialogOpen, setToolCallCheckDialogOpen] = useState(false);
   const [rowOperationLoading, setRowOperationLoading] = useState(false);
   const [rowOperationMessage, setRowOperationMessage] = useState('');
 
@@ -390,6 +397,12 @@ export function WxaiInspectionPage() {
     { value: 'abnormal', label: '账号异常' },
   ];
 
+  const openLastToolCallCheckResult = () => {
+    if (lastToolCallCheckResult) {
+      setToolCallCheckDialogOpen(true);
+    }
+  };
+
   const handleSort = (nextSortKey: AccountStatusSortKey) => {
     setSortDirection(
       sortKey === nextSortKey
@@ -426,6 +439,15 @@ export function WxaiInspectionPage() {
       reason,
     });
     await loadLatest();
+  };
+
+  const runToolCallCheck = async (row: WxaiAccountStatusRow) => {
+    const { serviceBase, activeManagementKey } = requireServiceConnection();
+    return wxaiInspectionApi.runToolCallCheck(serviceBase, activeManagementKey, {
+      accountKey: row.raw.accountKey,
+      fileName: row.raw.fileName,
+      authIndex: row.raw.authIndex,
+    });
   };
 
   const openPriorityDialog = (row: WxaiAccountStatusRow) => {
@@ -479,6 +501,15 @@ export function WxaiInspectionPage() {
 
     setRowOperationLoading(true);
     try {
+      if (action === 'toolCallCheck') {
+        setToolCallCheckDialogOpen(false);
+        setRowOperationMessage('降智检测中...');
+        const result = await runToolCallCheck(row);
+        cachedLastToolCallCheckResult = result;
+        setLastToolCallCheckResult(result);
+        setToolCallCheckDialogOpen(true);
+        return;
+      }
       if (action === 'refresh') {
         setRowOperationMessage('手动刷新巡检中...');
         await runManualRefresh(row, '手动刷新');
@@ -618,12 +649,14 @@ export function WxaiInspectionPage() {
                     maskMode={maskMode}
                     expanded={expandedRowId === row.id}
                     operationLoading={rowOperationLoading}
+                    hasLastToolCallCheckResult={lastToolCallCheckResult !== null}
                     onToggle={() => {
                       if (!rowOperationLoading) {
                         setExpandedRowId((currentId) => currentId === row.id ? null : row.id);
                       }
                     }}
                     onAction={(action) => void handleRowAction(row, action)}
+                    onOpenLastToolCallCheckResult={openLastToolCallCheckResult}
                   />
                 ))}
               </tbody>
@@ -720,6 +753,15 @@ export function WxaiInspectionPage() {
           </form>
         </div>
       ) : null}
+
+      {toolCallCheckDialogOpen && lastToolCallCheckResult ? renderViewportPortal(
+        <ToolCallCheckResultDialog
+          result={lastToolCallCheckResult}
+          language={i18n.language}
+          maskMode={maskMode}
+          onClose={() => setToolCallCheckDialogOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -788,16 +830,20 @@ function AccountRow({
   maskMode,
   expanded,
   operationLoading,
+  hasLastToolCallCheckResult,
   onToggle,
   onAction,
+  onOpenLastToolCallCheckResult,
 }: {
   row: WxaiAccountStatusRow;
   language: string;
   maskMode: AccountMaskMode;
   expanded: boolean;
   operationLoading: boolean;
+  hasLastToolCallCheckResult: boolean;
   onToggle: () => void;
   onAction: (action: AccountRowAction) => void;
+  onOpenLastToolCallCheckResult: () => void;
 }) {
   const displayName = maskMode === 'masked' ? maskAccountName(row.name) : row.name;
   const quotaItems = getQuotaItems(row);
@@ -948,7 +994,9 @@ function AccountRow({
               language={language}
               maskMode={maskMode}
               operationLoading={operationLoading}
+              hasLastToolCallCheckResult={hasLastToolCallCheckResult}
               onAction={onAction}
+              onOpenLastToolCallCheckResult={onOpenLastToolCallCheckResult}
             />
           </td>
         </tr>
@@ -962,13 +1010,17 @@ function AccountDetailPanel({
   language,
   maskMode,
   operationLoading,
+  hasLastToolCallCheckResult,
   onAction,
+  onOpenLastToolCallCheckResult,
 }: {
   row: WxaiAccountStatusRow;
   language: string;
   maskMode: AccountMaskMode;
   operationLoading: boolean;
+  hasLastToolCallCheckResult: boolean;
   onAction: (action: AccountRowAction) => void;
+  onOpenLastToolCallCheckResult: () => void;
 }) {
   const displayName = maskMode === 'masked' ? maskAccountName(row.name) : row.name;
   const fileName = maskMode === 'masked' ? maskAccountName(row.raw.fileName) : row.raw.fileName;
@@ -1036,6 +1088,25 @@ function AccountDetailPanel({
           >
             修改优先级
           </button>
+          <button
+            type="button"
+            className={[styles.accountStatusActionButton, styles.accountStatusActionToolCall].join(' ')}
+            onClick={() => onAction('toolCallCheck')}
+            disabled={operationLoading}
+          >
+            降智检测
+          </button>
+          <button
+            type="button"
+            className={[styles.accountStatusActionButton, styles.accountStatusActionToolCall].join(' ')}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenLastToolCallCheckResult();
+            }}
+            disabled={!hasLastToolCallCheckResult}
+          >
+            上次检测结果
+          </button>
         </div>
       </div>
 
@@ -1069,5 +1140,152 @@ function AccountDetailPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+const formatToolCallCheckValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string') {
+    if (!value.trim()) return '-';
+    try {
+      const parsedValue: unknown = JSON.parse(value);
+      return JSON.stringify(parsedValue, null, 2);
+    } catch {
+      return value;
+    }
+  }
+  return JSON.stringify(value, null, 2) || '-';
+};
+
+function ToolCallCheckResultDialog({
+  result,
+  language,
+  maskMode,
+  onClose,
+}: {
+  result: WxaiToolCallCheckResponse;
+  language: string;
+  maskMode: AccountMaskMode;
+  onClose: () => void;
+}) {
+  const checkResult = result.result;
+  const statusCode = checkResult.statusCode ?? 0;
+  const classification = checkResult.classification ?? 'unknown';
+  const qualityLevel = checkResult.qualityLevel ?? 'unknown';
+  const totalMilliseconds = checkResult.totalMs ?? checkResult.durationMs;
+  const displayAccount = maskMode === 'masked'
+    ? maskAccountName(result.displayAccount)
+    : result.displayAccount;
+  const statusLabel = classification === 'normal'
+    ? '正常'
+    : classification === 'suspected_degradation'
+      ? qualityLevel === 'hard' ? '疑似降智（硬阈值）' : '疑似降智（软阈值）'
+      : classification === 'quota_exhausted'
+        ? '额度耗尽'
+        : checkResult.error
+          ? '请求失败，无法判定'
+          : '无法判定';
+  const statusClassName = classification === 'normal'
+    ? styles.accountStatusToolCallStatusGood
+    : classification === 'quota_exhausted' || checkResult.error || statusCode >= 400 || qualityLevel === 'hard'
+      ? styles.accountStatusToolCallStatusBad
+      : styles.accountStatusToolCallStatusWarn;
+  const responseHeaders = checkResult.responseHeaders && Object.keys(checkResult.responseHeaders).length > 0
+    ? checkResult.responseHeaders
+    : '-';
+  const requestHeaders = checkResult.requestHeaders && Object.keys(checkResult.requestHeaders).length > 0
+    ? checkResult.requestHeaders
+    : '-';
+  const formatMilliseconds = (value?: number) => typeof value === 'number' ? `${value} ms` : '-';
+  const formatTokensPerSecond = (value?: number) => typeof value === 'number' ? value.toFixed(2) : '-';
+
+  return (
+    <div
+      className={styles.accountStatusDialogBackdrop}
+      onClick={onClose}
+      role="presentation"
+    >
+      <section
+        className={styles.accountStatusToolCallDialog}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wxai-tool-call-check-title"
+      >
+        <div className={styles.accountStatusToolCallDialogHeader}>
+          <div>
+            <span className={styles.accountStatusDetailEyebrow}>wXAi Stream Check</span>
+            <h3 id="wxai-tool-call-check-title">降智检测结果</h3>
+            <p>{displayAccount || result.fileName}</p>
+            <small className={styles.accountStatusToolCallNotice}>
+              仅按 quality_guard 主动质量规则判断，不等同于工具调用能力检测
+            </small>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+
+        <div className={styles.accountStatusToolCallDialogBody}>
+          <div className={styles.accountStatusToolCallSummary}>
+            <span className={[styles.accountStatusToolCallStatus, statusClassName].join(' ')}>
+              {statusLabel}
+            </span>
+            <span>HTTP {statusCode || '-'}</span>
+            <span>首字节 TTFB {formatMilliseconds(checkResult.ttfbMs)}</span>
+            <span>首生成 {formatMilliseconds(checkResult.firstTokenMs)}</span>
+            <span>生成耗时 {formatMilliseconds(checkResult.generationMs)}</span>
+            <span>Total {formatMilliseconds(totalMilliseconds)}</span>
+            <span>TPS {formatTokensPerSecond(checkResult.outputTokensPerSecond)}</span>
+          </div>
+
+          <dl className={styles.accountStatusToolCallMetaGrid}>
+            <div><dt>Check ID</dt><dd>{checkResult.checkId}</dd></div>
+            <div><dt>检测时间</dt><dd>{formatFullDateTime(checkResult.startedAtMs, language)}</dd></div>
+            <div className={styles.accountStatusToolCallMetaWide}><dt>Endpoint</dt><dd>{checkResult.endpoint}</dd></div>
+            <div><dt>模型</dt><dd>grok-4.5</dd></div>
+            <div><dt>流式请求</dt><dd>{checkResult.stream ? 'stream=true' : 'stream=false'}</dd></div>
+            <div><dt>代理来源</dt><dd>{checkResult.proxySource}</dd></div>
+            <div><dt>代理地址</dt><dd>{checkResult.proxyUrl || '直连'}</dd></div>
+            <div><dt>质量等级</dt><dd>{qualityLevel}</dd></div>
+            <div><dt>判定原因</dt><dd>{checkResult.classificationReason || '-'}</dd></div>
+            <div><dt>输出 tokens（含推理）</dt><dd>{checkResult.outputTokens ?? '-'}</dd></div>
+            <div><dt>Reasoning tokens</dt><dd>{checkResult.reasoningTokens ?? '-'}</dd></div>
+            <div><dt>Visible tokens</dt><dd>{checkResult.visibleTokens ?? '-'}</dd></div>
+            <div><dt>QUALITY_OK</dt><dd>{checkResult.expectedMarker || '-'} / {checkResult.expectedMatched ? '已匹配' : '未匹配'}</dd></div>
+            <div><dt>错误码</dt><dd>{checkResult.errorCode || '-'}</dd></div>
+            {checkResult.error ? (
+              <div className={styles.accountStatusToolCallMetaWide}>
+                <dt>请求错误</dt>
+                <dd className={styles.accountStatusToolCallError}>{checkResult.error}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          <div className={[styles.accountStatusToolCallSection, styles.accountStatusToolCallSectionWide].join(' ')}>
+            <h4>大模型回答</h4>
+            <pre>{checkResult.modelAnswer || '-'}</pre>
+          </div>
+          <div className={styles.accountStatusToolCallSection}>
+            <h4>请求体</h4>
+            <pre>{formatToolCallCheckValue(checkResult.requestBody)}</pre>
+          </div>
+          <div className={styles.accountStatusToolCallSection}>
+            <h4>请求头</h4>
+            <pre>{formatToolCallCheckValue(requestHeaders)}</pre>
+          </div>
+          <div className={styles.accountStatusToolCallSection}>
+            <h4>上游响应头</h4>
+            <pre>{formatToolCallCheckValue(responseHeaders)}</pre>
+          </div>
+          <div className={[styles.accountStatusToolCallSection, styles.accountStatusToolCallSectionWide].join(' ')}>
+            <h4>上游流式响应（SSE）{checkResult.responseBodyTruncated ? '（已截断）' : ''}</h4>
+            <pre>{formatToolCallCheckValue(checkResult.responseBody)}</pre>
+          </div>
+        </div>
+
+        <div className={styles.accountStatusToolCallDialogActions}>
+          <button type="button" onClick={onClose}>关闭</button>
+        </div>
+      </section>
+    </div>
   );
 }
