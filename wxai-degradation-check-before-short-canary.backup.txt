@@ -1,0 +1,132 @@
+# wXAi 降智检测按钮逻辑备份
+
+备份时间：2026-08-01
+目的：短 canary 改造前保留当前按钮调用链与展示字段。
+
+## 前端入口
+
+文件：`apps/web/src/features/monitoring/WxaiInspectionPage.tsx`
+
+```tsx
+type AccountRowAction = 'refresh' | 'toggleDisabled' | 'priority' | 'toolCallCheck';
+
+let cachedLastToolCallCheckResult: WxaiToolCallCheckResponse | null = null;
+
+const openLastToolCallCheckResult = () => {
+  if (lastToolCallCheckResult) {
+    setToolCallCheckDialogOpen(true);
+  }
+};
+
+const runToolCallCheck = async (row: WxaiAccountStatusRow) => {
+  const { serviceBase, activeManagementKey } = requireServiceConnection();
+  return wxaiInspectionApi.runToolCallCheck(serviceBase, activeManagementKey, {
+    accountKey: row.raw.accountKey,
+    fileName: row.raw.fileName,
+    authIndex: row.raw.authIndex,
+  });
+};
+
+if (action === 'toolCallCheck') {
+  setToolCallCheckDialogOpen(false);
+  setRowOperationMessage('降智检测中...');
+  const result = await runToolCallCheck(row);
+  cachedLastToolCallCheckResult = result;
+  setLastToolCallCheckResult(result);
+  setToolCallCheckDialogOpen(true);
+  return;
+}
+```
+
+按钮：
+
+```tsx
+<button
+  type="button"
+  className={[styles.accountStatusActionButton, styles.accountStatusActionToolCall].join(' ')}
+  onClick={() => onAction('toolCallCheck')}
+  disabled={operationLoading}
+>
+  降智检测
+</button>
+
+<button
+  type="button"
+  className={[styles.accountStatusActionButton, styles.accountStatusActionToolCall].join(' ')}
+  onClick={(event) => {
+    event.stopPropagation();
+    onOpenLastToolCallCheckResult();
+  }}
+  disabled={!hasLastToolCallCheckResult}
+>
+  上次检测结果
+</button>
+```
+
+旧结果弹窗主要字段：分类、质量等级、判定原因、HTTP、TTFB、首生成、generation、total、TPS、output tokens、reasoning tokens、visible tokens、`QUALITY_OK`、模型回答、请求体、请求头、响应头、SSE body。
+
+## 前端 API 类型
+
+文件：`apps/web/src/services/api/wxaiInspectionService.ts`
+
+旧 `WxaiToolCallCheckResult` 包含：
+
+- `classification`
+- `qualityLevel`
+- `classificationReason`
+- `outputTokens`
+- `reasoningTokens`
+- `visibleTokens`
+- `expectedMarker`
+- `expectedMatched`
+- `outputTokensPerSecond`
+- `modelAnswer`
+- `requestBody`
+- `requestHeaders`
+- `responseHeaders`
+- `responseBody`
+
+入口仍为：`POST /v0/management/wxai-inspection/tool-call-check`。
+
+## Manager 旧请求
+
+文件：`apps/manager-server/internal/service/wxaiinspection/tool_call_check.go`
+
+旧 Prompt：
+
+```text
+Write exactly 16 numbered lines about reliable distributed systems. Each line must be one complete English sentence, with no markdown heading. The final line must end with the exact marker QUALITY_OK.
+```
+
+旧请求体：
+
+```json
+{
+  "model": "grok-4.5",
+  "input": "<旧 Prompt>",
+  "stream": true,
+  "max_output_tokens": 384
+}
+```
+
+旧请求使用 auth 级 `proxy_url`，为空时使用 CPA 全局 `proxy-url`，再为空时直连；请求 endpoint 为 `https://cli-chat-proxy.grok.com/v1/responses`。
+
+## 旧 TPS 判定
+
+文件：`apps/manager-server/internal/service/toolcallcheck/stream.go`
+
+- `outputTokensPerSecond = outputTokens * 1000 / generationMs`
+- `>= 1000`：`suspected_degradation` / `hard`
+- `>= 500`：`suspected_degradation` / `soft`
+- 其他：`normal` / `healthy`
+- `QUALITY_OK` 缺失、输出少于 32 tokens 会在 TPS 前优先判为软异常
+- `outputTokens` 来自 Responses usage，包含 reasoning tokens
+
+## 旧 SSE 解析
+
+- 读取 `32 KiB` chunk。
+- 解析 `response.output_text.delta`、`response.reasoning_summary_text.delta`、`response.reasoning_text.delta` 等 Responses 事件。
+- `modelAnswer` 只拼接 `response.output_text.delta`。
+- 读取到 `response.completed` 或 `[DONE]` 结束。
+
+此备份只记录改造范围，不改变任何线上数据或代码。

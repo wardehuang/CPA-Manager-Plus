@@ -219,21 +219,23 @@ func (service *Service) applyWxaiBotFlagFailure(
 	setup store.Setup,
 	currentAccount account,
 	result model.WxaiInspectionResult,
-	botFlagSourceValue string,
+	botFlagClaim string,
+	botFlagValue string,
 	logger runLogger,
 ) (model.WxaiInspectionResult, *int) {
 	result.ErrorKind = "account_abnormal"
-	result.ErrorDetail = truncate(fmt.Sprintf("bot_flag_source=%s", botFlagSourceValue), maxStoredBodyText)
-	result.ActionReason = "JWT bot_flag_source 非空，priority 已设为 -6，账号不再参与巡检"
+	result.ErrorDetail = truncate(fmt.Sprintf("%s=%s", botFlagClaim, botFlagValue), maxStoredBodyText)
+	result.ActionReason = fmt.Sprintf("JWT %s 非空，priority 已设为 -6，账号不再参与巡检", botFlagClaim)
 	effectivePriority, priorityErr := service.setWxaiBotFlaggedPriority(ctx, setup, currentAccount, logger)
 	if priorityErr != nil {
 		applyWxaiPriorityError(&result, "priority_adjustment_failed", priorityErr)
 		result.ActionReason += "；priority 调整失败"
 	}
-	logger.warning(context.WithoutCancel(ctx), "wXAi 账号命中 bot_flag_source", map[string]any{
+	logger.warning(context.WithoutCancel(ctx), "wXAi 账号命中 JWT bot 标记", map[string]any{
 		"fileName":       currentAccount.FileName,
 		"displayAccount": currentAccount.DisplayAccount,
-		"botFlagSource":  botFlagSourceValue,
+		"botFlagClaim":   botFlagClaim,
+		"botFlagValue":   botFlagValue,
 		"priority":       wxaiBotFlaggedPriorityValue,
 	})
 	return result, effectivePriority

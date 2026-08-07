@@ -18,13 +18,26 @@ const toDurationMs = (value: unknown): number | null => {
   return value;
 };
 
-const calculateOutputTokensPerSecond = (
+const calculateGeneratedTokensPerSecond = (
   outputTokens: number,
-  latencyMs: number | null
+  reasoningTokens: number,
+  latencyMs: number | null,
+  ttftMs: number | null
 ): number | null => {
-  if (outputTokens <= 0 || latencyMs === null || latencyMs <= 0) return null;
+  const generatedTokens = outputTokens + reasoningTokens;
+  if (
+    generatedTokens <= 0 ||
+    latencyMs === null ||
+    latencyMs <= 0 ||
+    ttftMs === null
+  ) {
+    return null;
+  }
 
-  return outputTokens / (latencyMs / 1000);
+  const generationWindowMs = latencyMs - ttftMs;
+  if (generationWindowMs <= 0) return null;
+
+  return generatedTokens / (generationWindowMs / 1000);
 };
 
 export const buildEventRows = (
@@ -121,7 +134,12 @@ export const buildEventRows = (
           : inputTokens + outputTokens + reasoningTokens;
       const latencyMs = toDurationMs(detail.latency_ms);
       const ttftMs = toDurationMs(detail.ttft_ms);
-      const tokensPerSecond = calculateOutputTokensPerSecond(outputTokens, latencyMs);
+      const tokensPerSecond = calculateGeneratedTokensPerSecond(
+        outputTokens,
+        reasoningTokens,
+        latencyMs,
+        ttftMs
+      );
       const totalCost = calculateCost(detail, modelPrices);
       const statsIncluded = detail.failed === true || inputTokens > 0 || outputTokens > 0;
       const dayKey = buildLocalDayKey(timestampMs);

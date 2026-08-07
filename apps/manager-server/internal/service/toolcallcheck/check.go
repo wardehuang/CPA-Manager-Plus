@@ -69,9 +69,10 @@ type Result struct {
 	ClassificationReason  string              `json:"classificationReason,omitempty"`
 	OutputTokens          *int                `json:"outputTokens,omitempty"`
 	ReasoningTokens       *int                `json:"reasoningTokens,omitempty"`
+	ThinkingDelta         bool                `json:"thinkingDelta"`
 	VisibleTokens         *int                `json:"visibleTokens,omitempty"`
-	ExpectedMarker        string              `json:"expectedMarker,omitempty"`
-	ExpectedMatched       bool                `json:"expectedMatched"`
+	ExpectedAnswer        string              `json:"expectedAnswer,omitempty"`
+	AnswerMatched         bool                `json:"answerMatched"`
 	OutputTokensPerSecond *float64            `json:"outputTokensPerSecond,omitempty"`
 	ModelAnswer           string              `json:"modelAnswer,omitempty"`
 	RequestBody           json.RawMessage     `json:"requestBody,omitempty"`

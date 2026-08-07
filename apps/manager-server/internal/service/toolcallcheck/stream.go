@@ -23,18 +23,18 @@ const (
 	QualityLevelQuotaExhausted = "quota_exhausted"
 	QualityLevelUnknown        = "unknown"
 
-	ExpectedQualityMarker          = "QUALITY_OK"
-	qualityProbeStreamReadBytes    = 32 << 10
-	qualityExpectedMarker          = ExpectedQualityMarker
-	qualitySoftTokensPerSecond     = 500.0
-	qualityHardTokensPerSecond     = 1000.0
-	qualityMinimumOutputTokenCount = 32
+	ExpectedAnswer              = "391"
+	qualityProbeStreamReadBytes = 32 << 10
+	qualityExpectedAnswer       = ExpectedAnswer
+	qualitySoftTokensPerSecond  = 500.0
+	qualityHardTokensPerSecond  = 1000.0
 )
 
 type streamingMetrics struct {
 	modelAnswer         strings.Builder
 	outputTokens        *int
 	reasoningTokens     *int
+	thinkingDelta       bool
 	errorCode           string
 	errorMessage        string
 	firstGeneratedReady bool
@@ -43,7 +43,7 @@ type streamingMetrics struct {
 }
 
 type streamingResponsesUsage struct {
-	OutputTokens         int `json:"output_tokens"`
+	OutputTokens        int `json:"output_tokens"`
 	OutputTokensDetails struct {
 		ReasoningTokens int `json:"reasoning_tokens"`
 	} `json:"output_tokens_details"`
@@ -51,13 +51,13 @@ type streamingResponsesUsage struct {
 
 type streamingResponsesEvent struct {
 	Type     string          `json:"type"`
-	Delta    string          `json:"delta"`
+	Delta    json.RawMessage `json:"delta"`
 	Error    json.RawMessage `json:"error"`
 	Code     string          `json:"code"`
 	Message  string          `json:"message"`
 	Response struct {
-		Usage              *streamingResponsesUsage `json:"usage"`
-		Error              json.RawMessage          `json:"error"`
+		Usage             *streamingResponsesUsage `json:"usage"`
+		Error             json.RawMessage          `json:"error"`
 		IncompleteDetails struct {
 			Reason string `json:"reason"`
 		} `json:"incomplete_details"`
@@ -92,7 +92,7 @@ func runStreamingResponse(
 	result *Result,
 	startedAt time.Time,
 ) {
-	result.ExpectedMarker = qualityExpectedMarker
+	result.ExpectedAnswer = qualityExpectedAnswer
 	response, requestError := httpClient.Do(httpRequest)
 	if requestError != nil {
 		result.Error = requestError.Error()
@@ -161,6 +161,7 @@ func runStreamingResponse(
 	result.TTFBMS = ttfbMS
 	result.ResponseBody = responseBody.String()
 	result.ModelAnswer = metrics.modelAnswer.String()
+	result.ThinkingDelta = metrics.thinkingDelta
 	result.OutputTokens = metrics.outputTokens
 	result.ReasoningTokens = metrics.reasoningTokens
 	visibleTokens := calculateVisibleTokens(metrics.outputTokens, metrics.reasoningTokens, metrics.visibleCharacters)
@@ -183,16 +184,14 @@ func runStreamingResponse(
 		outputTokensPerSecond = float64(*metrics.outputTokens) * 1000 / float64(result.GenerationMS)
 	}
 	result.OutputTokensPerSecond = &outputTokensPerSecond
-	result.ExpectedMatched = strings.Contains(result.ModelAnswer, qualityExpectedMarker)
+	answerMatched := strings.Contains(result.ModelAnswer, qualityExpectedAnswer)
+	result.AnswerMatched = answerMatched
 	result.Classification, result.QualityLevel, result.ClassificationReason = classifyStreamingResult(
 		result.StatusCode,
 		result.Error,
 		result.ErrorCode,
 		metrics.errorMessage,
 		result.ResponseBody,
-		metrics.outputTokens,
-		result.VisibleTokens,
-		result.ExpectedMatched,
 		outputTokensPerSecond,
 	)
 }
@@ -274,12 +273,16 @@ func processStreamingEvent(rawData string, metrics *streamingMetrics) bool {
 		metrics.outputTokens = intPointer(event.Response.Usage.OutputTokens)
 		metrics.reasoningTokens = intPointer(event.Response.Usage.OutputTokensDetails.ReasoningTokens)
 	}
-	if metrics.firstGeneratedAt.IsZero() && !metrics.firstGeneratedReady && containsGeneratedResponsesDelta(event) {
+	if isThinkingDeltaEvent(event) {
+		metrics.thinkingDelta = true
+	}
+	deltaText := streamingEventDeltaText(event)
+	if metrics.firstGeneratedAt.IsZero() && !metrics.firstGeneratedReady && containsGeneratedResponsesDelta(event, deltaText) {
 		metrics.firstGeneratedReady = true
 	}
-	if event.Type == "response.output_text.delta" && event.Delta != "" {
-		metrics.modelAnswer.WriteString(event.Delta)
-		metrics.visibleCharacters += utf8.RuneCountInString(event.Delta)
+	if event.Type == "response.output_text.delta" && deltaText != "" {
+		metrics.modelAnswer.WriteString(deltaText)
+		metrics.visibleCharacters += utf8.RuneCountInString(deltaText)
 	}
 
 	switch event.Type {
@@ -293,8 +296,52 @@ func processStreamingEvent(rawData string, metrics *streamingMetrics) bool {
 	}
 }
 
-func containsGeneratedResponsesDelta(event streamingResponsesEvent) bool {
-	if event.Delta == "" {
+func streamingEventDeltaText(event streamingResponsesEvent) string {
+	if len(event.Delta) == 0 || string(event.Delta) == "null" {
+		return ""
+	}
+
+	var textDelta string
+	if err := json.Unmarshal(event.Delta, &textDelta); err == nil {
+		return textDelta
+	}
+
+	var structuredDelta struct {
+		Text     string `json:"text"`
+		Thinking string `json:"thinking"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(event.Delta, &structuredDelta); err != nil {
+		return ""
+	}
+	if structuredDelta.Text != "" {
+		return structuredDelta.Text
+	}
+	if structuredDelta.Thinking != "" {
+		return structuredDelta.Thinking
+	}
+	return structuredDelta.Content
+}
+
+func isThinkingDeltaEvent(event streamingResponsesEvent) bool {
+	normalizedType := strings.ToLower(strings.TrimSpace(event.Type))
+	if normalizedType == "response.reasoning_summary_text.delta" ||
+		normalizedType == "response.reasoning_text.delta" ||
+		strings.Contains(normalizedType, "thinking_delta") {
+		return true
+	}
+
+	var structuredDelta struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(event.Delta, &structuredDelta); err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(structuredDelta.Type), "thinking_delta")
+}
+
+func containsGeneratedResponsesDelta(event streamingResponsesEvent, deltaText string) bool {
+	if deltaText == "" {
 		return false
 	}
 	switch event.Type {
@@ -388,9 +435,6 @@ func classifyStreamingResult(
 	errorCode string,
 	errorMessage string,
 	responseBody string,
-	outputTokens *int,
-	visibleTokens *int,
-	expectedMatched bool,
 	tokensPerSecond float64,
 ) (string, string, string) {
 	if isFreeUsageExhaustedError(errorCode, errorMessage, requestError) ||
@@ -399,20 +443,6 @@ func classifyStreamingResult(
 	}
 	if requestError != "" || statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
 		return ClassificationUnknown, QualityLevelUnknown, "request_error"
-	}
-
-	effectiveOutputTokens := 0
-	if outputTokens != nil {
-		effectiveOutputTokens = *outputTokens
-	}
-	if effectiveOutputTokens <= 0 && visibleTokens != nil {
-		effectiveOutputTokens = *visibleTokens
-	}
-	if !expectedMatched {
-		return ClassificationSuspectedDegraded, QualityLevelSoft, "expected_marker_missing"
-	}
-	if effectiveOutputTokens < qualityMinimumOutputTokenCount {
-		return ClassificationSuspectedDegraded, QualityLevelSoft, "insufficient_output_tokens"
 	}
 	if tokensPerSecond >= qualityHardTokensPerSecond {
 		return ClassificationSuspectedDegraded, QualityLevelHard, "hard_tps"

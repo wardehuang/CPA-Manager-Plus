@@ -257,7 +257,7 @@ func buildPreservedWxaiAccountState(
 	} else if isWxaiBotFlaggedAccount(currentAccount) {
 		result.ErrorKind = "account_abnormal"
 		result.ErrorDetail = previousErrorDetail
-		result.ActionReason = "账号命中 bot_flag_source，priority 为 -6，永久跳过巡检"
+		result.ActionReason = "账号命中 bot_flag_source 或 bfs，priority 为 -6，永久跳过巡检"
 	} else {
 		result.ActionReason = "账号未参与本轮网络探测，保持当前状态"
 	}

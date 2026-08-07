@@ -153,27 +153,30 @@ const formatProxyRoute = (mode: string, scheme: string) => {
   }
 };
 
-const formatProxySource = (source: string) => {
-  switch (source) {
-    case 'auth':
-      return '账号代理';
-    case 'global':
-      return '全局代理';
-    case 'environment':
-      return '环境变量';
-    case 'context':
-      return '上下文 Transport';
-    case 'fallback':
-      return '回退路径';
-    case 'websocket':
-      return 'WebSocket';
-    case 'default':
-      return '默认 Transport';
-    case 'unknown':
-      return '未知';
-    default:
-      return source || '未记录';
-  }
+const formatProxySource = (source: string, proxyURL: string) => {
+  const sourceLabel = (() => {
+    switch (source) {
+      case 'auth':
+        return '账号代理';
+      case 'global':
+        return '全局代理';
+      case 'environment':
+        return '环境变量';
+      case 'context':
+        return '上下文 Transport';
+      case 'fallback':
+        return '回退路径';
+      case 'websocket':
+        return 'WebSocket';
+      case 'default':
+        return '默认 Transport';
+      case 'unknown':
+        return '未知';
+      default:
+        return source || '未记录';
+    }
+  })();
+  return proxyURL ? `${sourceLabel}：${proxyURL}` : sourceLabel;
 };
 
 const formatEgressIP = (ip: string, status: string) => {
@@ -298,6 +301,7 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
     const proxyMode = readProxyMetadata(rawRecord, 'mode');
     const proxySource = readProxyMetadata(rawRecord, 'source');
     const proxyScheme = readProxyMetadata(rawRecord, 'scheme');
+    const proxyURL = readProxyMetadata(rawRecord, 'url');
     const egressIP = readProxyMetadata(rawRecord, 'egress_ip');
     const egressIPStatus = readProxyMetadata(rawRecord, 'egress_ip_status');
 
@@ -352,7 +356,7 @@ export function RawEventModal({ eventId, onClose }: RawEventModalProps) {
       },
       { label: 'compact', value: compactDetected ? 'True' : 'False' },
       { label: '网络路径', value: formatProxyRoute(proxyMode, proxyScheme) },
-      { label: '网络来源', value: formatProxySource(proxySource) },
+      { label: '网络来源', value: formatProxySource(proxySource, proxyURL) },
       { label: '出口 IP', value: formatEgressIP(egressIP, egressIPStatus) },
     ];
   }, [data, rawRecord]);

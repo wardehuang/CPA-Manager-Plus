@@ -22,7 +22,7 @@ const (
 	wxaiChatCompletionsURL    = "https://cli-chat-proxy.grok.com/v1/chat/completions"
 	wxaiProbeModel            = "grok-4.5"
 	wxaiProbeInput            = "ping"
-	wxaiQualityProbeMaxTokens = 384
+	wxaiQualityProbeMaxTokens = 96
 	wxaiProbeBodyLimit        = 1024 * 1024
 	wxaiProbeDetailLimit      = 400
 	wxaiTimeoutRetryBackoff   = 400 * time.Millisecond
@@ -122,7 +122,7 @@ func (service *Service) inspectSingleAccount(
 		)
 	}
 
-	botFlagInspection, err := inspectWxaiBotFlagSource(accessToken)
+	botFlagInspection, err := inspectWxaiBotFlags(accessToken)
 	if err != nil {
 		return service.applyWxaiProbeFailure(
 			ctx,
@@ -140,6 +140,7 @@ func (service *Service) inspectSingleAccount(
 			setup,
 			currentAccount,
 			result,
+			botFlagInspection.Claim,
 			botFlagInspection.NormalizedValue,
 			logger,
 		)

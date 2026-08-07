@@ -1218,7 +1218,7 @@ function ToolCallCheckResultDialog({
             <h3 id="wxai-tool-call-check-title">降智检测结果</h3>
             <p>{displayAccount || result.fileName}</p>
             <small className={styles.accountStatusToolCallNotice}>
-              仅按 quality_guard 主动质量规则判断，不等同于工具调用能力检测
+              仅按原有 TPS 规则判定；thinking_delta 和答案仅展示，不参与分类
             </small>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭">×</button>
@@ -1250,7 +1250,8 @@ function ToolCallCheckResultDialog({
             <div><dt>输出 tokens（含推理）</dt><dd>{checkResult.outputTokens ?? '-'}</dd></div>
             <div><dt>Reasoning tokens</dt><dd>{checkResult.reasoningTokens ?? '-'}</dd></div>
             <div><dt>Visible tokens</dt><dd>{checkResult.visibleTokens ?? '-'}</dd></div>
-            <div><dt>QUALITY_OK</dt><dd>{checkResult.expectedMarker || '-'} / {checkResult.expectedMatched ? '已匹配' : '未匹配'}</dd></div>
+            <div><dt>是否有 thinking_delta</dt><dd>{checkResult.thinkingDelta ? '是' : '否'}</dd></div>
+            <div><dt>答案（应为 391）</dt><dd>{checkResult.answerMatched ? '是' : '否'}</dd></div>
             <div><dt>错误码</dt><dd>{checkResult.errorCode || '-'}</dd></div>
             {checkResult.error ? (
               <div className={styles.accountStatusToolCallMetaWide}>
@@ -1261,7 +1262,7 @@ function ToolCallCheckResultDialog({
           </dl>
 
           <div className={[styles.accountStatusToolCallSection, styles.accountStatusToolCallSectionWide].join(' ')}>
-            <h4>大模型回答</h4>
+            <h4>答案：</h4>
             <pre>{checkResult.modelAnswer || '-'}</pre>
           </div>
           <div className={styles.accountStatusToolCallSection}>

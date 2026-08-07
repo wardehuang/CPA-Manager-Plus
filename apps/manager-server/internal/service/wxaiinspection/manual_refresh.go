@@ -146,7 +146,7 @@ func (service *Service) inspectManualRefreshAccount(
 		)
 	}
 
-	botFlagInspection, err := inspectWxaiBotFlagSource(accessToken)
+	botFlagInspection, err := inspectWxaiBotFlags(accessToken)
 	if err != nil {
 		return service.applyWxaiProbeFailure(
 			ctx,
@@ -164,6 +164,7 @@ func (service *Service) inspectManualRefreshAccount(
 			setup,
 			currentAccount,
 			result,
+			botFlagInspection.Claim,
 			botFlagInspection.NormalizedValue,
 			logger,
 		)

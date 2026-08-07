@@ -19,7 +19,8 @@ const buildRows = (
         tokens: {
           input_tokens: 10,
           output_tokens: 20,
-          total_tokens: 30,
+          reasoning_tokens: 10,
+          total_tokens: 40,
         },
         failed: false,
         __modelName: 'gpt-5.4',
@@ -39,30 +40,32 @@ const buildRows = (
   );
 
 describe('buildEventRows', () => {
-  it('calculates tokens per second from total latency', () => {
+  it('calculates generated tokens per second from the generation window', () => {
     const [row] = buildRows();
 
     expect(row.latencyMs).toBe(1500);
     expect(row.ttftMs).toBe(500);
-    expect(row.tokensPerSecond).toBeCloseTo(20 / 1.5);
+    expect(row.tokensPerSecond).toBeCloseTo((20 + 10) / 1);
   });
 
-  it('does not use TTFT to calculate tokens per second', () => {
+  it('requires TTFT and a positive generation window', () => {
     const [withoutTTFT] = buildRows({ ttft_ms: undefined });
-    const [smallTTFT] = buildRows({ ttft_ms: 100 });
-    const [invalidTTFT] = buildRows({ ttft_ms: 2000 });
+    const [invalidTTFT] = buildRows({ ttft_ms: 1500 });
+    const [longerTTFT] = buildRows({ ttft_ms: 1000 });
 
-    expect(withoutTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
-    expect(smallTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
-    expect(invalidTTFT.tokensPerSecond).toBeCloseTo(20 / 1.5);
+    expect(withoutTTFT.tokensPerSecond).toBeNull();
+    expect(invalidTTFT.tokensPerSecond).toBeNull();
+    expect(longerTTFT.tokensPerSecond).toBeCloseTo((20 + 10) / 0.5);
   });
 
-  it('does not calculate TPS without output tokens or total latency', () => {
-    const [noOutput] = buildRows({ tokens: { output_tokens: 0 } });
+  it('does not calculate TPS without generated tokens or total latency', () => {
+    const [noGeneratedTokens] = buildRows({
+      tokens: { output_tokens: 0, reasoning_tokens: 0 },
+    });
     const [noLatency] = buildRows({ latency_ms: undefined });
     const [zeroLatency] = buildRows({ latency_ms: 0 });
 
-    expect(noOutput.tokensPerSecond).toBeNull();
+    expect(noGeneratedTokens.tokensPerSecond).toBeNull();
     expect(noLatency.tokensPerSecond).toBeNull();
     expect(zeroLatency.tokensPerSecond).toBeNull();
   });

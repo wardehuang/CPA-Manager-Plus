@@ -207,9 +207,10 @@ export interface WxaiToolCallCheckResult {
   classificationReason?: string;
   outputTokens?: number;
   reasoningTokens?: number;
+  thinkingDelta: boolean;
   visibleTokens?: number;
-  expectedMarker?: string;
-  expectedMatched: boolean;
+  expectedAnswer?: string;
+  answerMatched: boolean;
   outputTokensPerSecond?: number;
   modelAnswer?: string;
   requestBody?: unknown;

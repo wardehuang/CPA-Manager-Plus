@@ -7,47 +7,56 @@ import (
 	"strings"
 )
 
-const wxaiBotFlagSourceClaim = "bot_flag_source"
+const (
+	wxaiBotFlagSourceClaim = "bot_flag_source"
+	wxaiBFSClaim           = "bfs"
+)
 
-type wxaiBotFlagSourceInspection struct {
+type wxaiBotFlagInspection struct {
 	Flagged         bool
+	Claim           string
 	NormalizedValue string
 }
 
-func inspectWxaiBotFlagSource(accessToken string) (wxaiBotFlagSourceInspection, error) {
+func inspectWxaiBotFlags(accessToken string) (wxaiBotFlagInspection, error) {
 	segments := strings.Split(accessToken, ".")
 	if len(segments) < 2 {
-		return wxaiBotFlagSourceInspection{}, fmt.Errorf("access_token 不是 JWT")
+		return wxaiBotFlagInspection{}, fmt.Errorf("access_token 不是 JWT")
 	}
 
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(segments[1], "="))
 	if err != nil {
-		return wxaiBotFlagSourceInspection{}, fmt.Errorf("解码 JWT payload: %w", err)
+		return wxaiBotFlagInspection{}, fmt.Errorf("解码 JWT payload: %w", err)
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return wxaiBotFlagSourceInspection{}, fmt.Errorf("解析 JWT payload: %w", err)
-	}
-	botFlagSource, exists := payload[wxaiBotFlagSourceClaim]
-	if !exists {
-		return wxaiBotFlagSourceInspection{}, nil
+		return wxaiBotFlagInspection{}, fmt.Errorf("解析 JWT payload: %w", err)
 	}
 
-	normalizedValue := normalizeWxaiBotFlagSourceValue(botFlagSource)
-	if botFlagSource == nil {
-		return wxaiBotFlagSourceInspection{NormalizedValue: normalizedValue}, nil
+	for _, claim := range []string{wxaiBotFlagSourceClaim, wxaiBFSClaim} {
+		flagValue, exists := payload[claim]
+		if !exists {
+			continue
+		}
+
+		normalizedValue := normalizeWxaiBotFlagValue(flagValue)
+		if flagValue == nil {
+			continue
+		}
+		if stringValue, isString := flagValue.(string); isString && strings.TrimSpace(stringValue) == "" {
+			continue
+		}
+		return wxaiBotFlagInspection{
+			Flagged:         true,
+			Claim:           claim,
+			NormalizedValue: normalizedValue,
+		}, nil
 	}
-	if stringValue, isString := botFlagSource.(string); isString && strings.TrimSpace(stringValue) == "" {
-		return wxaiBotFlagSourceInspection{NormalizedValue: normalizedValue}, nil
-	}
-	return wxaiBotFlagSourceInspection{
-		Flagged:         true,
-		NormalizedValue: normalizedValue,
-	}, nil
+	return wxaiBotFlagInspection{}, nil
 }
 
-func normalizeWxaiBotFlagSourceValue(value any) string {
+func normalizeWxaiBotFlagValue(value any) string {
 	encodedValue, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Sprintf("%v", value)

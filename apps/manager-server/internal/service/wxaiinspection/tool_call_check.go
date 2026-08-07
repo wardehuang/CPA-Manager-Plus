@@ -174,15 +174,19 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 	})
 
 	logWxaiToolCallCheck(executionID, operationStartedAt, "upstream_request_started", map[string]any{
-		"endpoint":        wxaiResponsesURL,
-		"model":           wxaiProbeModel,
-		"prompt":          wxaiToolCallCheckPrompt,
-		"expectedMarker":  toolcallcheck.ExpectedQualityMarker,
-		"stream":          true,
-		"maxOutputTokens": wxaiQualityProbeMaxTokens,
-		"timeoutMs":       settings.Timeout,
-		"proxySource":     proxySelection.Source,
-		"proxyURL":        toolcallcheck.RedactProxyURL(proxySelection.URL),
+		"endpoint":         wxaiResponsesURL,
+		"model":            wxaiProbeModel,
+		"prompt":           wxaiToolCallCheckPrompt,
+		"expectedAnswer":   toolcallcheck.ExpectedAnswer,
+		"stream":           true,
+		"reasoningEffort":  "high",
+		"reasoningSummary": "detailed",
+		"temperature":      0,
+		"maxOutputTokens":  wxaiQualityProbeMaxTokens,
+		"tools":            "omitted",
+		"timeoutMs":        settings.Timeout,
+		"proxySource":      proxySelection.Source,
+		"proxyURL":         toolcallcheck.RedactProxyURL(proxySelection.URL),
 	})
 	checkResult, err := toolcallcheck.Run(ctx, toolcallcheck.Request{
 		CheckID:     executionID,
@@ -211,7 +215,9 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 		"outputTokens":          checkResult.OutputTokens,
 		"reasoningTokens":       checkResult.ReasoningTokens,
 		"visibleTokens":         checkResult.VisibleTokens,
-		"expectedMatched":       checkResult.ExpectedMatched,
+		"thinkingDelta":         checkResult.ThinkingDelta,
+		"expectedAnswer":        checkResult.ExpectedAnswer,
+		"answerMatched":         checkResult.AnswerMatched,
 		"classification":        checkResult.Classification,
 		"qualityLevel":          checkResult.QualityLevel,
 		"classificationReason":  checkResult.ClassificationReason,
@@ -246,13 +252,15 @@ func wxaiToolCallCheckHeaders(accessToken string, clientVersion string) map[stri
 	return headers
 }
 
-const wxaiToolCallCheckPrompt = "Write exactly 16 numbered lines about reliable distributed systems. Each line must be one complete English sentence, with no markdown heading. The final line must end with the exact marker QUALITY_OK."
+const wxaiToolCallCheckPrompt = "用中文回答：17 × 23 等于多少？只输出计算过程和答案。"
 
 func buildWxaiResponsesStreamingProbePayload() map[string]any {
 	return map[string]any{
 		"model":             wxaiProbeModel,
 		"input":             wxaiToolCallCheckPrompt,
 		"stream":            true,
+		"reasoning":         map[string]string{"effort": "high", "summary": "detailed"},
 		"max_output_tokens": wxaiQualityProbeMaxTokens,
+		"temperature":       0,
 	}
 }
