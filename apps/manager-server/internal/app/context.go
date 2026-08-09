@@ -8,6 +8,7 @@ import (
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/collector"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/config"
+	sqliterepo "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
 	accountactionsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/accountaction"
 	adminauthsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/adminauth"
 	antigravityaccountstatussvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/antigravityaccountstatus"
@@ -33,6 +34,10 @@ import (
 
 type AutomationRuntimeService interface {
 	Reload(ctx context.Context) error
+}
+
+type DatabaseMaintenanceStatusProvider interface {
+	Snapshot() sqliterepo.WALMaintenanceSnapshot
 }
 
 type Context struct {
@@ -64,6 +69,7 @@ type Context struct {
 	ProxyService                    *proxysvc.Service
 	PanelService                    *panelsvc.Service
 	AutomationRuntimeService        AutomationRuntimeService
+	DatabaseMaintenance             DatabaseMaintenanceStatusProvider
 }
 
 func FromExisting(
@@ -167,24 +173,24 @@ func fromExisting(
 			managerConfigService,
 			codexinspectionsvc.ServiceOptions{AuthFileMutationCoordinator: authFileMutationCoordinator},
 		),
-		AntigravityInspectionService:    antigravityinspectionsvc.New(st, managerConfigService),
-		WxaiInspectionService:           wxaiinspectionsvc.New(st, managerConfigService),
-		MonitoringService:               monitoringsvc.New(st, cfg.DashboardHourlyRollupEnabled),
-		ModelPriceService:               modelpricesvc.NewMultiSourceWithModelsDev(st, modelsDevModelPriceSyncURL, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
-		APIKeyAliasService:              apikeyaliassvc.New(st),
+		AntigravityInspectionService: antigravityinspectionsvc.New(st, managerConfigService),
+		WxaiInspectionService:        wxaiinspectionsvc.New(st, managerConfigService),
+		MonitoringService:            monitoringsvc.New(st, cfg.DashboardHourlyRollupEnabled),
+		ModelPriceService:            modelpricesvc.NewMultiSourceWithModelsDev(st, modelsDevModelPriceSyncURL, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
+		APIKeyAliasService:           apikeyaliassvc.New(st),
 		AccountActionService: accountactionsvc.NewWithMutationCoordinator(
 			st,
 			managerConfigService,
 			authFileMutationCoordinator,
 		),
-		AccountProcessingPolicyService:  accountProcessingPolicyService,
-		AuthFileMutationCoordinator:     authFileMutationCoordinator,
+		AccountProcessingPolicyService: accountProcessingPolicyService,
+		AuthFileMutationCoordinator:    authFileMutationCoordinator,
 		ProxyService: proxysvc.NewWithMutationCoordinator(
 			managerConfigService,
 			authFileMutationCoordinator,
 			st,
 		),
-		PanelService:                    panelsvc.New(cfg.PanelPath, embeddedPanel),
-		AutomationRuntimeService:        runtimeService,
+		PanelService:             panelsvc.New(cfg.PanelPath, embeddedPanel),
+		AutomationRuntimeService: runtimeService,
 	}
 }
