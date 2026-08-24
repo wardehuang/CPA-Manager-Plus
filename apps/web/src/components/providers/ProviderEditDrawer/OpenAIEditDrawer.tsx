@@ -17,7 +17,11 @@ import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/u
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { areKeyValueEntriesEqual, areModelEntriesEqual } from '@/utils/compare';
 import { entriesToModels, modelsToEntries } from '@/components/ui/modelInputListUtils';
-import { buildApiKeyEntry, buildOpenAIChatCompletionsEndpoint } from '@/components/providers/utils';
+import {
+  buildApiKeyEntry,
+  buildOpenAIChatCompletionsEndpoint,
+  normalizeOpenAICompatProtocol,
+} from '@/components/providers/utils';
 import {
   appendIdleKeyTestStatus,
   removeKeyTestStatusAtIndex,
@@ -47,6 +51,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  protocol: 'chat-completions',
 });
 
 const normalizeModelEntries = (entries: OpenAIFormState['modelEntries']) =>
@@ -97,6 +102,7 @@ const buildOpenAIBaseline = (form: OpenAIFormState) => ({
   prefix: String(form.prefix ?? '').trim(),
   baseUrl: String(form.baseUrl ?? '').trim(),
   disableCooling: Boolean(form.disableCooling),
+  protocol: normalizeOpenAICompatProtocol(form.protocol),
   headers: normalizeHeaderEntries(form.headers),
   apiKeyEntries: normalizeApiKeyEntries(form.apiKeyEntries),
   models: normalizeModelEntries(form.modelEntries),
@@ -234,6 +240,7 @@ export function OpenAIEditDrawer({
           ? initialData.apiKeyEntries
           : [buildApiKeyEntry()],
         disableCooling: initialData.disableCooling,
+        protocol: normalizeOpenAICompatProtocol(initialData.protocol),
       };
       setForm(seededForm);
       setBaseline(buildOpenAIBaseline(seededForm));
@@ -277,6 +284,7 @@ export function OpenAIEditDrawer({
       baseline.prefix !== form.prefix.trim() ||
       baseline.baseUrl !== form.baseUrl.trim() ||
       baseline.disableCooling !== Boolean(form.disableCooling) ||
+      baseline.protocol !== normalizeOpenAICompatProtocol(form.protocol) ||
       !areKeyValueEntriesEqual(baseline.headers, normalizeHeaderEntries(form.headers)) ||
       !areNormalizedApiKeyEntriesEqual(
         baseline.apiKeyEntries,
@@ -642,6 +650,7 @@ export function OpenAIEditDrawer({
       if (form.priority !== undefined && Number.isFinite(form.priority))
         payload.priority = Math.trunc(form.priority);
       if (form.disableCooling !== undefined) payload.disableCooling = form.disableCooling;
+      payload.protocol = normalizeOpenAICompatProtocol(form.protocol);
       if (initialData?.disabled !== undefined) payload.disabled = initialData.disabled;
       const resolvedTestModel = testModel.trim();
       if (resolvedTestModel) payload.testModel = resolvedTestModel;
@@ -854,6 +863,32 @@ export function OpenAIEditDrawer({
               disabled={saving || disabled || isTestingKeys}
               required
             />
+            <div className="form-group">
+              <label>{t('ai_providers.openai_protocol_label')}</label>
+              <Select
+                value={form.protocol ?? 'chat-completions'}
+                onChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    protocol: value === 'responses' ? 'responses' : 'chat-completions',
+                  }))
+                }
+                options={[
+                  {
+                    value: 'chat-completions',
+                    label: t('ai_providers.openai_protocol_chat_completions'),
+                  },
+                  {
+                    value: 'responses',
+                    label: t('ai_providers.openai_protocol_responses'),
+                  },
+                ]}
+                disabled={saving || disabled || isTestingKeys}
+                fullWidth
+                ariaLabel={t('ai_providers.openai_protocol_label')}
+              />
+              <div className="hint">{t('ai_providers.openai_protocol_hint')}</div>
+            </div>
             <Input
               label={t('ai_providers.priority_label')}
               hint={t('ai_providers.priority_hint')}

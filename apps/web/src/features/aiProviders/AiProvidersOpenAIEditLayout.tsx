@@ -16,7 +16,7 @@ import type { ModelInfo } from '@/utils/models';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/utils/headers';
 import { areKeyValueEntriesEqual, areModelEntriesEqual } from '@/utils/compare';
-import { buildApiKeyEntry } from '@/components/providers/utils';
+import { buildApiKeyEntry, normalizeOpenAICompatProtocol } from '@/components/providers/utils';
 import {
   buildProviderDraftKey,
   parseProviderIndexParam,
@@ -61,6 +61,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  protocol: 'chat-completions',
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -120,6 +121,7 @@ const buildOpenAIBaseline = (form: OpenAIFormState, testModel: string): OpenAIEd
   prefix: String(form.prefix ?? '').trim(),
   baseUrl: String(form.baseUrl ?? '').trim(),
   disableCooling: Boolean(form.disableCooling),
+  protocol: normalizeOpenAICompatProtocol(form.protocol),
   headers: normalizeHeaderEntries(form.headers),
   apiKeyEntries: normalizeApiKeyEntries(form.apiKeyEntries),
   models: normalizeModelEntries(form.modelEntries),
@@ -329,6 +331,7 @@ export function AiProvidersOpenAIEditLayout() {
           ? initialData.apiKeyEntries
           : [buildApiKeyEntry()],
         disableCooling: initialData.disableCooling,
+        protocol: normalizeOpenAICompatProtocol(initialData.protocol),
       };
 
       const available = modelEntries.map((entry) => entry.name.trim()).filter(Boolean);
@@ -456,6 +459,7 @@ export function AiProvidersOpenAIEditLayout() {
       baseline.prefix !== form.prefix.trim() ||
       baseline.baseUrl !== form.baseUrl.trim() ||
       baseline.disableCooling !== Boolean(form.disableCooling) ||
+      baseline.protocol !== normalizeOpenAICompatProtocol(form.protocol) ||
       baseline.testModel !== normalizedTestModel ||
       isHeadersDirty ||
       isApiKeyEntriesDirty ||
@@ -513,6 +517,7 @@ export function AiProvidersOpenAIEditLayout() {
       if (form.disableCooling !== undefined) {
         payload.disableCooling = form.disableCooling;
       }
+      payload.protocol = normalizeOpenAICompatProtocol(form.protocol);
       if (initialData?.disabled !== undefined) {
         payload.disabled = initialData.disabled;
       }

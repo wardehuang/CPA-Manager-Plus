@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// performWxaiBillingDirectCall 由 Manager 直连 xAI billing/credits，
-// 不经 CPA /v0/management/api-call，不走 CPA proxy-url 与环境代理。
-func (service *Service) performWxaiBillingDirectCall(
+// performWxaiBillingProxyCall 由 Manager 经 auth JSON proxy_url 请求 xAI billing/credits，
+// 不经 CPA /v0/management/api-call。
+func (service *Service) performWxaiBillingProxyCall(
 	ctx context.Context,
 	client *http.Client,
 	timeoutMilliseconds int,
@@ -22,10 +22,10 @@ func (service *Service) performWxaiBillingDirectCall(
 	logger runLogger,
 ) (wxaiHTTPResponse, error) {
 	if client == nil {
-		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 直连 client 未初始化")
+		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 代理 client 未初始化")
 	}
 	if strings.TrimSpace(accessToken) == "" {
-		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 直连缺少 access_token")
+		return wxaiHTTPResponse{}, fmt.Errorf("xAI billing 代理缺少 access_token")
 	}
 
 	requestMetadata := ctx.Value(wxaiInspectionRequestMetadataContextKey{}).(wxaiInspectionRequestMetadata)
@@ -38,8 +38,9 @@ func (service *Service) performWxaiBillingDirectCall(
 		}
 		requestDetail := map[string]any{
 			"requestStage":        resolveWxaiRequestStage(endpoint),
-			"transport":           "direct",
+			"transport":           "proxy",
 			"viaCPAApiCall":       false,
+			"proxyConfigured":     true,
 			"endpoint":            endpoint,
 			"method":              http.MethodGet,
 			"accountKey":          requestMetadata.AccountKey,
@@ -52,7 +53,7 @@ func (service *Service) performWxaiBillingDirectCall(
 			"attempt":             attempt + 1,
 			"maxAttempts":         wxaiTimeoutRetryCount + 1,
 		}
-		logger.info(ctx, "wXAi billing 直连请求诊断", requestDetail)
+		logger.info(ctx, "wXAi billing 代理请求诊断", requestDetail)
 		response, err := service.performWxaiRequestOnce(
 			ctx,
 			client,
@@ -72,15 +73,16 @@ func (service *Service) performWxaiBillingDirectCall(
 			responseDetail["accountKey"] = requestMetadata.AccountKey
 			responseDetail["fileName"] = requestMetadata.FileName
 			responseDetail["userIdHeaderPresent"] = strings.TrimSpace(userID) != ""
-			responseDetail["transport"] = "direct"
+			responseDetail["transport"] = "proxy"
 			responseDetail["viaCPAApiCall"] = false
-			logger.info(ctx, "wXAi billing 直连响应诊断", responseDetail)
+			responseDetail["proxyConfigured"] = true
+			logger.info(ctx, "wXAi billing 代理响应诊断", responseDetail)
 			return response, nil
 		}
 		lastErr = err
 		requestDetail["error"] = err.Error()
 		requestDetail["timeout"] = isWxaiTimeoutError(err)
-		logger.warning(ctx, "wXAi billing 直连请求失败", requestDetail)
+		logger.warning(ctx, "wXAi billing 代理请求失败", requestDetail)
 		if !isWxaiTimeoutError(err) || ctx.Err() != nil {
 			return wxaiHTTPResponse{}, err
 		}

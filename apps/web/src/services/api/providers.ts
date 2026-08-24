@@ -87,6 +87,7 @@ const OPENAI_PROVIDER_FIELDS = [
   'disable-cooling',
   'disableCooling',
   'disable_cooling',
+  'protocol',
 ] as const;
 
 const MODEL_ALIAS_FIELDS = [
@@ -669,6 +670,7 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   if (provider.prefix?.trim()) payload.prefix = provider.prefix.trim();
   if (provider.disabled !== undefined) payload.disabled = provider.disabled;
   if (provider.disableCooling !== undefined) payload['disable-cooling'] = provider.disableCooling;
+  if (provider.protocol) payload.protocol = provider.protocol;
   const headers = serializeHeaders(provider.headers);
   if (headers) payload.headers = headers;
   const models = serializeModelAliases(provider.models);

@@ -50,12 +50,28 @@ describe('buildEventRows', () => {
 
   it('requires TTFT and a positive generation window', () => {
     const [withoutTTFT] = buildRows({ ttft_ms: undefined });
-    const [invalidTTFT] = buildRows({ ttft_ms: 1500 });
+    const [equalTTFT] = buildRows({ ttft_ms: 1500 });
     const [longerTTFT] = buildRows({ ttft_ms: 1000 });
 
     expect(withoutTTFT.tokensPerSecond).toBeNull();
-    expect(invalidTTFT.tokensPerSecond).toBeNull();
+    expect(equalTTFT.tokensPerSecond).toBeNull();
     expect(longerTTFT.tokensPerSecond).toBeCloseTo((20 + 10) / 0.5);
+  });
+
+  it('prefers explicit generation_ms for xAI stream TPS', () => {
+    const [row] = buildRows({
+      latency_ms: 8000,
+      ttft_ms: 6625,
+      generation_ms: 1342,
+      tokens: {
+        output_tokens: 74,
+        reasoning_tokens: 68,
+      },
+    });
+
+    expect(row.latencyMs).toBe(8000);
+    expect(row.ttftMs).toBe(6625);
+    expect(row.tokensPerSecond).toBeCloseTo((74 + 68) / 1.342);
   });
 
   it('does not calculate TPS without generated tokens or total latency', () => {

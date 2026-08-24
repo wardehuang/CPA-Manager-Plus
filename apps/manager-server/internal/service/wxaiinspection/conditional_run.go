@@ -74,21 +74,10 @@ func (service *Service) RunConditional(ctx context.Context, request ConditionalR
 	if len(selectedAccounts) == 0 {
 		return service.GetRun(persistContext, request.RunID)
 	}
-	httpClientRuntime, err := service.resolveWxaiHTTPClient(ctx, setup)
-	if err != nil {
-		logger.error(persistContext, "创建 wXAi HTTP 客户端失败", map[string]any{"error": err.Error()})
-		return service.getConditionalRunWithCause(persistContext, request.RunID, err)
-	}
-	logger.info(persistContext, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(
-		len(selectedAccounts),
-	))
-
 	results := service.inspectAccounts(
 		ctx,
 		setup,
 		settings,
-		httpClientRuntime.client,
-		httpClientRuntime.clientVersion,
 		request.RunID,
 		selectedAccounts,
 		quietLogger,

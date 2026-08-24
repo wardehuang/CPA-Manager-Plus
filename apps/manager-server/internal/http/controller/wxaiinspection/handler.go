@@ -36,6 +36,32 @@ func (handler *Handler) Handle(responseWriter http.ResponseWriter, request *http
 			return
 		}
 		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/scheduled/latest-completed":
+		if request.Method != http.MethodGet {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		result, err := handler.App.WxaiInspectionService.LatestCompletedScheduledRun(request.Context())
+		if err != nil {
+			response.Error(responseWriter, http.StatusInternalServerError, err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/realtime-degradation":
+		if request.Method != http.MethodPost {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		var payload wxaiinspectionsvc.RealtimeDegradationRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		if err := handler.App.WxaiInspectionService.RecordRealtimeDegradation(request.Context(), payload); err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, map[string]any{"recorded": true})
 	case path == "/v0/management/wxai-inspection/settings":
 		handler.handleSettings(responseWriter, request)
 	case path == "/v0/management/wxai-inspection/manual-refresh":
@@ -70,6 +96,32 @@ func (handler *Handler) Handle(responseWriter http.ResponseWriter, request *http
 			return
 		}
 		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/grok2api-sync":
+		if request.Method != http.MethodPost {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		result, err := handler.App.WxaiInspectionService.TriggerGrok2apiSync(context.WithoutCancel(request.Context()))
+		if err != nil {
+			response.Error(responseWriter, wxaiInspectionErrorStatus(err), err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/grok2api-test":
+		if request.Method != http.MethodPost {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		var payload wxaiinspectionsvc.Grok2apiTestRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		if err := handler.App.WxaiInspectionService.TestGrok2apiConnection(request.Context(), payload); err != nil {
+			response.Error(responseWriter, wxaiInspectionErrorStatus(err), err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, map[string]any{"ok": true})
 	case path == "/v0/management/wxai-inspection/run":
 		if request.Method != http.MethodPost {
 			response.MethodNotAllowed(responseWriter)
@@ -187,8 +239,14 @@ func wxaiInspectionErrorStatus(err error) int {
 		errors.Is(err, wxaiinspectionsvc.ErrNoActionableResults),
 		errors.Is(err, wxaiinspectionsvc.ErrManualRefreshRequiresServerRun):
 		return http.StatusBadRequest
-	case errors.Is(err, wxaiinspectionsvc.ErrNotConfigured):
+	case errors.Is(err, wxaiinspectionsvc.ErrNotConfigured),
+		errors.Is(err, wxaiinspectionsvc.ErrGrok2apiNotConfigured):
 		return http.StatusPreconditionFailed
+	case errors.Is(err, wxaiinspectionsvc.ErrGrok2apiInvalidCredentials),
+		errors.Is(err, wxaiinspectionsvc.ErrGrok2apiUnauthorized),
+		errors.Is(err, wxaiinspectionsvc.ErrGrok2apiLoginRateLimited),
+		errors.Is(err, wxaiinspectionsvc.ErrGrok2apiNoHealthyAccounts):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}

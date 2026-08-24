@@ -2,7 +2,6 @@ package wxaiinspection
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,7 +20,7 @@ func (service *Service) probeWxaiMonthlyBilling(
 	userID string,
 	logger runLogger,
 ) (wxaiBillingSnapshot, wxaiProbeOutcome) {
-	response, err := service.performWxaiBillingDirectCall(
+	response, err := service.performWxaiBillingProxyCall(
 		ctx,
 		client,
 		timeoutMilliseconds,
@@ -55,7 +54,7 @@ func (service *Service) probeWxaiCreditsBilling(
 	userID string,
 	logger runLogger,
 ) (wxaiBillingSnapshot, wxaiProbeOutcome) {
-	response, err := service.performWxaiBillingDirectCall(
+	response, err := service.performWxaiBillingProxyCall(
 		ctx,
 		client,
 		timeoutMilliseconds,
@@ -151,36 +150,6 @@ func (service *Service) probeWxaiSuperBilling(
 	return combinedSnapshot, creditsProbe.outcome
 }
 
-func (service *Service) probeWxaiResponsesOnly(
-	ctx context.Context,
-	client *http.Client,
-	timeoutMilliseconds int,
-	accessToken string,
-	clientVersion string,
-) wxaiProbeOutcome {
-	requestBody, err := json.Marshal(wxaiResponsesRequest{
-		Model:  wxaiProbeModel,
-		Input:  wxaiProbeInput,
-		Stream: false,
-	})
-	if err != nil {
-		return wxaiRequestFailure("encode responses request: " + err.Error())
-	}
-	response, err := service.performWxaiRequest(
-		ctx,
-		client,
-		timeoutMilliseconds,
-		http.MethodPost,
-		wxaiResponsesURL,
-		requestBody,
-		wxaiInspectionHeaders(accessToken, clientVersion),
-	)
-	if err != nil {
-		return wxaiRequestFailure("responses request: " + err.Error())
-	}
-	return classifyWxaiStandaloneResponse(response)
-}
-
 func classifyWxaiStandaloneResponse(response wxaiHTTPResponse) wxaiProbeOutcome {
 	outcome, definitive := classifyWxaiProbeResponse(response)
 	if definitive {
@@ -221,30 +190,32 @@ func (service *Service) applyWxaiBotFlagFailure(
 	result model.WxaiInspectionResult,
 	botFlagClaim string,
 	botFlagValue string,
+	priority int,
 	logger runLogger,
 ) (model.WxaiInspectionResult, *int) {
+	if priority == 0 {
+		priority = wxaiBotFlaggedPriorityValue
+	}
 	result.ErrorKind = "account_abnormal"
 	result.ErrorDetail = truncate(fmt.Sprintf("%s=%s", botFlagClaim, botFlagValue), maxStoredBodyText)
-	result.ActionReason = fmt.Sprintf("JWT %s 非空，priority 已设为 -6，账号不再参与巡检", botFlagClaim)
-	effectivePriority, priorityErr := service.setWxaiBotFlaggedPriority(ctx, setup, currentAccount, logger)
+	if priority == wxaiSSOExpiredPriorityValue {
+		result.ActionReason = "SSO 检查失败，priority 已设为 -7，需重新登录获取新的 SSO"
+	} else {
+		result.ActionReason = fmt.Sprintf("%s 命中，priority 已设为 -6，账号不再参与巡检", botFlagClaim)
+	}
+	effectivePriority, priorityErr := service.setWxaiTerminalPriority(ctx, setup, currentAccount, priority, logger)
 	if priorityErr != nil {
 		applyWxaiPriorityError(&result, "priority_adjustment_failed", priorityErr)
 		result.ActionReason += "；priority 调整失败"
 	}
-	logger.warning(context.WithoutCancel(ctx), "wXAi 账号命中 JWT bot 标记", map[string]any{
+	logger.warning(context.WithoutCancel(ctx), "wXAi 账号命中终止巡检状态", map[string]any{
 		"fileName":       currentAccount.FileName,
 		"displayAccount": currentAccount.DisplayAccount,
 		"botFlagClaim":   botFlagClaim,
 		"botFlagValue":   botFlagValue,
-		"priority":       wxaiBotFlaggedPriorityValue,
+		"priority":       priority,
 	})
 	return result, effectivePriority
-}
-
-func isWxaiQuotaRecoveryProbeRequired(currentAccount account, accountType string) bool {
-	return normalizeWxaiAccountType(accountType) == wxaiAccountTypeFree &&
-		currentAccount.Priority != nil &&
-		*currentAccount.Priority == wxaiQuotaPriorityValue
 }
 
 func wxaiCreditsRecovery(snapshot wxaiBillingSnapshot, now time.Time) wxaiQuotaRecovery {

@@ -57,9 +57,6 @@ func (service *Service) ApplyUsageQuotaExhausted(
 	if err != nil {
 		return UsageQuotaExhaustedResult{}, err
 	}
-	if settings.Enabled == nil || !*settings.Enabled {
-		return UsageQuotaExhaustedResult{}, nil
-	}
 	if err := validateWxaiPriorityOnlyMode(settings); err != nil {
 		return UsageQuotaExhaustedResult{}, err
 	}

@@ -51,6 +51,10 @@ func (s *Store) GetLatestWxaiInspectionRun(ctx context.Context) (model.WxaiInspe
 	return s.wxaiInspections().GetLatestRun(ctx)
 }
 
+func (s *Store) GetLatestCompletedWxaiInspectionRunByTriggerType(ctx context.Context, triggerType string) (model.WxaiInspectionRun, bool, error) {
+	return s.wxaiInspections().GetLatestCompletedRunByTriggerType(ctx, triggerType)
+}
+
 func (s *Store) GetLatestWxaiInspectionRunByTrigger(ctx context.Context, triggerType string, triggerKey string) (model.WxaiInspectionRun, bool, error) {
 	return s.wxaiInspections().GetLatestRunByTrigger(ctx, triggerType, triggerKey)
 }

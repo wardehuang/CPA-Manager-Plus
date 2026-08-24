@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,13 @@ type ManagerWxaiInspectionConfig struct {
 	UsedPercentThreshold float64 `json:"usedPercentThreshold,omitempty"`
 	SampleSize           int     `json:"sampleSize,omitempty"`
 	AutoActionMode       string  `json:"autoActionMode,omitempty"`
+
+	// Grok2Api Console 同步：巡检结束后把健康账号邮箱推送到 grok2api。
+	Grok2apiSyncEnabled   *bool  `json:"grok2apiSyncEnabled,omitempty"`
+	Grok2apiBaseUrl       string `json:"grok2apiBaseUrl,omitempty"`
+	Grok2apiAdminUsername string `json:"grok2apiAdminUsername,omitempty"`
+	// Grok2apiAdminPassword 仅写入；读取/回显时置空（见 SanitizeWxaiInspectionConfig）。
+	Grok2apiAdminPassword string `json:"grok2apiAdminPassword,omitempty"`
 }
 
 type ManagerWxaiInspectionScheduleConfig struct {
@@ -226,7 +234,22 @@ func NormalizeWxaiInspectionConfig(input ManagerWxaiInspectionConfig, fallback M
 		next.SampleSize = input.SampleSize
 	}
 	next.AutoActionMode = NormalizeWxaiInspectionAutoActionMode(input.AutoActionMode, base.AutoActionMode)
+	if input.Grok2apiSyncEnabled != nil {
+		next.Grok2apiSyncEnabled = wxaiBoolPointer(*input.Grok2apiSyncEnabled)
+	}
+	next.Grok2apiBaseUrl = strings.TrimRight(strings.TrimSpace(input.Grok2apiBaseUrl), "/")
+	next.Grok2apiAdminUsername = strings.TrimSpace(input.Grok2apiAdminUsername)
+	// 密码留空=保持原值，避免 WebUI 空表单覆盖已存密码。
+	if strings.TrimSpace(input.Grok2apiAdminPassword) != "" {
+		next.Grok2apiAdminPassword = input.Grok2apiAdminPassword
+	}
 	return next
+}
+
+// SanitizeWxaiInspectionConfig 清除敏感字段后用于回显/落 run 快照。
+func SanitizeWxaiInspectionConfig(settings ManagerWxaiInspectionConfig) ManagerWxaiInspectionConfig {
+	settings.Grok2apiAdminPassword = ""
+	return settings
 }
 
 func NormalizeWxaiInspectionSchedule(input ManagerWxaiInspectionScheduleConfig, fallback ManagerWxaiInspectionScheduleConfig) ManagerWxaiInspectionScheduleConfig {
@@ -309,7 +332,30 @@ func NormalizeWxaiInspectionTimeZone(value string, fallback string) string {
 }
 
 func ValidateWxaiInspectionConfig(input ManagerWxaiInspectionConfig) error {
-	return ValidateWxaiInspectionTimeZone(input.Schedule.TimeZone)
+	if err := ValidateWxaiInspectionTimeZone(input.Schedule.TimeZone); err != nil {
+		return err
+	}
+	return ValidateWxaiGrok2apiBaseUrl(input.Grok2apiBaseUrl)
+}
+
+// ValidateWxaiGrok2apiBaseUrl 校验 grok2api 远端地址：留空合法（未启用），
+// 否则必须是 http(s) 绝对 URL 且不含路径/尾斜杠。
+func ValidateWxaiGrok2apiBaseUrl(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("invalid grok2api base url %q: must be an absolute http(s) URL", trimmed)
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return fmt.Errorf("invalid grok2api base url %q: must not include a path (no /api/admin/v1)", trimmed)
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("invalid grok2api base url %q: must not include query or fragment", trimmed)
+	}
+	return nil
 }
 
 func ValidateWxaiInspectionTimeZone(value string) error {

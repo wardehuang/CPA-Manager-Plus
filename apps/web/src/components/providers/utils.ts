@@ -80,6 +80,24 @@ export const buildOpenAIChatCompletionsEndpoint = (baseUrl: string): string => {
   return `${trimmed}/chat/completions`;
 };
 
+/** Canonical openai-compatibility upstream protocol values. */
+export type OpenAICompatProtocol = 'chat-completions' | 'responses';
+
+export const normalizeOpenAICompatProtocol = (value?: string | null): OpenAICompatProtocol => {
+  switch (String(value ?? '')
+    .trim()
+    .toLowerCase()) {
+    case 'responses':
+    case 'response':
+    case 'openai-response':
+    case 'openai-responses':
+    case 'openai_response':
+      return 'responses';
+    default:
+      return 'chat-completions';
+  }
+};
+
 export const buildCodexResponsesEndpoint = (baseUrl: string): string => {
   const trimmed = normalizeOpenAIBaseUrl(baseUrl);
   if (!trimmed) return '';

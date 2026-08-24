@@ -30,6 +30,12 @@ export interface ManagerAntigravityInspectionConfig {
   usedPercentThreshold?: number;
   sampleSize?: number;
   autoActionMode?: ManagerAntigravityInspectionAutoActionMode | string;
+  /** Grok2Api Console 同步（仅 wXAi 服务端巡检使用） */
+  grok2apiSyncEnabled?: boolean;
+  grok2apiBaseUrl?: string;
+  grok2apiAdminUsername?: string;
+  /** 仅写入；服务端回显时置空，留空提交=保持原值 */
+  grok2apiAdminPassword?: string;
 }
 
 export interface AntigravityInspectionRun {

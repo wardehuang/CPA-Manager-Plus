@@ -84,6 +84,10 @@ func (repository *repository) Upsert(ctx context.Context, adjustment model.WxaiP
 			display_account = excluded.display_account,
 			auth_index = excluded.auth_index,
 			account_id = excluded.account_id,
+			original_priority = case
+				when excluded.original_priority is not null then excluded.original_priority
+				else wxai_priority_adjustments.original_priority
+			end,
 			adjusted_priority = excluded.adjusted_priority,
 			recover_at_ms = excluded.recover_at_ms,
 			updated_at_ms = excluded.updated_at_ms`,

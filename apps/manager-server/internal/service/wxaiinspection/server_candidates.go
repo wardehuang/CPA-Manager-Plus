@@ -254,6 +254,10 @@ func buildPreservedWxaiAccountState(
 	result.PlanType = firstNonEmpty(normalizeWxaiAccountType(currentAccount.AccountType), normalizeWxaiAccountType(result.PlanType))
 	if result.Disabled {
 		result.ActionReason = "账号已停用，未调用测活请求，保持停用状态"
+	} else if isWxaiSSOExpiredPriority(currentAccount.Priority) {
+		result.ErrorKind = "sso_expired"
+		result.ErrorDetail = previousErrorDetail
+		result.ActionReason = "SSO 已失效，priority 为 -7，需重新登录获取新的 SSO，跳过巡检"
 	} else if isWxaiBotFlaggedAccount(currentAccount) {
 		result.ErrorKind = "account_abnormal"
 		result.ErrorDetail = previousErrorDetail

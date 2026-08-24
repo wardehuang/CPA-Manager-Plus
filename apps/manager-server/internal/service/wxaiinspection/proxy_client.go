@@ -1,50 +1,57 @@
 package wxaiinspection
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/toolcallcheck"
 )
 
-type wxaiHTTPClientRuntime struct {
-	client        *http.Client
-	clientVersion string
+var ErrWxaiAuthProxyURLMissing = errors.New("auth proxy_url 未配置")
+
+func resolveWxaiAuthProxyURL(authFile map[string]any) string {
+	return strings.TrimSpace(firstString(authFile, "proxy_url", "proxyUrl", "proxy-url"))
 }
 
-// resolveWxaiHTTPClient 条件巡检、手动刷新和服务器巡检共用直连 client + CPA xai-client-version。
-func (service *Service) resolveWxaiHTTPClient(ctx context.Context, setup store.Setup) (wxaiHTTPClientRuntime, error) {
-	clientVersion, err := cpa.FetchXAIClientVersion(
-		ctx,
-		setup.CPAUpstreamURL,
-		setup.ManagementKey,
-	)
+func resolveWxaiAuthHTTPClient(authFile map[string]any) (*http.Client, string, error) {
+	return newWxaiAuthProxyHTTPClient(resolveWxaiAuthProxyURL(authFile), 60*time.Second)
+}
+
+func newWxaiAuthProxyHTTPClient(proxyURL string, timeout time.Duration) (*http.Client, string, error) {
+	trimmedProxyURL := strings.TrimSpace(proxyURL)
+	if trimmedProxyURL == "" {
+		return nil, "", ErrWxaiAuthProxyURLMissing
+	}
+	client, proxyMode, err := toolcallcheck.NewHTTPClient(trimmedProxyURL, timeout)
 	if err != nil {
-		return wxaiHTTPClientRuntime{}, fmt.Errorf("读取 CPA xAI client version: %w", err)
+		return nil, "", fmt.Errorf("create auth proxy_url HTTP client: %w", err)
 	}
-	return wxaiHTTPClientRuntime{
-		client:        newWxaiDirectHTTPClient(),
-		clientVersion: clientVersion,
-	}, nil
+	if proxyMode != "proxy" {
+		return nil, "", fmt.Errorf("auth proxy_url 必须配置代理地址")
+	}
+	return client, toolcallcheck.RedactProxyURL(trimmedProxyURL), nil
 }
 
-func newWxaiDirectHTTPClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// 显式关闭代理：忽略 HTTP(S)_PROXY 环境变量。
-	transport.Proxy = nil
-	return &http.Client{
-		Timeout:   60 * time.Second,
-		Transport: transport,
+func isWxaiProxySetupError(err error) bool {
+	if err == nil {
+		return false
 	}
+	if errors.Is(err, ErrWxaiAuthProxyURLMissing) {
+		return true
+	}
+	message := err.Error()
+	return strings.Contains(message, "auth proxy_url") ||
+		strings.Contains(message, "create auth proxy_url HTTP client") ||
+		strings.Contains(message, "create auth proxy SSO client")
 }
 
-func buildWxaiDirectClientLogDetail(accountCount int) map[string]any {
+func buildWxaiAuthProxyClientLogDetail(redactedProxyURL string) map[string]any {
 	return map[string]any{
-		"proxyConfigured": false,
-		"proxyMode":       "direct",
-		"accountCount":    accountCount,
+		"proxyConfigured": true,
+		"proxyMode":       "auth_proxy_url",
+		"proxyURL":        redactedProxyURL,
 	}
 }

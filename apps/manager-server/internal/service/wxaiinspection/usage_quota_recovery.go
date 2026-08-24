@@ -60,9 +60,15 @@ func (service *Service) resolveWxaiUsageQuotaRecovery(
 	}
 	billingUserID := resolveWxaiBillingUserID(authFile, currentAccount.AccountID)
 
+	xaiClient, _, err := resolveWxaiAuthHTTPClient(authFile)
+	if err != nil {
+		resolution.CreditsError = "create auth proxy_url HTTP client: " + err.Error()
+		service.logWxaiSuperQuotaRecoveryResolution(requestContext, currentAccount, resolution, logger)
+		return resolution
+	}
 	creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 		requestContext,
-		newWxaiDirectHTTPClient(),
+		xaiClient,
 		settings.Timeout,
 		currentAccount.AuthIndex,
 		accessToken,

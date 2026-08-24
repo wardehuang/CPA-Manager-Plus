@@ -22,6 +22,7 @@ type Repository interface {
 	ListRuns(ctx context.Context, limit int) ([]model.WxaiInspectionRun, error)
 	GetRun(ctx context.Context, id int64) (model.WxaiInspectionRun, bool, error)
 	GetLatestRun(ctx context.Context) (model.WxaiInspectionRun, bool, error)
+	GetLatestCompletedRunByTriggerType(ctx context.Context, triggerType string) (model.WxaiInspectionRun, bool, error)
 	GetLatestRunByTrigger(ctx context.Context, triggerType string, triggerKey string) (model.WxaiInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.WxaiInspectionResult, error)
 	ListLogs(ctx context.Context, runID int64) ([]model.WxaiInspectionLog, error)
@@ -255,6 +256,19 @@ func (repository *repository) GetRun(ctx context.Context, id int64) (model.WxaiI
 
 func (repository *repository) GetLatestRun(ctx context.Context) (model.WxaiInspectionRun, bool, error) {
 	run, err := scanRun(repository.db.QueryRowContext(ctx, runSelectSQL()+` order by started_at_ms desc, id desc limit 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.WxaiInspectionRun{}, false, nil
+	}
+	return run, err == nil, err
+}
+
+func (repository *repository) GetLatestCompletedRunByTriggerType(ctx context.Context, triggerType string) (model.WxaiInspectionRun, bool, error) {
+	run, err := scanRun(repository.db.QueryRowContext(
+		ctx,
+		runSelectSQL()+` where trigger_type = ? and status = ? order by finished_at_ms desc, id desc limit 1`,
+		triggerType,
+		model.WxaiInspectionStatusCompleted,
+	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.WxaiInspectionRun{}, false, nil
 	}

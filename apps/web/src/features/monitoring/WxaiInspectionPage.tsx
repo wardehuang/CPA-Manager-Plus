@@ -12,7 +12,7 @@ import {
   type WxaiInspectionQuotaWindow,
   type WxaiToolCallCheckResponse,
 } from '@/services/api/wxaiInspectionService';
-import { useAuthStore } from '@/stores';
+import { useAuthStore, useNotificationStore } from '@/stores';
 import { WxaiInspectionModeTabs } from './components/WxaiInspectionModeTabs';
 import styles from './CodexAccountStatusPage.module.scss';
 
@@ -288,6 +288,7 @@ export function WxaiInspectionPage() {
   const { i18n } = useTranslation();
   const managementKey = useAuthStore((state) => state.managementKey);
   const featureAvailability = usePanelFeatureAvailability();
+  const showNotification = useNotificationStore((state) => state.showNotification);
   const [rows, setRows] = useState<WxaiAccountStatusRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
@@ -298,7 +299,6 @@ export function WxaiInspectionPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [rowActionError, setRowActionError] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
   const [priorityDialogRow, setPriorityDialogRow] = useState<WxaiAccountStatusRow | null>(null);
   const [priorityInput, setPriorityInput] = useState('');
@@ -451,7 +451,6 @@ export function WxaiInspectionPage() {
   };
 
   const openPriorityDialog = (row: WxaiAccountStatusRow) => {
-    setRowActionError(null);
     setPriorityInput(String(row.priority ?? getRestoredPriority(row)));
     setPriorityDialogRow(row);
   };
@@ -468,11 +467,10 @@ export function WxaiInspectionPage() {
 
     const nextPriority = Number(priorityInput.trim());
     if (!Number.isInteger(nextPriority)) {
-      setRowActionError('优先级必须是整数');
+      showNotification('优先级必须是整数', 'error');
       return;
     }
 
-    setRowActionError(null);
     setPrioritySubmitting(true);
     setRowOperationLoading(true);
     setRowOperationMessage('修改优先级后巡检中...');
@@ -482,7 +480,7 @@ export function WxaiInspectionPage() {
       setPriorityDialogRow(null);
       setPriorityInput('');
     } catch (error) {
-      setRowActionError(readWxaiRowActionError(error));
+      showNotification(readWxaiRowActionError(error), 'error');
     } finally {
       setPrioritySubmitting(false);
       setRowOperationLoading(false);
@@ -492,7 +490,6 @@ export function WxaiInspectionPage() {
 
   const handleRowAction = async (row: WxaiAccountStatusRow, action: AccountRowAction) => {
     if (rowOperationLoading) return;
-    setRowActionError(null);
 
     if (action === 'priority') {
       openPriorityDialog(row);
@@ -521,7 +518,7 @@ export function WxaiInspectionPage() {
       await patchAccountPriority(row, targetPriority);
       await runManualRefresh(row, isAccountDisabled(row) ? '手动启用后巡检' : '手动禁用后巡检');
     } catch (error) {
-      setRowActionError(readWxaiRowActionError(error));
+      showNotification(readWxaiRowActionError(error), 'error');
     } finally {
       setRowOperationLoading(false);
       setRowOperationMessage('');
@@ -589,7 +586,6 @@ export function WxaiInspectionPage() {
           </div>
 
           {loadError ? <div className={styles.accountStatusError}>{loadError}</div> : null}
-          {rowActionError ? <div className={styles.accountStatusError}>{rowActionError}</div> : null}
 
           <div className={styles.accountStatusTableWrap}>
             <table className={styles.accountStatusTable}>

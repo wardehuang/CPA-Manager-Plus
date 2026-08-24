@@ -3,7 +3,6 @@ package wxaiinspection
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 )
 
 // RunManualRefresh 独立于服务器/条件巡检全局锁，任意时刻可执行。
-// 探测顺序：billing/credits 与 responses 均由 Manager 直连 xAI（不经 CPA api-call / proxy-url）。
+// 探测仅由 Manager 经 auth JSON proxy_url 请求 xAI billing/credits，不经 CPA api-call。
 func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefreshRequest) (RunDetail, error) {
 	settings, setup, err := service.resolveRuntime(ctx)
 	if err != nil {
@@ -30,6 +29,7 @@ func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefr
 	if err != nil {
 		return RunDetail{}, err
 	}
+	logger := runLogger{service: service, runID: run.ID, prefix: "【wXAi 手动刷新】 "}
 	selected, matched := matchAccount(accounts, request)
 	if !matched {
 		return RunDetail{}, fmt.Errorf(
@@ -38,12 +38,6 @@ func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefr
 			firstNonEmpty(request.AccountKey, request.FileName, request.AuthIndex),
 		)
 	}
-	logger := runLogger{service: service, runID: run.ID, prefix: "【wXAi 手动刷新】 "}
-	httpClientRuntime, err := service.resolveWxaiHTTPClient(ctx, setup)
-	if err != nil {
-		return RunDetail{}, err
-	}
-	logger.info(ctx, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(1))
 	logger.info(ctx, "wXAi 手动刷新开始", map[string]any{
 		"accountKey":     selected.Key,
 		"fileName":       selected.FileName,
@@ -57,8 +51,6 @@ func (service *Service) RunManualRefresh(ctx context.Context, request ManualRefr
 		ctx,
 		setup,
 		settings,
-		httpClientRuntime.client,
-		httpClientRuntime.clientVersion,
 		run.ID,
 		selected,
 		logger,
@@ -90,8 +82,6 @@ func (service *Service) inspectManualRefreshAccount(
 	ctx context.Context,
 	setup store.Setup,
 	settings model.ManagerWxaiInspectionConfig,
-	xaiClient *http.Client,
-	xaiClientVersion string,
 	runID int64,
 	currentAccount account,
 	logger runLogger,
@@ -146,14 +136,14 @@ func (service *Service) inspectManualRefreshAccount(
 		)
 	}
 
-	botFlagInspection, err := inspectWxaiBotFlags(accessToken)
+	botFlagInspection, err := service.inspectWxaiAuthBotFlags(ctx, authFile, logger)
 	if err != nil {
 		return service.applyWxaiProbeFailure(
 			ctx,
 			setup,
 			currentAccount,
 			result,
-			wxaiAccountFailure(0, "decode access_token JWT: "+err.Error()),
+			wxaiBotFlagInspectionFailure(err),
 			inspectionTime,
 			logger,
 		)
@@ -166,9 +156,24 @@ func (service *Service) inspectManualRefreshAccount(
 			result,
 			botFlagInspection.Claim,
 			botFlagInspection.NormalizedValue,
+			botFlagInspection.Priority,
 			logger,
 		)
 	}
+
+	xaiClient, redactedProxyURL, err := resolveWxaiAuthHTTPClient(authFile)
+	if err != nil {
+		return service.applyWxaiProbeFailure(
+			ctx,
+			setup,
+			currentAccount,
+			result,
+			wxaiRequestFailure(err.Error()),
+			inspectionTime,
+			logger,
+		)
+	}
+	logger.info(context.WithoutCancel(ctx), "wXAi HTTP 客户端已创建（auth 代理）", buildWxaiAuthProxyClientLogDetail(redactedProxyURL))
 
 	billingUserID := resolveWxaiBillingUserID(authFile, currentAccount.AccountID)
 	billingSnapshot := wxaiBillingSnapshot{}
@@ -255,30 +260,11 @@ func (service *Service) inspectManualRefreshAccount(
 		)
 	}
 
-	healthOutcome := service.probeWxaiResponsesOnly(
-		ctx,
-		xaiClient,
-		settings.Timeout,
-		accessToken,
-		xaiClientVersion,
-	)
-	if !healthOutcome.Alive {
-		return service.applyWxaiProbeFailure(
-			ctx,
-			setup,
-			currentAccount,
-			result,
-			healthOutcome,
-			inspectionTime,
-			logger,
-		)
-	}
-
-	result.StatusCode = intPointer(healthOutcome.StatusCode)
+	result.StatusCode = intPointer(billingOutcome.StatusCode)
 	result.ErrorKind = ""
 	result.ErrorDetail = ""
-	result.ActionReason = "xAI 手动刷新 billing+responses 成功"
-	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, result.PlanType, logger)
+	result.ActionReason = "xAI 手动刷新 billing/credits 成功"
+	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, logger)
 	if restoreErr != nil {
 		applyWxaiPriorityError(&result, "priority_restore_failed", restoreErr)
 		result.ActionReason += "；priority 恢复失败"

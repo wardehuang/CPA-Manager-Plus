@@ -515,6 +515,32 @@ export function AiProvidersOpenAIEditPage() {
               onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
               disabled={saving || disableControls || isTestingKeys}
             />
+            <div className="form-group">
+              <label>{t('ai_providers.openai_protocol_label')}</label>
+              <Select
+                value={form.protocol ?? 'chat-completions'}
+                onChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    protocol: value === 'responses' ? 'responses' : 'chat-completions',
+                  }))
+                }
+                options={[
+                  {
+                    value: 'chat-completions',
+                    label: t('ai_providers.openai_protocol_chat_completions'),
+                  },
+                  {
+                    value: 'responses',
+                    label: t('ai_providers.openai_protocol_responses'),
+                  },
+                ]}
+                disabled={saving || disableControls || isTestingKeys}
+                fullWidth
+                ariaLabel={t('ai_providers.openai_protocol_label')}
+              />
+              <div className="hint">{t('ai_providers.openai_protocol_hint')}</div>
+            </div>
 
             <HeaderInputList
               entries={form.headers}

@@ -26,6 +26,7 @@ export type OpenAIEditBaseline = {
   prefix: string;
   baseUrl: string;
   disableCooling: boolean;
+  protocol: 'chat-completions' | 'responses';
   headers: Array<{ key: string; value: string }>;
   apiKeyEntries: Array<{
     apiKey: string;
@@ -76,6 +77,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  protocol: 'chat-completions',
 });
 
 const buildEmptyDraft = (): OpenAIEditDraft => ({

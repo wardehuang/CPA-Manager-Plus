@@ -346,6 +346,21 @@ const normalizeOpenAIProvider = (provider: unknown): OpenAIProviderConfig | null
     provider['disable-cooling'] ?? provider.disableCooling ?? provider.disable_cooling
   );
   if (disableCooling !== undefined) result.disableCooling = disableCooling;
+  const protocol = normalizeString(provider.protocol ?? provider['protocol']);
+  if (protocol) {
+    const normalized = protocol.toLowerCase();
+    if (
+      normalized === 'responses' ||
+      normalized === 'response' ||
+      normalized === 'openai-response' ||
+      normalized === 'openai-responses' ||
+      normalized === 'openai_response'
+    ) {
+      result.protocol = 'responses';
+    } else {
+      result.protocol = 'chat-completions';
+    }
+  }
   const prefix = normalizePrefix(provider.prefix ?? provider['prefix']);
   if (prefix) result.prefix = prefix;
   if (headers) result.headers = headers;

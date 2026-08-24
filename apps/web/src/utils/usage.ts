@@ -211,6 +211,8 @@ export interface UsageDetail {
   resolvedModel?: string;
   latency_ms?: number;
   ttft_ms?: number;
+  generation_ms?: number;
+  generationMs?: number;
   tokens: UsageTokens;
   failed: boolean;
   fail_status_code?: number | null;
@@ -769,6 +771,21 @@ export function extractTTFTMs(detail: unknown): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+export function extractGenerationMs(detail: unknown): number | null {
+  const record = isRecord(detail) ? detail : null;
+  const rawValue = record?.generation_ms ?? record?.generationMs;
+  if (
+    rawValue === null ||
+    rawValue === undefined ||
+    (typeof rawValue === 'string' && rawValue.trim() === '')
+  ) {
+    return null;
+  }
+
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTokens => {
   const tokensRaw = isRecord(detail.tokens) ? detail.tokens : {};
   const cacheReadTokens = readFirstTokenNumber(tokensRaw, CACHE_READ_TOKEN_KEYS);
@@ -853,6 +870,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
         const timestampMs = parseTimestampMs(timestamp);
         const latencyMs = extractLatencyMs(detailRaw);
         const ttftMs = extractTTFTMs(detailRaw);
+        const generationMs = extractGenerationMs(detailRaw);
         const failRaw = isRecord(detailRaw.fail) ? detailRaw.fail : {};
         details.push({
           timestamp,
@@ -895,6 +913,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
           resolved_model: readDetailString(detailRaw.resolved_model ?? detailRaw.resolvedModel),
           latency_ms: latencyMs ?? undefined,
           ttft_ms: ttftMs ?? undefined,
+          generation_ms: generationMs ?? undefined,
           request_service_tier: readDetailString(
             detailRaw.request_service_tier ?? detailRaw.requestServiceTier
           ),
@@ -980,6 +999,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
         const timestampMs = parseTimestampMs(timestamp);
         const latencyMs = extractLatencyMs(detailRaw);
         const ttftMs = extractTTFTMs(detailRaw);
+        const generationMs = extractGenerationMs(detailRaw);
         const failRaw = isRecord(detailRaw.fail) ? detailRaw.fail : {};
         details.push({
           timestamp,
@@ -1031,6 +1051,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           ),
           latency_ms: latencyMs ?? undefined,
           ttft_ms: ttftMs ?? undefined,
+          generation_ms: generationMs ?? undefined,
           tokens: readTokens(detailRaw, modelName),
           failed: detailRaw.failed === true,
           fail_status_code:

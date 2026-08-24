@@ -52,6 +52,7 @@ const WXAI_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
   autoActionDescription: 'wXAi 自动处理仅调整优先级：额度耗尽为 -1，普通异常为 -2，HTTP 401 为 -4；不禁用账号。',
   resultStatusLabel: (result) => getWxaiResultStatusLabel(result),
   abnormalLabel: '账号异常',
+  supportsGrok2apiSync: true,
 };
 
 function getWxaiResultStatusLabel(result: WxaiInspectionResult): string {

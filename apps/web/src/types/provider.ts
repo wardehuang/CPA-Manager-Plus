@@ -71,5 +71,7 @@ export interface OpenAIProviderConfig {
   testModel?: string;
   authIndex?: string;
   disableCooling?: boolean;
+  /** Upstream wire format: chat-completions (default) or responses. */
+  protocol?: 'chat-completions' | 'responses' | string;
   [key: string]: unknown;
 }

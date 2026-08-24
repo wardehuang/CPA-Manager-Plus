@@ -146,6 +146,18 @@ export interface ManagerWxaiInspectionConfig {
   usedPercentThreshold?: number;
   sampleSize?: number;
   autoActionMode?: ManagerWxaiInspectionAutoActionMode | string;
+  /** Grok2Api Console 同步 */
+  grok2apiSyncEnabled?: boolean;
+  grok2apiBaseUrl?: string;
+  grok2apiAdminUsername?: string;
+  /** 仅写入；服务端回显时置空，留空提交=保持原值 */
+  grok2apiAdminPassword?: string;
+}
+
+export interface WxaiGrok2apiSyncResponse {
+  trigger: string;
+  synced: number;
+  response?: unknown;
 }
 
 export interface WxaiInspectionSettingsResponse {
@@ -337,6 +349,31 @@ export const wxaiInspectionApi = {
       buildUrl(base, '/v0/management/wxai-inspection/tool-call-check'),
       payload,
       { timeout: TOOL_CALL_CHECK_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
+  syncGrok2api: async (
+    base: string,
+    managementKey: string | undefined
+  ): Promise<WxaiGrok2apiSyncResponse> => {
+    const response = await axios.post<WxaiGrok2apiSyncResponse>(
+      buildUrl(base, '/v0/management/wxai-inspection/grok2api-sync'),
+      {},
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
+  testGrok2apiConnection: async (
+    base: string,
+    managementKey: string | undefined,
+    payload: { baseUrl: string; username: string; password?: string }
+  ): Promise<{ ok: boolean }> => {
+    const response = await axios.post<{ ok: boolean }>(
+      buildUrl(base, '/v0/management/wxai-inspection/grok2api-test'),
+      payload,
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey) }
     );
     return response.data;
   },

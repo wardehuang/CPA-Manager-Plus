@@ -19,9 +19,7 @@ import (
 
 const (
 	wxaiResponsesURL          = "https://cli-chat-proxy.grok.com/v1/responses"
-	wxaiChatCompletionsURL    = "https://cli-chat-proxy.grok.com/v1/chat/completions"
 	wxaiProbeModel            = "grok-4.5"
-	wxaiProbeInput            = "ping"
 	wxaiQualityProbeMaxTokens = 96
 	wxaiProbeBodyLimit        = 1024 * 1024
 	wxaiProbeDetailLimit      = 400
@@ -47,12 +45,6 @@ type wxaiHTTPResponse struct {
 	BodyTruncated bool
 }
 
-type wxaiResponsesRequest struct {
-	Model  string `json:"model"`
-	Input  string `json:"input"`
-	Stream bool   `json:"stream"`
-}
-
 type wxaiProbeError struct {
 	Code    string
 	Message string
@@ -62,8 +54,6 @@ func (service *Service) inspectSingleAccount(
 	ctx context.Context,
 	setup store.Setup,
 	settings model.ManagerWxaiInspectionConfig,
-	xaiClient *http.Client,
-	xaiClientVersion string,
 	runID int64,
 	currentAccount account,
 	logger runLogger,
@@ -122,14 +112,14 @@ func (service *Service) inspectSingleAccount(
 		)
 	}
 
-	botFlagInspection, err := inspectWxaiBotFlags(accessToken)
+	botFlagInspection, err := service.inspectWxaiAuthBotFlags(ctx, authFile, logger)
 	if err != nil {
 		return service.applyWxaiProbeFailure(
 			ctx,
 			setup,
 			currentAccount,
 			result,
-			wxaiAccountFailure(0, "decode access_token JWT: "+err.Error()),
+			wxaiBotFlagInspectionFailure(err),
 			inspectionTime,
 			logger,
 		)
@@ -142,9 +132,24 @@ func (service *Service) inspectSingleAccount(
 			result,
 			botFlagInspection.Claim,
 			botFlagInspection.NormalizedValue,
+			botFlagInspection.Priority,
 			logger,
 		)
 	}
+
+	xaiClient, redactedProxyURL, err := resolveWxaiAuthHTTPClient(authFile)
+	if err != nil {
+		return service.applyWxaiProbeFailure(
+			ctx,
+			setup,
+			currentAccount,
+			result,
+			wxaiRequestFailure(err.Error()),
+			inspectionTime,
+			logger,
+		)
+	}
+	logger.info(context.WithoutCancel(ctx), "wXAi HTTP 客户端已创建（auth 代理）", buildWxaiAuthProxyClientLogDetail(redactedProxyURL))
 
 	billingUserID := resolveWxaiBillingUserID(authFile, currentAccount.AccountID)
 	billingSnapshot := wxaiBillingSnapshot{}
@@ -179,16 +184,7 @@ func (service *Service) inspectSingleAccount(
 	}
 
 	var healthOutcome wxaiProbeOutcome
-	if isWxaiQuotaRecoveryProbeRequired(currentAccount, result.PlanType) {
-		healthOutcome = service.probeWxaiResponsesOnly(
-			ctx,
-			xaiClient,
-			settings.Timeout,
-			accessToken,
-			xaiClientVersion,
-		)
-		result.ActionReason = "xAI FREE 额度恢复探测成功"
-	} else if normalizeWxaiAccountType(result.PlanType) == wxaiAccountTypeSuper {
+	if normalizeWxaiAccountType(result.PlanType) == wxaiAccountTypeSuper {
 		if monthlyBillingProbed {
 			creditsSnapshot, creditsOutcome := service.probeWxaiCreditsBilling(
 				ctx,
@@ -245,7 +241,7 @@ func (service *Service) inspectSingleAccount(
 	result.StatusCode = intPointer(healthOutcome.StatusCode)
 	result.ErrorKind = ""
 	result.ErrorDetail = ""
-	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, result.PlanType, logger)
+	effectivePriority, restoreErr := service.restoreWxaiPriority(ctx, setup, currentAccount, logger)
 	if restoreErr != nil {
 		applyWxaiPriorityError(&result, "priority_restore_failed", restoreErr)
 		result.ActionReason += "；priority 恢复失败"
@@ -546,4 +542,11 @@ func wxaiRequestFailure(detail string) wxaiProbeOutcome {
 
 func wxaiAccountFailure(statusCode int, detail string) wxaiProbeOutcome {
 	return wxaiProbeOutcome{StatusCode: statusCode, ErrorKind: "account_abnormal", Detail: detail}
+}
+
+func wxaiBotFlagInspectionFailure(err error) wxaiProbeOutcome {
+	if isWxaiProxySetupError(err) {
+		return wxaiRequestFailure(err.Error())
+	}
+	return wxaiAccountFailure(0, "decode access_token JWT: "+err.Error())
 }

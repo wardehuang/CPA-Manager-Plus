@@ -23,6 +23,8 @@ export interface OpenAIFormState {
   modelEntries: ModelEntry[];
   apiKeyEntries: ApiKeyEntry[];
   disableCooling?: boolean;
+  /** Upstream wire format for openai-compatibility providers. */
+  protocol?: 'chat-completions' | 'responses';
 }
 
 export type GeminiFormState = Omit<GeminiKeyConfig, 'headers' | 'models'> & {

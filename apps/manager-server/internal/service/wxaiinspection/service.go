@@ -61,6 +61,25 @@ type SettingsResponse struct {
 	Exists   bool                              `json:"exists"`
 }
 
+type RealtimeDegradationRequest struct {
+	AccountKey       string  `json:"accountKey"`
+	FileName         string  `json:"fileName"`
+	DisplayAccount   string  `json:"displayAccount"`
+	AuthIndex        string  `json:"authIndex"`
+	AccountID        string  `json:"accountId"`
+	OriginalPriority *int    `json:"originalPriority,omitempty"`
+	Reason           string  `json:"reason"`
+	QualityLevel     string  `json:"qualityLevel"`
+	TokensPerSecond  float64 `json:"tokensPerSecond"`
+	RequestID        string  `json:"requestId"`
+	ProxyURL         string  `json:"proxyUrl"`
+}
+
+type LatestCompletedScheduledRunResponse struct {
+	Found bool                     `json:"found"`
+	Run   *model.WxaiInspectionRun `json:"run"`
+}
+
 type account struct {
 	Key            string
 	FileName       string
@@ -124,7 +143,7 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		TriggerType: triggerType,
 		TriggerKey:  triggerKey,
 		Status:      model.WxaiInspectionStatusRunning,
-		Settings:    settings,
+		Settings:    model.SanitizeWxaiInspectionConfig(settings),
 	})
 	if err != nil {
 		return RunDetail{}, err
@@ -160,21 +179,7 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		"quotaCooldownSkipCount": len(selection.quotaCooldownAccounts),
 	})
 
-	var xaiClient *http.Client
-	var xaiClientVersion string
-	if len(selection.inspectionAccounts) > 0 {
-		httpClientRuntime, clientErr := service.resolveWxaiHTTPClient(ctx, setup)
-		if clientErr != nil {
-			logger.error(ctx, "创建 wXAi HTTP 客户端失败", map[string]any{"error": clientErr.Error()})
-			return service.failRun(ctx, run, clientErr)
-		}
-		xaiClient = httpClientRuntime.client
-		xaiClientVersion = httpClientRuntime.clientVersion
-		logger.info(ctx, "wXAi HTTP 客户端已创建（直连）", buildWxaiDirectClientLogDetail(
-			len(selection.inspectionAccounts),
-		))
-	}
-	results := service.inspectAccounts(ctx, setup, settings, xaiClient, xaiClientVersion, run.ID, selection.inspectionAccounts, logger)
+	results := service.inspectAccounts(ctx, setup, settings, run.ID, selection.inspectionAccounts, logger)
 	preservedResults := service.preserveWxaiServerInspectionAccounts(
 		ctx,
 		run.ID,
@@ -211,7 +216,28 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	if err := service.store.UpdateWxaiInspectionRun(ctx, run); err != nil {
 		return RunDetail{}, err
 	}
+	// 巡检结束：把健康账号邮箱自动同步到 Grok2Api Console（trigger=keepalive）。
+	healthyEmails := collectHealthyAccountEmails(results)
+	if isWxaiGrok2apiSyncConfigured(settings) && len(healthyEmails) > 0 {
+		go service.syncGrok2apiAfterRun(context.WithoutCancel(ctx), run.ID, healthyEmails)
+	}
 	return service.GetRun(ctx, run.ID)
+}
+
+// TriggerGrok2apiSync WebUI 手动触发：用最近一次已完成巡检的健康账号执行同步（trigger=manual）。
+func (service *Service) TriggerGrok2apiSync(ctx context.Context) (Grok2apiSyncResponse, error) {
+	run, found, err := service.store.GetLatestWxaiInspectionRun(ctx)
+	if err != nil {
+		return Grok2apiSyncResponse{}, err
+	}
+	if !found || run.Status != model.WxaiInspectionStatusCompleted {
+		return Grok2apiSyncResponse{}, ErrManualRefreshRequiresServerRun
+	}
+	results, err := service.store.ListWxaiInspectionResults(ctx, run.ID)
+	if err != nil {
+		return Grok2apiSyncResponse{}, err
+	}
+	return service.SyncHealthyAccountsToGrok2api(ctx, Grok2apiSyncTriggerManual, collectHealthyAccountEmails(results))
 }
 
 func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResponse, error) {
@@ -226,6 +252,7 @@ func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResp
 	if err != nil {
 		return model.WxaiAccountStatusResponse{}, err
 	}
+	items = collapseWxaiLatestAccountStatusItems(items)
 	windowCostsByAccount, err := service.listWxaiAccountWindowCostsByAccount(ctx, run.ID)
 	if err != nil {
 		return model.WxaiAccountStatusResponse{}, err
@@ -246,6 +273,139 @@ func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResp
 
 func (service *Service) ListRuns(ctx context.Context, limit int) ([]model.WxaiInspectionRun, error) {
 	return service.store.ListWxaiInspectionRuns(ctx, limit)
+}
+
+func (service *Service) LatestCompletedScheduledRun(ctx context.Context) (LatestCompletedScheduledRunResponse, error) {
+	run, found, err := service.store.GetLatestCompletedWxaiInspectionRunByTriggerType(ctx, model.WxaiInspectionTriggerScheduled)
+	if err != nil {
+		return LatestCompletedScheduledRunResponse{}, err
+	}
+	if !found {
+		return LatestCompletedScheduledRunResponse{Found: false}, nil
+	}
+	return LatestCompletedScheduledRunResponse{Found: true, Run: &run}, nil
+}
+
+func (service *Service) RecordRealtimeDegradation(ctx context.Context, request RealtimeDegradationRequest) error {
+	if strings.TrimSpace(request.AccountKey) == "" {
+		return errors.New("account key is required")
+	}
+	if strings.TrimSpace(request.FileName) == "" {
+		return errors.New("file name is required")
+	}
+	if strings.TrimSpace(request.DisplayAccount) == "" {
+		return errors.New("display account is required")
+	}
+
+	_, setup, err := service.resolveRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	accounts, err := service.fetchAccounts(ctx, setup)
+	if err != nil {
+		return err
+	}
+	matchedAccount, matched := newWxaiConditionalAccountMatcher(accounts).match(wxaiConditionalAccountRef{
+		AccountKey: request.AccountKey,
+		FileName:   request.FileName,
+		AuthIndex:  request.AuthIndex,
+		AccountID:  request.AccountID,
+		Provider:   "xai",
+	})
+	if !matched {
+		return fmt.Errorf("实时守护账号未匹配: fileName=%s authIndex=%s accountID=%s", request.FileName, request.AuthIndex, request.AccountID)
+	}
+	request.AccountKey = matchedAccount.Key
+	request.FileName = matchedAccount.FileName
+	request.DisplayAccount = matchedAccount.DisplayAccount
+	request.AuthIndex = matchedAccount.AuthIndex
+	request.AccountID = matchedAccount.AccountID
+
+	storedPriority := request.OriginalPriority
+	existingAdjustment, found, err := service.store.GetWxaiPriorityAdjustment(ctx, request.AccountKey)
+	if err != nil {
+		return err
+	}
+	if found && existingAdjustment.AdjustedPriority == -8 && existingAdjustment.OriginalPriority != nil {
+		storedPriority = existingAdjustment.OriginalPriority
+	}
+	if storedPriority != nil {
+		storedPriority = intPointer(wxaiNormalizedPriorityValue)
+	}
+	if err := service.store.UpsertWxaiPriorityAdjustment(ctx, model.WxaiPriorityAdjustment{
+		AccountKey:       request.AccountKey,
+		FileName:         request.FileName,
+		DisplayAccount:   request.DisplayAccount,
+		AuthIndex:        request.AuthIndex,
+		AccountID:        request.AccountID,
+		OriginalPriority: storedPriority,
+		AdjustedPriority: -8,
+	}); err != nil {
+		return err
+	}
+
+	latestRun, err := service.LatestCompletedScheduledRun(ctx)
+	if err != nil || !latestRun.Found {
+		return err
+	}
+	statusDetail := model.WxaiAccountStatusDetail{
+		RunID:       latestRun.Run.ID,
+		AccountKey:  request.AccountKey,
+		Priority:    intPointer(-8),
+		CheckedAtMS: time.Now().UnixMilli(),
+	}
+	latestItems, err := service.store.ListWxaiAccountStatusItems(ctx, latestRun.Run.ID)
+	if err != nil {
+		return err
+	}
+	for _, item := range latestItems {
+		if item.AccountKey != request.AccountKey {
+			continue
+		}
+		statusDetail.AccountType = item.AccountType
+		statusDetail.WeeklyUsedPercent = item.WeeklyUsedPercent
+		statusDetail.WeeklyResetAtMS = item.WeeklyResetAtMS
+		statusDetail.MonthlyUsedPercent = item.MonthlyUsedPercent
+		statusDetail.MonthlyResetAtMS = item.MonthlyResetAtMS
+		statusDetail.MonthlyLimitCents = item.MonthlyLimitCents
+		statusDetail.MonthlyUsedCents = item.MonthlyUsedCents
+		break
+	}
+	if err := service.store.UpsertWxaiAccountStatusDetail(ctx, statusDetail); err != nil {
+		return err
+	}
+	result := model.WxaiInspectionResult{
+		RunID:          latestRun.Run.ID,
+		AccountKey:     request.AccountKey,
+		FileName:       request.FileName,
+		DisplayAccount: request.DisplayAccount,
+		AuthIndex:      request.AuthIndex,
+		AccountID:      request.AccountID,
+		Provider:       "xai",
+		Status:         "abnormal",
+		State:          "account_abnormal",
+		Action:         "keep",
+		ActionReason:   "位置降智",
+		ActionStatus:   model.WxaiInspectionActionStatusSuccess,
+		ExecutedAction: "priority_-8",
+		ErrorKind:      "position_degradation",
+		ErrorDetail:    fmt.Sprintf("来源=realtime_guard；原因=%s；等级=%s；TPS=%.2f；请求=%s；代理=%s", request.Reason, request.QualityLevel, request.TokensPerSecond, request.RequestID, request.ProxyURL),
+	}
+	if _, err := service.store.InsertWxaiInspectionResult(ctx, result); err != nil {
+		return err
+	}
+	_, err = service.store.InsertWxaiInspectionLog(ctx, model.WxaiInspectionLog{
+		RunID:   latestRun.Run.ID,
+		Level:   "warn",
+		Message: "实时守护发现位置降智，xAI 账号 priority 已设为 -8",
+		Detail: map[string]any{
+			"accountKey": request.AccountKey, "fileName": request.FileName, "authIndex": request.AuthIndex,
+			"priority": -8, "reason": "position_degradation", "realtimeGuard": request.Reason,
+			"qualityLevel": request.QualityLevel, "tokensPerSecond": request.TokensPerSecond,
+			"requestID": request.RequestID, "proxyURL": request.ProxyURL,
+		},
+	})
+	return err
 }
 
 func (service *Service) GetRun(ctx context.Context, runID int64) (RunDetail, error) {
@@ -295,6 +455,13 @@ func (service *Service) SaveSettings(ctx context.Context, settings model.Manager
 	}
 	if _, _, err := service.resolveRuntime(ctx); err != nil {
 		return SettingsResponse{}, err
+	}
+	// 密码留空=保持已存值：repo 层归一化以默认配置为 fallback，感知不到已存密码，
+	// 因此在 service 层先回填。
+	if strings.TrimSpace(settings.Grok2apiAdminPassword) == "" {
+		if stored, exists, loadErr := service.store.GetWxaiInspectionSettings(ctx); loadErr == nil && exists && stored.Grok2apiAdminPassword != "" {
+			settings.Grok2apiAdminPassword = stored.Grok2apiAdminPassword
+		}
 	}
 	saved, err := service.store.SaveWxaiInspectionSettings(ctx, settings)
 	if err != nil {
@@ -370,8 +537,6 @@ func (service *Service) inspectAccounts(
 	ctx context.Context,
 	setup store.Setup,
 	settings model.ManagerWxaiInspectionConfig,
-	xaiClient *http.Client,
-	xaiClientVersion string,
 	runID int64,
 	accounts []account,
 	logger runLogger,
@@ -441,8 +606,6 @@ func (service *Service) inspectAccounts(
 					ctx,
 					setup,
 					settings,
-					xaiClient,
-					xaiClientVersion,
 					runID,
 					currentAccount,
 					logger,

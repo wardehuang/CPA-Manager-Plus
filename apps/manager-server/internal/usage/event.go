@@ -59,6 +59,7 @@ type Event struct {
 	TotalTokens                   int64  `json:"total_tokens"`
 	LatencyMS                     *int64 `json:"latency_ms,omitempty"`
 	TTFTMS                        *int64 `json:"ttft_ms,omitempty"`
+	GenerationMS                  *int64 `json:"generation_ms,omitempty"`
 	Failed                        bool   `json:"failed"`
 	FailStatusCode                int    `json:"fail_status_code,omitempty"`
 	FailSummary                   string `json:"fail_summary,omitempty"`

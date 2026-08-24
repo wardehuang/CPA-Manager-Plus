@@ -22,22 +22,30 @@ const calculateGeneratedTokensPerSecond = (
   outputTokens: number,
   reasoningTokens: number,
   latencyMs: number | null,
-  ttftMs: number | null
+  ttftMs: number | null,
+  generationMs: number | null = null
 ): number | null => {
   const generatedTokens = outputTokens + reasoningTokens;
+  if (generatedTokens <= 0) {
+    return null;
+  }
+
+  // Prefer explicit generation window (xAI stream / degradation TPS denominator).
+  if (generationMs !== null && generationMs > 0) {
+    return generatedTokens / (generationMs / 1000);
+  }
+
+  // Classic path: end-to-end latency minus TTFT.
   if (
-    generatedTokens <= 0 ||
     latencyMs === null ||
     latencyMs <= 0 ||
-    ttftMs === null
+    ttftMs === null ||
+    latencyMs <= ttftMs
   ) {
     return null;
   }
 
-  const generationWindowMs = latencyMs - ttftMs;
-  if (generationWindowMs <= 0) return null;
-
-  return generatedTokens / (generationWindowMs / 1000);
+  return generatedTokens / ((latencyMs - ttftMs) / 1000);
 };
 
 export const buildEventRows = (
@@ -134,11 +142,15 @@ export const buildEventRows = (
           : inputTokens + outputTokens + reasoningTokens;
       const latencyMs = toDurationMs(detail.latency_ms);
       const ttftMs = toDurationMs(detail.ttft_ms);
+      const generationMs = toDurationMs(
+        detail.generation_ms ?? detail.generationMs ?? null
+      );
       const tokensPerSecond = calculateGeneratedTokensPerSecond(
         outputTokens,
         reasoningTokens,
         latencyMs,
-        ttftMs
+        ttftMs,
+        generationMs
       );
       const totalCost = calculateCost(detail, modelPrices);
       const statsIncluded = detail.failed === true || inputTokens > 0 || outputTokens > 0;

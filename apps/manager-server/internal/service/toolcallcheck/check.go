@@ -161,7 +161,7 @@ func Run(ctx context.Context, request Request) (result Result, err error) {
 	}
 	result.RequestBody = bytes.Clone(requestBody)
 
-	httpClient, proxyMode, clientError := newHTTPClient(request.Proxy.URL, request.Timeout)
+	httpClient, proxyMode, clientError := NewHTTPClient(request.Proxy.URL, request.Timeout)
 	if clientError != nil {
 		return result, clientError
 	}
@@ -220,7 +220,7 @@ func Run(ctx context.Context, request Request) (result Result, err error) {
 	return result, nil
 }
 
-func newHTTPClient(rawProxyURL string, timeout time.Duration) (*http.Client, string, error) {
+func NewHTTPClient(rawProxyURL string, timeout time.Duration) (*http.Client, string, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}

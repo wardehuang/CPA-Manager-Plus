@@ -53,6 +53,10 @@ import {
   type ManagerAntigravityInspectionConfig as ManagerCodexInspectionConfig,
   type ManagerAntigravityInspectionScheduleMode as ManagerCodexInspectionScheduleMode,
 } from '@/services/api/antigravityInspectionService';
+import {
+  wxaiInspectionApi,
+  type WxaiGrok2apiSyncResponse,
+} from '@/services/api/wxaiInspectionService';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import styles from './CodexInspectionPage.module.scss';
 
@@ -77,6 +81,10 @@ type ServerAgyInspectionDraft = {
   usedPercentThreshold: string;
   sampleSize: string;
   autoActionMode: string;
+  grok2apiSyncEnabled: boolean;
+  grok2apiBaseUrl: string;
+  grok2apiAdminUsername: string;
+  grok2apiAdminPassword: string;
 };
 
 export type ServerInspectionDefaultConfig = {
@@ -98,6 +106,9 @@ export type ServerInspectionDefaultConfig = {
   usedPercentThreshold: number;
   sampleSize: number;
   autoActionMode: string;
+  grok2apiSyncEnabled?: boolean;
+  grok2apiBaseUrl?: string;
+  grok2apiAdminUsername?: string;
 };
 
 const DEFAULT_SERVER_CODEX_CONFIG: ServerInspectionDefaultConfig = {
@@ -165,6 +176,8 @@ export type ServerInspectionProviderAdapter = {
   getAbnormalCount?: (run: AgyInspectionRun) => number;
   autoActionDescription?: string;
   userAgentSectionLabel?: string;
+  /** wXAi：展示「同步健康账号到Grok2Api Console」配置区块与立即同步按钮 */
+  supportsGrok2apiSync?: boolean;
 };
 
 const ANTIGRAVITY_SERVER_INSPECTION_ADAPTER: ServerInspectionProviderAdapter = {
@@ -262,6 +275,9 @@ const resolveServerInspectionConfig = (
         ? config.sampleSize
         : defaultConfig.sampleSize,
     autoActionMode: config?.autoActionMode || defaultConfig.autoActionMode,
+    grok2apiSyncEnabled: config?.grok2apiSyncEnabled ?? defaultConfig.grok2apiSyncEnabled ?? false,
+    grok2apiBaseUrl: config?.grok2apiBaseUrl || defaultConfig.grok2apiBaseUrl || '',
+    grok2apiAdminUsername: config?.grok2apiAdminUsername || defaultConfig.grok2apiAdminUsername || '',
   };
 };
 
@@ -287,6 +303,11 @@ const toDraft = (
     usedPercentThreshold: String(resolved.usedPercentThreshold),
     sampleSize: String(resolved.sampleSize),
     autoActionMode: resolved.autoActionMode,
+    grok2apiSyncEnabled: resolved.grok2apiSyncEnabled ?? false,
+    grok2apiBaseUrl: resolved.grok2apiBaseUrl ?? '',
+    grok2apiAdminUsername: resolved.grok2apiAdminUsername ?? '',
+    // 密码不回显：始终空表单，留空提交=保持原值
+    grok2apiAdminPassword: '',
   };
 };
 
@@ -438,6 +459,11 @@ const createConfigFromDraft = (
     usedPercentThreshold: validation.values.usedPercentThreshold,
     sampleSize: validation.values.sampleSize,
     autoActionMode: validation.values.autoActionMode,
+    grok2apiSyncEnabled: draft.grok2apiSyncEnabled,
+    grok2apiBaseUrl: draft.grok2apiBaseUrl.trim().replace(/\/+$/, ''),
+    grok2apiAdminUsername: draft.grok2apiAdminUsername.trim(),
+    // 密码留空=保持原值（后端 Normalize 语义）
+    grok2apiAdminPassword: draft.grok2apiAdminPassword,
   };
 };
 
@@ -553,6 +579,9 @@ function getComparableConfig(config: ServerInspectionDefaultConfig) {
     usedPercentThreshold: config.usedPercentThreshold,
     sampleSize: config.sampleSize,
     autoActionMode: config.autoActionMode,
+    grok2apiSyncEnabled: config.grok2apiSyncEnabled ?? false,
+    grok2apiBaseUrl: (config.grok2apiBaseUrl || '').trim().replace(/\/+$/, ''),
+    grok2apiAdminUsername: (config.grok2apiAdminUsername || '').trim(),
   };
 }
 
@@ -772,6 +801,8 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
   const [executingAllActions, setExecutingAllActions] = useState(false);
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
   const [configFocusField, setConfigFocusField] = useState<string | null>(null);
+  const [grok2apiSyncing, setGrok2apiSyncing] = useState(false);
+  const [grok2apiTesting, setGrok2apiTesting] = useState(false);
   const refreshInFlightRef = useRef(false);
   const actionInFlightRef = useRef(false);
 
@@ -1119,6 +1150,55 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
       onConfirm: executeServerRun,
     });
   };
+
+  const handleGrok2apiSyncNow = useCallback(async () => {
+    if (!serviceBase) {
+      showNotification(t('monitoring.server_codex_inspection_service_unavailable'), 'warning');
+      return;
+    }
+    setGrok2apiSyncing(true);
+    try {
+      const result: WxaiGrok2apiSyncResponse = await wxaiInspectionApi.syncGrok2api(
+        serviceBase,
+        managementKey
+      );
+      showNotification(t('wxai_grok2api_sync_success', { count: result.synced }), 'success');
+    } catch (error: unknown) {
+      showNotification(
+        `${t('wxai_grok2api_sync_failed')}: ${getUsageServiceDisplayError(error, t)}`,
+        'error'
+      );
+    } finally {
+      setGrok2apiSyncing(false);
+    }
+  }, [managementKey, serviceBase, showNotification, t]);
+
+  const handleGrok2apiTestConnection = useCallback(async () => {
+    if (!serviceBase) {
+      showNotification(t('monitoring.server_codex_inspection_service_unavailable'), 'warning');
+      return;
+    }
+    if (!draft.grok2apiBaseUrl.trim()) {
+      showNotification(t('wxai_grok2api_sync_test_requires_url'), 'warning');
+      return;
+    }
+    setGrok2apiTesting(true);
+    try {
+      await wxaiInspectionApi.testGrok2apiConnection(serviceBase, managementKey, {
+        baseUrl: draft.grok2apiBaseUrl.trim(),
+        username: draft.grok2apiAdminUsername.trim(),
+        password: draft.grok2apiAdminPassword,
+      });
+      showNotification(t('wxai_grok2api_sync_test_success'), 'success');
+    } catch (error: unknown) {
+      showNotification(
+        `${t('wxai_grok2api_sync_test_failed')}: ${getUsageServiceDisplayError(error, t)}`,
+        'error'
+      );
+    } finally {
+      setGrok2apiTesting(false);
+    }
+  }, [draft.grok2apiAdminPassword, draft.grok2apiAdminUsername, draft.grok2apiBaseUrl, managementKey, serviceBase, showNotification, t]);
 
   const executeServerActions = useCallback(
     async (targets: AgyInspectionResult[], scope: 'single' | 'bulk') => {
@@ -1577,6 +1657,79 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
                     updateDraft('accountTakeStaggerMs', event.target.value)
                   }
                 />
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {adapter.supportsGrok2apiSync ? (
+          <section className={styles.configSection} id="grok2api-sync">
+            <header className={styles.configSectionHeader}>
+              <span>{t('wxai_grok2api_sync_section_title')}</span>
+            </header>
+            <div className={styles.serverConfigGrid}>
+              <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
+                <ToggleSwitch
+                  checked={draft.grok2apiSyncEnabled}
+                  onChange={(value) => updateDraft('grok2apiSyncEnabled', value)}
+                  label={t('wxai_grok2api_sync_enabled_label')}
+                />
+              </div>
+              <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
+                <Input
+                  id="grok2apiBaseUrl"
+                  label={t('wxai_grok2api_sync_base_url_label')}
+                  hint={t('wxai_grok2api_sync_base_url_hint')}
+                  value={draft.grok2apiBaseUrl}
+                  placeholder="http://127.0.0.1:18453"
+                  onChange={(event) => updateDraft('grok2apiBaseUrl', event.target.value)}
+                />
+              </div>
+              <div className={styles.serverField}>
+                <Input
+                  id="grok2apiAdminUsername"
+                  label={t('wxai_grok2api_sync_username_label')}
+                  autoComplete="off"
+                  value={draft.grok2apiAdminUsername}
+                  onChange={(event) => updateDraft('grok2apiAdminUsername', event.target.value)}
+                />
+              </div>
+              <div className={styles.serverField}>
+                <Input
+                  id="grok2apiAdminPassword"
+                  label={t('wxai_grok2api_sync_password_label')}
+                  hint={
+                    draft.grok2apiAdminPassword
+                      ? undefined
+                      : t('wxai_grok2api_sync_password_keep_hint')
+                  }
+                  type="password"
+                  autoComplete="new-password"
+                  value={draft.grok2apiAdminPassword}
+                  onChange={(event) => updateDraft('grok2apiAdminPassword', event.target.value)}
+                />
+              </div>
+              <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
+                <div className={styles.configDrawerActions}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={grok2apiTesting}
+                    disabled={!serviceBase || grok2apiTesting || !draft.grok2apiBaseUrl.trim()}
+                    onClick={() => void handleGrok2apiTestConnection()}
+                  >
+                    {t('wxai_grok2api_sync_test_now')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={grok2apiSyncing}
+                    disabled={!serviceBase || grok2apiSyncing || !draft.grok2apiBaseUrl.trim()}
+                    onClick={() => void handleGrok2apiSyncNow()}
+                  >
+                    {t('wxai_grok2api_sync_now')}
+                  </Button>
+                </div>
               </div>
             </div>
           </section>
