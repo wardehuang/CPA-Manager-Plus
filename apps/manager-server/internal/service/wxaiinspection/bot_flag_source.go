@@ -63,6 +63,16 @@ func (service *Service) inspectWxaiAuthBotFlags(
 	authFile map[string]any,
 	logger runLogger,
 ) (wxaiBotFlagInspection, error) {
+	// Temporary bypass: treat JWT bot flags and SSO risk checks as healthy.
+	// Keep the original implementation below for a controlled re-enable later.
+	return wxaiBotFlagInspection{}, nil
+}
+
+func (service *Service) inspectWxaiAuthBotFlagsWithRiskChecks(
+	ctx context.Context,
+	authFile map[string]any,
+	logger runLogger,
+) (wxaiBotFlagInspection, error) {
 	accessToken := strings.TrimSpace(firstString(authFile, "access_token"))
 	jwtInspection, err := inspectWxaiBotFlags(accessToken)
 	if err != nil || jwtInspection.Flagged {

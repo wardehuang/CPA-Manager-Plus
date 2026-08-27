@@ -47,6 +47,7 @@ type AccountRowAction = 'refresh' | 'toggleDisabled' | 'priority' | 'toolCallChe
 type WxaiAccountStatusRow = {
   id: number;
   name: string;
+  exitIp: string;
   accountType: string | null;
   priority: number | null;
   originalPriority: number | null;
@@ -74,6 +75,7 @@ const normalizeNumber = (value: unknown): number | null =>
 const buildRow = (item: WxaiAccountStatusItem): WxaiAccountStatusRow => ({
   id: item.id,
   name: item.displayAccount || item.fileName || item.accountKey || '#' + item.id,
+  exitIp: item.exitIp,
   accountType: item.accountType || item.planType || null,
   priority: normalizeNumber(item.priority),
   originalPriority: normalizeNumber(item.originalPriority),
@@ -591,6 +593,7 @@ export function WxaiInspectionPage() {
             <table className={styles.accountStatusTable}>
               <colgroup>
                 <col className={styles.accountStatusColAccount} />
+                <col className={styles.accountStatusColExitIp} />
                 <col className={styles.accountStatusColType} />
                 <col className={styles.accountStatusColStatus} />
                 <col className={styles.accountStatusColPriority} />
@@ -601,6 +604,7 @@ export function WxaiInspectionPage() {
               <thead>
                 <tr>
                   <th>账号</th>
+                  <th>出口IP</th>
                   <SortableHeader
                     label="账号类型"
                     sortKey="accountType"
@@ -624,7 +628,7 @@ export function WxaiInspectionPage() {
               <tbody>
                 {pagedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className={styles.accountStatusEmpty}>
+                    <td colSpan={8} className={styles.accountStatusEmpty}>
                       {loading ? (
                         <div className={styles.accountStatusLoadingState} role="status" aria-live="polite">
                           <span className={styles.accountStatusLoadingOrb} aria-hidden="true">
@@ -878,6 +882,11 @@ function AccountRow({
           </div>
         </td>
         <td>
+          <span className={styles.accountStatusExitIp} title={row.exitIp}>
+            {row.exitIp}
+          </span>
+        </td>
+        <td>
           <span
             className={[
               styles.accountTypeBadge,
@@ -984,7 +993,7 @@ function AccountRow({
       </tr>
       {expanded ? (
         <tr className={styles.accountStatusDetailRow}>
-          <td colSpan={7}>
+          <td colSpan={8}>
             <AccountDetailPanel
               row={row}
               language={language}
@@ -1027,6 +1036,7 @@ function AccountDetailPanel({
     { label: 'File Name', value: fileName },
     { label: 'Account ID', value: accountId },
     { label: 'Auth Index', value: row.raw.authIndex },
+    { label: '出口IP', value: row.exitIp },
     { label: 'HTTP Status', value: row.statusCode },
     { label: '当前优先级', value: row.priority },
     { label: '原始优先级', value: row.originalPriority },

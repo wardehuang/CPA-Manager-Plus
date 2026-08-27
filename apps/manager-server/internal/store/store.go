@@ -27,6 +27,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagepricing"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagerollup"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/wxaipriorityadjustment"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/wxairealtimedegradation"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 )
@@ -131,6 +132,7 @@ type Store struct {
 	CodexAccountWindowCosts  codexaccountwindowcost.Repository
 	CodexPriorityAdjustments codexpriorityadjustment.Repository
 	WxaiPriorityAdjustments  wxaipriorityadjustment.Repository
+	WxaiRealtimeDegradations wxairealtimedegradation.Repository
 	CodexAccountStatus       codexaccountstatus.Repository
 	Settings                 setting.Repository
 	UsageEvents              usageevent.Repository
@@ -161,6 +163,7 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		CodexAccountWindowCosts:  codexaccountwindowcost.New(db),
 		CodexPriorityAdjustments: codexpriorityadjustment.New(db),
 		WxaiPriorityAdjustments:  wxaipriorityadjustment.New(db),
+		WxaiRealtimeDegradations: wxairealtimedegradation.New(db),
 		CodexAccountStatus:       codexaccountstatus.New(db),
 		Settings:                 setting.New(db, protector...),
 		UsageEvents:              usageevent.New(db),

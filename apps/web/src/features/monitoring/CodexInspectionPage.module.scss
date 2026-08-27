@@ -2087,6 +2087,25 @@
   flex-shrink: 0;
 }
 
+.grok2apiTestStatus {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.grok2apiTestStatusLoading {
+  color: var(--inspect-muted);
+}
+
+.grok2apiTestStatusSuccess {
+  color: var(--inspect-green);
+}
+
+.grok2apiTestStatusError {
+  color: var(--inspect-red);
+}
+
 .serverConfigActions {
   display: inline-flex;
   align-items: center;

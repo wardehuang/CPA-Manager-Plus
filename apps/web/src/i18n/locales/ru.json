@@ -2218,6 +2218,7 @@
     "wxai_grok2api_sync_password_keep_hint": "Оставьте пустым, чтобы сохранить текущий пароль.",
     "wxai_grok2api_sync_now": "Синхронизировать",
     "wxai_grok2api_sync_test_now": "Проверить соединение",
+    "wxai_grok2api_sync_test_running": "Проверка соединения с Grok2Api…",
     "wxai_grok2api_sync_test_requires_url": "Сначала укажите адрес Grok2Api",
     "wxai_grok2api_sync_test_success": "Соединение с Grok2Api успешно",
     "wxai_grok2api_sync_test_failed": "Ошибка проверки соединения с Grok2Api",
@@ -3067,7 +3068,12 @@
     "model_price_sync_failed": "Синхронизация цен моделей не удалась.",
     "api_key_aliases_required": "Требуются псевдонимы API-ключей.",
     "api_key_alias_duplicate": "Псевдоним API-ключа уже существует.",
-    "method_not_allowed": "Эта операция не поддерживается текущим адресом сервиса."
+    "method_not_allowed": "Эта операция не поддерживается текущим адресом сервиса.",
+    "grok2api_invalid_credentials": "Неверное имя пользователя или пароль Grok2Api.",
+    "grok2api_unauthorized": "Не удалось пройти проверку администратора Grok2Api.",
+    "grok2api_login_rate_limited": "Вход в Grok2Api ограничен по частоте. Повторите позже.",
+    "grok2api_not_configured": "Синхронизация Grok2Api отключена или настроена не полностью.",
+    "grok2api_no_healthy_accounts": "Нет здоровых аккаунтов для синхронизации."
   },
   "usage_analytics": {
     "title": "Аналитика использования",

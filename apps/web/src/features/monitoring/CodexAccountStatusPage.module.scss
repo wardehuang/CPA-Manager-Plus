@@ -313,7 +313,7 @@
 
 .accountStatusTable {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1308px;
   overflow: visible;
   border: 0;
   border-collapse: separate;
@@ -325,6 +325,10 @@
 
 .accountStatusColAccount {
   width: 206px;
+}
+
+.accountStatusColExitIp {
+  width: 132px;
 }
 
 .accountStatusColType {
@@ -370,7 +374,9 @@
 .accountStatusTable th:nth-child(3),
 .accountStatusTable td:nth-child(3),
 .accountStatusTable th:nth-child(4),
-.accountStatusTable td:nth-child(4) {
+.accountStatusTable td:nth-child(4),
+.accountStatusTable th:nth-child(5),
+.accountStatusTable td:nth-child(5) {
   text-align: center;
 }
 
@@ -383,19 +389,19 @@
 }
 
 .accountStatusTable td:first-child,
-.accountStatusTable td:nth-child(5) {
+.accountStatusTable td:nth-child(6) {
   text-align: left;
 }
 
-.accountStatusTable th:nth-child(6),
-.accountStatusTable td:nth-child(6),
 .accountStatusTable th:nth-child(7),
-.accountStatusTable td:nth-child(7) {
+.accountStatusTable td:nth-child(7),
+.accountStatusTable th:nth-child(8),
+.accountStatusTable td:nth-child(8) {
   text-align: center;
 }
 
-.accountStatusTable th:nth-child(2) .sortButton,
-.accountStatusTable th:nth-child(4) .sortButton {
+.accountStatusTable th:nth-child(3) .sortButton,
+.accountStatusTable th:nth-child(5) .sortButton {
   justify-content: center;
 }
 
@@ -403,9 +409,9 @@
   justify-content: center;
 }
 
-.accountStatusTable td:nth-child(2) .accountTypeBadge,
-.accountStatusTable td:nth-child(3) .statusBadge,
-.accountStatusTable td:nth-child(4) .priorityBadge {
+.accountStatusTable td:nth-child(3) .accountTypeBadge,
+.accountStatusTable td:nth-child(4) .statusBadge,
+.accountStatusTable td:nth-child(5) .priorityBadge {
   margin-inline: auto;
 }
 
@@ -753,6 +759,17 @@
 .accountStatusLastInspection {
   display: inline-flex;
   justify-content: center;
+  white-space: nowrap;
+}
+
+.accountStatusExitIp {
+  display: inline-flex;
+  max-width: 132px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

@@ -60,6 +60,13 @@ func (service *Service) resolveConditionalAccounts(
 			})
 			continue
 		}
+		_, realtimeCooldownActive, err := service.resolveWxaiRealtimeDegradationCooldown(ctx, matchedAccount, time.UnixMilli(nowMS))
+		if err != nil {
+			return nil, nil, err
+		}
+		if realtimeCooldownActive {
+			continue
+		}
 		candidates.add(matchedAccount, wxaiConditionalReasonActiveRecent)
 	}
 
@@ -67,8 +74,7 @@ func (service *Service) resolveConditionalAccounts(
 }
 
 func (candidates *wxaiConditionalCandidateSet) add(currentAccount account, reason string) {
-	positionDegraded := currentAccount.Priority != nil && *currentAccount.Priority == wxaiPositionDegradedPriorityValue
-	if isWxaiInspectionExcluded(currentAccount) || positionDegraded {
+	if isWxaiInspectionExcluded(currentAccount) {
 		return
 	}
 	accountKey := strings.TrimSpace(currentAccount.Key)

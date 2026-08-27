@@ -2217,6 +2217,7 @@
     "wxai_grok2api_sync_password_keep_hint": "留空保持已儲存的密碼不變。",
     "wxai_grok2api_sync_now": "立即同步",
     "wxai_grok2api_sync_test_now": "測試連線",
+    "wxai_grok2api_sync_test_running": "正在測試 Grok2Api 連線…",
     "wxai_grok2api_sync_test_requires_url": "請先填寫 Grok2Api 遠端地址",
     "wxai_grok2api_sync_test_success": "Grok2Api 連線成功",
     "wxai_grok2api_sync_test_failed": "Grok2Api 連線測試失敗",
@@ -3084,7 +3085,12 @@
     "model_price_sync_failed": "模型價格同步失敗。",
     "api_key_aliases_required": "請先提供 API Key 別名。",
     "api_key_alias_duplicate": "API Key 別名已存在。",
-    "method_not_allowed": "目前介面不支援該操作。"
+    "method_not_allowed": "目前介面不支援該操作。",
+    "grok2api_invalid_credentials": "Grok2Api 使用者名稱或密碼錯誤。",
+    "grok2api_unauthorized": "Grok2Api 管理員驗證失敗。",
+    "grok2api_login_rate_limited": "Grok2Api 登入過於頻繁，請稍後重試。",
+    "grok2api_not_configured": "Grok2Api 同步未啟用或設定不完整。",
+    "grok2api_no_healthy_accounts": "沒有可同步的健康帳號。"
   },
   "usage_analytics": {
     "title": "用量分析",

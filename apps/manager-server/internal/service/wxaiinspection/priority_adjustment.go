@@ -113,6 +113,30 @@ func (service *Service) restoreWxaiPriority(
 	currentAccount account,
 	logger runLogger,
 ) (*int, error) {
+	realtimeState, realtimeStateExists, err := service.store.GetWxaiRealtimeDegradationState(ctx, currentAccount.Key)
+	if err != nil {
+		return currentAccount.Priority, fmt.Errorf("读取 wXAi 实时降智状态: %w", err)
+	}
+	if realtimeStateExists && realtimeState.CooldownUntilMS > time.Now().UnixMilli() {
+		if currentAccount.Priority == nil || *currentAccount.Priority != wxaiPositionDegradedPriorityValue {
+			authFilesClient := cpaauthfiles.New(service.client, cpaauthfiles.DefaultTimeout)
+			if err := authFilesClient.PatchPriority(
+				ctx,
+				setup.CPAUpstreamURL,
+				setup.ManagementKey,
+				currentAccount.FileName,
+				wxaiPositionDegradedPriorityValue,
+			); err != nil {
+				return currentAccount.Priority, fmt.Errorf("保持实时降智账号 priority=-8: %w", err)
+			}
+		}
+		logger.info(context.WithoutCancel(ctx), "wXAi 账号仍处于实时降智冷却，跳过 priority 恢复", map[string]any{
+			"fileName":        currentAccount.FileName,
+			"displayAccount":  currentAccount.DisplayAccount,
+			"cooldownUntilMs": realtimeState.CooldownUntilMS,
+		})
+		return intPointer(wxaiPositionDegradedPriorityValue), nil
+	}
 	adjustment, adjustmentExists, err := service.store.GetWxaiPriorityAdjustment(ctx, currentAccount.Key)
 	if err != nil {
 		return currentAccount.Priority, fmt.Errorf("读取 wXAi priority adjustment: %w", err)

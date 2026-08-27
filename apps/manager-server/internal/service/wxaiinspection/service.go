@@ -34,8 +34,11 @@ type Service struct {
 	managerConfigService *managerconfig.Service
 	client               *http.Client
 
-	mutex   sync.Mutex
-	running bool
+	mutex                   sync.Mutex
+	running                 bool
+	realtimeDegradationMu   sync.Mutex
+	wxaiSwitcherSnapshotMu  sync.Mutex
+	wxaiSwitcherExitIPCache wxaiSwitcherExitIPSnapshot
 }
 
 type RunRequest struct {
@@ -172,11 +175,12 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	run.EnabledCount = len(accounts) - len(selection.disabledAccounts)
 	_ = service.store.UpdateWxaiInspectionRun(ctx, run)
 	logger.info(ctx, "wXAi 服务端巡检候选已筛选", map[string]any{
-		"totalCount":             len(accounts),
-		"inspectionCount":        len(selection.inspectionAccounts),
-		"disabledSkipCount":      len(selection.disabledAccounts),
-		"botFlaggedSkipCount":    len(selection.botFlaggedAccounts),
-		"quotaCooldownSkipCount": len(selection.quotaCooldownAccounts),
+		"totalCount":                len(accounts),
+		"inspectionCount":           len(selection.inspectionAccounts),
+		"disabledSkipCount":         len(selection.disabledAccounts),
+		"botFlaggedSkipCount":       len(selection.botFlaggedAccounts),
+		"realtimeCooldownSkipCount": len(selection.realtimeCooldownAccounts),
+		"quotaCooldownSkipCount":    len(selection.quotaCooldownAccounts),
 	})
 
 	results := service.inspectAccounts(ctx, setup, settings, run.ID, selection.inspectionAccounts, logger)
@@ -196,6 +200,15 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 		logger,
 	)
 	results = append(results, botFlaggedResults...)
+	realtimeCooldownResults := service.preserveWxaiRealtimeDegradationCooldownAccounts(
+		ctx,
+		run.ID,
+		selection.realtimeCooldownAccounts,
+		previousStatusItems,
+		selection.realtimeCooldownUntilByKey,
+		logger,
+	)
+	results = append(results, realtimeCooldownResults...)
 	cooldownResults := service.preserveWxaiQuotaCooldownAccounts(
 		ctx,
 		run.ID,
@@ -253,6 +266,7 @@ func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResp
 		return model.WxaiAccountStatusResponse{}, err
 	}
 	items = collapseWxaiLatestAccountStatusItems(items)
+	service.attachWxaiExitIPs(ctx, items)
 	windowCostsByAccount, err := service.listWxaiAccountWindowCostsByAccount(ctx, run.ID)
 	if err != nil {
 		return model.WxaiAccountStatusResponse{}, err
@@ -287,6 +301,9 @@ func (service *Service) LatestCompletedScheduledRun(ctx context.Context) (Latest
 }
 
 func (service *Service) RecordRealtimeDegradation(ctx context.Context, request RealtimeDegradationRequest) error {
+	service.realtimeDegradationMu.Lock()
+	defer service.realtimeDegradationMu.Unlock()
+
 	if strings.TrimSpace(request.AccountKey) == "" {
 		return errors.New("account key is required")
 	}
@@ -321,26 +338,8 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 	request.AuthIndex = matchedAccount.AuthIndex
 	request.AccountID = matchedAccount.AccountID
 
-	storedPriority := request.OriginalPriority
-	existingAdjustment, found, err := service.store.GetWxaiPriorityAdjustment(ctx, request.AccountKey)
+	stage, err := service.applyRealtimeDegradationState(ctx, setup, matchedAccount, request)
 	if err != nil {
-		return err
-	}
-	if found && existingAdjustment.AdjustedPriority == -8 && existingAdjustment.OriginalPriority != nil {
-		storedPriority = existingAdjustment.OriginalPriority
-	}
-	if storedPriority != nil {
-		storedPriority = intPointer(wxaiNormalizedPriorityValue)
-	}
-	if err := service.store.UpsertWxaiPriorityAdjustment(ctx, model.WxaiPriorityAdjustment{
-		AccountKey:       request.AccountKey,
-		FileName:         request.FileName,
-		DisplayAccount:   request.DisplayAccount,
-		AuthIndex:        request.AuthIndex,
-		AccountID:        request.AccountID,
-		OriginalPriority: storedPriority,
-		AdjustedPriority: -8,
-	}); err != nil {
 		return err
 	}
 
@@ -351,7 +350,7 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 	statusDetail := model.WxaiAccountStatusDetail{
 		RunID:       latestRun.Run.ID,
 		AccountKey:  request.AccountKey,
-		Priority:    intPointer(-8),
+		Priority:    intPointer(stage.Priority),
 		CheckedAtMS: time.Now().UnixMilli(),
 	}
 	latestItems, err := service.store.ListWxaiAccountStatusItems(ctx, latestRun.Run.ID)
@@ -385,11 +384,11 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 		Status:         "abnormal",
 		State:          "account_abnormal",
 		Action:         "keep",
-		ActionReason:   "位置降智",
+		ActionReason:   stage.ActionReason,
 		ActionStatus:   model.WxaiInspectionActionStatusSuccess,
-		ExecutedAction: "priority_-8",
+		ExecutedAction: stage.ExecutedAction,
 		ErrorKind:      "position_degradation",
-		ErrorDetail:    fmt.Sprintf("来源=realtime_guard；原因=%s；等级=%s；TPS=%.2f；请求=%s；代理=%s", request.Reason, request.QualityLevel, request.TokensPerSecond, request.RequestID, request.ProxyURL),
+		ErrorDetail:    fmt.Sprintf("来源=realtime_guard；次数=%d；冷却至=%d；原因=%s；等级=%s；TPS=%.2f；请求=%s；代理=%s", stage.DegradationCount, stage.CooldownUntilMS, request.Reason, request.QualityLevel, request.TokensPerSecond, request.RequestID, request.ProxyURL),
 	}
 	if _, err := service.store.InsertWxaiInspectionResult(ctx, result); err != nil {
 		return err
@@ -397,10 +396,11 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 	_, err = service.store.InsertWxaiInspectionLog(ctx, model.WxaiInspectionLog{
 		RunID:   latestRun.Run.ID,
 		Level:   "warn",
-		Message: "实时守护发现位置降智，xAI 账号 priority 已设为 -8",
+		Message: stage.LogMessage,
 		Detail: map[string]any{
 			"accountKey": request.AccountKey, "fileName": request.FileName, "authIndex": request.AuthIndex,
-			"priority": -8, "reason": "position_degradation", "realtimeGuard": request.Reason,
+			"priority": stage.Priority, "reason": "position_degradation", "realtimeGuard": request.Reason,
+			"degradationCount": stage.DegradationCount, "cooldownUntilMs": stage.CooldownUntilMS,
 			"qualityLevel": request.QualityLevel, "tokensPerSecond": request.TokensPerSecond,
 			"requestID": request.RequestID, "proxyURL": request.ProxyURL,
 		},

@@ -165,6 +165,7 @@ type WxaiAccountStatusItem struct {
 	OriginalPriority   *int     `json:"originalPriority,omitempty"`
 	RecoverAtMS        int64    `json:"recoverAtMs,omitempty"`
 	AccountType        string   `json:"accountType,omitempty"`
+	ExitIP             string   `json:"exitIp"`
 	WeeklyUsedPercent  *float64 `json:"weeklyUsedPercent,omitempty"`
 	WeeklyResetAtMS    int64    `json:"weeklyResetAtMs,omitempty"`
 	MonthlyUsedPercent *float64 `json:"monthlyUsedPercent,omitempty"`

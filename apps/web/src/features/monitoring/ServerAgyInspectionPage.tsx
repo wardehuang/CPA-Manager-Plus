@@ -64,6 +64,8 @@ type ManagerConfig = {
   agyInspection?: ManagerCodexInspectionConfig | null;
 };
 
+type Grok2apiTestStatus = 'idle' | 'loading' | 'success' | 'error';
+
 type ServerAgyInspectionDraft = {
   enabled: boolean;
   scheduleMode: ManagerCodexInspectionScheduleMode;
@@ -803,6 +805,8 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
   const [configFocusField, setConfigFocusField] = useState<string | null>(null);
   const [grok2apiSyncing, setGrok2apiSyncing] = useState(false);
   const [grok2apiTesting, setGrok2apiTesting] = useState(false);
+  const [grok2apiTestStatus, setGrok2apiTestStatus] = useState<Grok2apiTestStatus>('idle');
+  const [grok2apiTestMessage, setGrok2apiTestMessage] = useState('');
   const refreshInFlightRef = useRef(false);
   const actionInFlightRef = useRef(false);
 
@@ -975,6 +979,14 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
     value: ServerAgyInspectionDraft[K]
   ) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
+    if (
+      key === 'grok2apiBaseUrl' ||
+      key === 'grok2apiAdminUsername' ||
+      key === 'grok2apiAdminPassword'
+    ) {
+      setGrok2apiTestStatus('idle');
+      setGrok2apiTestMessage('');
+    }
   };
 
   const updateSharedDraftField = (field: SharedInspectionConfigField, value: string) => {
@@ -1162,10 +1174,10 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
         serviceBase,
         managementKey
       );
-      showNotification(t('wxai_grok2api_sync_success', { count: result.synced }), 'success');
+      showNotification(t('monitoring.wxai_grok2api_sync_success', { count: result.synced }), 'success');
     } catch (error: unknown) {
       showNotification(
-        `${t('wxai_grok2api_sync_failed')}: ${getUsageServiceDisplayError(error, t)}`,
+        `${t('monitoring.wxai_grok2api_sync_failed')}: ${getUsageServiceDisplayError(error, t)}`,
         'error'
       );
     } finally {
@@ -1179,22 +1191,27 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
       return;
     }
     if (!draft.grok2apiBaseUrl.trim()) {
-      showNotification(t('wxai_grok2api_sync_test_requires_url'), 'warning');
+      showNotification(t('monitoring.wxai_grok2api_sync_test_requires_url'), 'warning');
       return;
     }
     setGrok2apiTesting(true);
+    setGrok2apiTestStatus('loading');
+    setGrok2apiTestMessage(t('monitoring.wxai_grok2api_sync_test_running'));
     try {
       await wxaiInspectionApi.testGrok2apiConnection(serviceBase, managementKey, {
         baseUrl: draft.grok2apiBaseUrl.trim(),
         username: draft.grok2apiAdminUsername.trim(),
         password: draft.grok2apiAdminPassword,
       });
-      showNotification(t('wxai_grok2api_sync_test_success'), 'success');
+      const message = t('monitoring.wxai_grok2api_sync_test_success');
+      setGrok2apiTestStatus('success');
+      setGrok2apiTestMessage(message);
+      showNotification(message, 'success');
     } catch (error: unknown) {
-      showNotification(
-        `${t('wxai_grok2api_sync_test_failed')}: ${getUsageServiceDisplayError(error, t)}`,
-        'error'
-      );
+      const message = `${t('monitoring.wxai_grok2api_sync_test_failed')}: ${getUsageServiceDisplayError(error, t)}`;
+      setGrok2apiTestStatus('error');
+      setGrok2apiTestMessage(message);
+      showNotification(message, 'error');
     } finally {
       setGrok2apiTesting(false);
     }
@@ -1665,21 +1682,21 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
         {adapter.supportsGrok2apiSync ? (
           <section className={styles.configSection} id="grok2api-sync">
             <header className={styles.configSectionHeader}>
-              <span>{t('wxai_grok2api_sync_section_title')}</span>
+              <span>{t('monitoring.wxai_grok2api_sync_section_title')}</span>
             </header>
             <div className={styles.serverConfigGrid}>
               <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
                 <ToggleSwitch
                   checked={draft.grok2apiSyncEnabled}
                   onChange={(value) => updateDraft('grok2apiSyncEnabled', value)}
-                  label={t('wxai_grok2api_sync_enabled_label')}
+                  label={t('monitoring.wxai_grok2api_sync_enabled_label')}
                 />
               </div>
               <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
                 <Input
                   id="grok2apiBaseUrl"
-                  label={t('wxai_grok2api_sync_base_url_label')}
-                  hint={t('wxai_grok2api_sync_base_url_hint')}
+                  label={t('monitoring.wxai_grok2api_sync_base_url_label')}
+                  hint={t('monitoring.wxai_grok2api_sync_base_url_hint')}
                   value={draft.grok2apiBaseUrl}
                   placeholder="http://127.0.0.1:18453"
                   onChange={(event) => updateDraft('grok2apiBaseUrl', event.target.value)}
@@ -1688,7 +1705,7 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
               <div className={styles.serverField}>
                 <Input
                   id="grok2apiAdminUsername"
-                  label={t('wxai_grok2api_sync_username_label')}
+                  label={t('monitoring.wxai_grok2api_sync_username_label')}
                   autoComplete="off"
                   value={draft.grok2apiAdminUsername}
                   onChange={(event) => updateDraft('grok2apiAdminUsername', event.target.value)}
@@ -1697,11 +1714,11 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
               <div className={styles.serverField}>
                 <Input
                   id="grok2apiAdminPassword"
-                  label={t('wxai_grok2api_sync_password_label')}
+                  label={t('monitoring.wxai_grok2api_sync_password_label')}
                   hint={
                     draft.grok2apiAdminPassword
                       ? undefined
-                      : t('wxai_grok2api_sync_password_keep_hint')
+                      : t('monitoring.wxai_grok2api_sync_password_keep_hint')
                   }
                   type="password"
                   autoComplete="new-password"
@@ -1712,24 +1729,41 @@ export function ServerProviderInspectionPage({ adapter }: ServerProviderInspecti
               <div className={`${styles.serverField} ${styles.serverFieldWide}`}>
                 <div className={styles.configDrawerActions}>
                   <Button
+                    type="button"
                     variant="secondary"
                     size="sm"
                     loading={grok2apiTesting}
                     disabled={!serviceBase || grok2apiTesting || !draft.grok2apiBaseUrl.trim()}
                     onClick={() => void handleGrok2apiTestConnection()}
                   >
-                    {t('wxai_grok2api_sync_test_now')}
+                    {t('monitoring.wxai_grok2api_sync_test_now')}
                   </Button>
                   <Button
+                    type="button"
                     variant="secondary"
                     size="sm"
                     loading={grok2apiSyncing}
                     disabled={!serviceBase || grok2apiSyncing || !draft.grok2apiBaseUrl.trim()}
                     onClick={() => void handleGrok2apiSyncNow()}
                   >
-                    {t('wxai_grok2api_sync_now')}
+                    {t('monitoring.wxai_grok2api_sync_now')}
                   </Button>
                 </div>
+                {grok2apiTestStatus !== 'idle' ? (
+                  <p
+                    className={`${styles.grok2apiTestStatus} ${
+                      grok2apiTestStatus === 'success'
+                        ? styles.grok2apiTestStatusSuccess
+                        : grok2apiTestStatus === 'error'
+                          ? styles.grok2apiTestStatusError
+                          : styles.grok2apiTestStatusLoading
+                    }`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {grok2apiTestMessage}
+                  </p>
+                ) : null}
               </div>
             </div>
           </section>

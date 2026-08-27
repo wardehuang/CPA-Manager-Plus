@@ -62,6 +62,22 @@ func (handler *Handler) Handle(responseWriter http.ResponseWriter, request *http
 			return
 		}
 		response.JSON(responseWriter, http.StatusOK, map[string]any{"recorded": true})
+	case path == "/v0/management/wxai-inspection/realtime-healthy":
+		if request.Method != http.MethodPost {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		var payload wxaiinspectionsvc.RealtimeHealthyRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		cleared, err := handler.App.WxaiInspectionService.RecordRealtimeHealthy(request.Context(), payload)
+		if err != nil {
+			response.Error(responseWriter, http.StatusBadRequest, err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, map[string]any{"cleared": cleared})
 	case path == "/v0/management/wxai-inspection/settings":
 		handler.handleSettings(responseWriter, request)
 	case path == "/v0/management/wxai-inspection/manual-refresh":

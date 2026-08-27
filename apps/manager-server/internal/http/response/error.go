@@ -108,6 +108,16 @@ func UsageServiceErrorCode(err error) string {
 		return "model_price_sync_failed"
 	case strings.Contains(message, "method not allowed"):
 		return "method_not_allowed"
+	case strings.Contains(message, "用户名或密码错误"):
+		return "grok2api_invalid_credentials"
+	case strings.Contains(message, "grok2api 鉴权失败"):
+		return "grok2api_unauthorized"
+	case strings.Contains(message, "登录过于频繁"):
+		return "grok2api_login_rate_limited"
+	case strings.Contains(message, "grok2api 同步未启用或配置不完整"):
+		return "grok2api_not_configured"
+	case strings.Contains(message, "没有可同步的健康账号"):
+		return "grok2api_no_healthy_accounts"
 	default:
 		return "request_failed"
 	}

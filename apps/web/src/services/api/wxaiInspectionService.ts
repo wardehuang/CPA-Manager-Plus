@@ -103,6 +103,7 @@ export interface WxaiAccountStatusItem extends WxaiInspectionResult {
   originalPriority?: number;
   recoverAtMs?: number;
   accountType?: string;
+  exitIp: string;
   weeklyUsedPercent?: number;
   weeklyResetAtMs?: number;
   monthlyUsedPercent?: number;

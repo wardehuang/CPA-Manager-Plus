@@ -78,3 +78,15 @@ func (s *Store) GetWxaiInspectionSettings(ctx context.Context) (model.ManagerWxa
 func (s *Store) SaveWxaiInspectionSettings(ctx context.Context, settings model.ManagerWxaiInspectionConfig) (model.ManagerWxaiInspectionConfig, error) {
 	return s.wxaiInspections().SaveSettings(ctx, settings)
 }
+
+func (s *Store) GetWxaiRealtimeDegradationState(ctx context.Context, accountKey string) (model.WxaiRealtimeDegradationState, bool, error) {
+	return s.WxaiRealtimeDegradations.Get(ctx, accountKey)
+}
+
+func (s *Store) UpsertWxaiRealtimeDegradationState(ctx context.Context, state model.WxaiRealtimeDegradationState) error {
+	return s.WxaiRealtimeDegradations.Upsert(ctx, state)
+}
+
+func (s *Store) DeleteWxaiRealtimeDegradationState(ctx context.Context, accountKey string) error {
+	return s.WxaiRealtimeDegradations.Delete(ctx, accountKey)
+}

@@ -433,10 +433,9 @@ def parse_args() -> argparse.Namespace:
         description="Build and deploy CPA Manager Plus from the local working tree."
     )
     parser.add_argument(
-        "--skip-upstream-check",
-        "--skip-upstream",
+        "--merge",
         action="store_true",
-        help="Skip upstream remote/fetch/merge checks and deploy the current local working tree directly.",
+        help="Fetch and merge upstream/main before building. Default skips upstream.",
     )
     return parser.parse_args()
 
@@ -449,13 +448,13 @@ def main() -> int:
         logger.write(f"Log file: {LOG_PATH}")
         logger.write(f"Project root: {PROJECT_ROOT}")
 
-        if args.skip_upstream_check:
-            logger.section("Skipping upstream check")
-            logger.write("Deploying current local working tree without fetching or merging upstream.")
-            upstream_version = infer_base_version_without_upstream(logger)
-        else:
+        if args.merge:
             prepare_branch(logger)
             upstream_version = latest_upstream_version()
+        else:
+            logger.section("Skipping upstream merge (default)")
+            logger.write("Deploying current local working tree without fetching or merging upstream.")
+            upstream_version = infer_base_version_without_upstream(logger)
 
         version = next_build_version(upstream_version, logger)
         logger.section("Resolved build version")

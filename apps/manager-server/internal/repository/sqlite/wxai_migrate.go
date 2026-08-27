@@ -168,6 +168,18 @@ func migrateWxaiInspection(db *sql.DB) error {
 			updated_at_ms integer not null
 		)`,
 		`create index if not exists idx_wxai_priority_adjustments_recover_at on wxai_priority_adjustments(recover_at_ms)`,
+		`create table if not exists wxai_realtime_degradation_states (
+			account_key text primary key,
+			file_name text not null,
+			display_account text not null,
+			auth_index text,
+			account_id text,
+			degradation_count integer not null,
+			cooldown_until_ms integer not null default 0,
+			created_at_ms integer not null,
+			updated_at_ms integer not null
+		)`,
+		`create index if not exists idx_wxai_realtime_degradation_cooldown on wxai_realtime_degradation_states(cooldown_until_ms)`,
 		`create table if not exists wxai_account_priority_intervals (
 			account_key text primary key,
 			started_at_ms integer,

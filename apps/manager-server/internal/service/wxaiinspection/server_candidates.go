@@ -13,7 +13,9 @@ type wxaiServerInspectionSelection struct {
 	inspectionAccounts          []account
 	disabledAccounts            []account
 	botFlaggedAccounts          []account
+	realtimeCooldownAccounts    []account
 	quotaCooldownAccounts       []account
+	realtimeCooldownUntilByKey  map[string]int64
 	cooldownUntilByAccountKeyMS map[string]int64
 }
 
@@ -38,7 +40,9 @@ func (service *Service) resolveWxaiServerInspectionSelection(
 		inspectionAccounts:          make([]account, 0, len(accounts)),
 		disabledAccounts:            make([]account, 0),
 		botFlaggedAccounts:          make([]account, 0),
+		realtimeCooldownAccounts:    make([]account, 0),
 		quotaCooldownAccounts:       make([]account, 0),
+		realtimeCooldownUntilByKey:  make(map[string]int64),
 		cooldownUntilByAccountKeyMS: make(map[string]int64),
 	}
 
@@ -49,6 +53,15 @@ func (service *Service) resolveWxaiServerInspectionSelection(
 		}
 		if isWxaiBotFlaggedAccount(currentAccount) {
 			selection.botFlaggedAccounts = append(selection.botFlaggedAccounts, currentAccount)
+			continue
+		}
+		realtimeCooldownUntilMS, realtimeCooldownActive, err := service.resolveWxaiRealtimeDegradationCooldown(ctx, currentAccount, now)
+		if err != nil {
+			return wxaiServerInspectionSelection{}, err
+		}
+		if realtimeCooldownActive {
+			selection.realtimeCooldownAccounts = append(selection.realtimeCooldownAccounts, currentAccount)
+			selection.realtimeCooldownUntilByKey[currentAccount.Key] = realtimeCooldownUntilMS
 			continue
 		}
 		cooldownUntilMS, cooldownActive, err := service.resolveWxaiQuotaCooldown(ctx, currentAccount, now)
@@ -63,6 +76,21 @@ func (service *Service) resolveWxaiServerInspectionSelection(
 		selection.cooldownUntilByAccountKeyMS[currentAccount.Key] = cooldownUntilMS
 	}
 	return selection, nil
+}
+
+func (service *Service) resolveWxaiRealtimeDegradationCooldown(
+	ctx context.Context,
+	currentAccount account,
+	now time.Time,
+) (int64, bool, error) {
+	state, exists, err := service.store.GetWxaiRealtimeDegradationState(ctx, currentAccount.Key)
+	if err != nil {
+		return 0, false, err
+	}
+	if !exists || state.CooldownUntilMS <= now.UnixMilli() {
+		return 0, false, nil
+	}
+	return state.CooldownUntilMS, true, nil
 }
 
 func (service *Service) resolveWxaiQuotaCooldown(
@@ -261,7 +289,7 @@ func buildPreservedWxaiAccountState(
 	} else if isWxaiBotFlaggedAccount(currentAccount) {
 		result.ErrorKind = "account_abnormal"
 		result.ErrorDetail = previousErrorDetail
-		result.ActionReason = "账号命中 bot_flag_source 或 bfs，priority 为 -6，永久跳过巡检"
+		result.ActionReason = "账号 priority 为 -6，已进入永久跳过巡检状态"
 	} else {
 		result.ActionReason = "账号未参与本轮网络探测，保持当前状态"
 	}
