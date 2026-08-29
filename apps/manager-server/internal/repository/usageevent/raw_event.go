@@ -42,6 +42,7 @@ type RawEvent struct {
 	TotalTokens           int64
 	LatencyMS             *int64
 	TTFTMS                *int64
+	GenerationMS          *int64
 	Failed                bool
 	FailStatusCode        *int64
 	FailSummary           string
@@ -57,14 +58,14 @@ func (r *repository) GetRawEventByHash(ctx context.Context, eventHash string) (R
 		e.account_snapshot, e.auth_label_snapshot, e.auth_file_snapshot, e.auth_provider_snapshot, e.auth_project_id_snapshot, e.auth_snapshot_at_ms,
 		e.requested_model, e.resolved_model, e.reasoning_effort, e.service_tier,
 		e.input_tokens, e.output_tokens, e.reasoning_tokens, e.cached_tokens, e.cache_tokens, e.cache_read_tokens, e.cache_creation_tokens, e.total_tokens,
-		e.latency_ms, e.ttft_ms, e.failed, e.fail_status_code, e.fail_summary, e.raw_json, r.raw_payload, e.created_at_ms
+		e.latency_ms, e.ttft_ms, e.generation_ms, e.failed, e.fail_status_code, e.fail_summary, e.raw_json, r.raw_payload, e.created_at_ms
 		from usage_events e join usage_raw r on r.event_hash = e.event_hash where e.event_hash = ?`, eventHash)
 
 	var event RawEvent
 	var requestID, provider, executorType, endpoint, method, path, authType, authIndex, source, sourceHash, apiKeyHash sql.NullString
 	var accountSnapshot, authLabelSnapshot, authFileSnapshot, authProviderSnapshot, authProjectIDSnapshot sql.NullString
 	var requestedModel, resolvedModel, reasoningEffort, serviceTier, failSummary, rawJSON, rawPayload sql.NullString
-	var authSnapshotAtMS, latencyMS, ttftMS, failStatusCode sql.NullInt64
+	var authSnapshotAtMS, latencyMS, ttftMS, generationMS, failStatusCode sql.NullInt64
 	var failed int
 	if err := row.Scan(
 		&event.ID,
@@ -103,6 +104,7 @@ func (r *repository) GetRawEventByHash(ctx context.Context, eventHash string) (R
 		&event.TotalTokens,
 		&latencyMS,
 		&ttftMS,
+		&generationMS,
 		&failed,
 		&failStatusCode,
 		&failSummary,
@@ -148,6 +150,10 @@ func (r *repository) GetRawEventByHash(ctx context.Context, eventHash string) (R
 	if ttftMS.Valid {
 		value := ttftMS.Int64
 		event.TTFTMS = &value
+	}
+	if generationMS.Valid {
+		value := generationMS.Int64
+		event.GenerationMS = &value
 	}
 	if failStatusCode.Valid {
 		value := failStatusCode.Int64

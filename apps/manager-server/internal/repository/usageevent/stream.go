@@ -89,6 +89,7 @@ func (r *repository) WriteCompatibleUsage(ctx context.Context, writer io.Writer,
 		auth_snapshot_at_ms,
 		latency_ms,
 		ttft_ms,
+		generation_ms,
 		coalesce(resolved_model, ''),
 		coalesce(reasoning_effort, ''),
 		coalesce(service_tier, ''),
@@ -339,7 +340,7 @@ func (r *repository) exportBatch(ctx context.Context, snapshot usageSnapshot, cu
 		account_snapshot, auth_label_snapshot, auth_file_snapshot, auth_provider_snapshot, auth_project_id_snapshot, auth_snapshot_at_ms,
 		requested_model, resolved_model, reasoning_effort, service_tier,
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_creation_tokens, total_tokens,
-		latency_ms, ttft_ms, failed, fail_status_code, fail_summary,
+		latency_ms, ttft_ms, generation_ms, failed, fail_status_code, fail_summary,
 		coalesce(response_metadata_json, ''), header_quota_recover_at_ms, header_quota_used_percent, coalesce(header_quota_plan_type, ''), coalesce(header_error_kind, ''), coalesce(header_error_code, ''), coalesce(header_trace_id, ''),
 		created_at_ms
 	from usage_events
@@ -383,6 +384,7 @@ func scanCompatibleDetail(rows *sql.Rows) (string, string, rawMetadataDetail, er
 	var authSnapshotAt sql.NullInt64
 	var latency sql.NullInt64
 	var ttft sql.NullInt64
+	var generation sql.NullInt64
 	var failStatusCode sql.NullInt64
 	var responseMetadataJSON string
 	var failed int
@@ -404,6 +406,7 @@ func scanCompatibleDetail(rows *sql.Rows) (string, string, rawMetadataDetail, er
 		&authSnapshotAt,
 		&latency,
 		&ttft,
+		&generation,
 		&detail.ResolvedModel,
 		&detail.ReasoningEffort,
 		&detail.ServiceTier,
@@ -438,6 +441,10 @@ func scanCompatibleDetail(rows *sql.Rows) (string, string, rawMetadataDetail, er
 		value := ttft.Int64
 		detail.TTFTMS = &value
 	}
+	if generation.Valid {
+		value := generation.Int64
+		detail.GenerationMS = &value
+	}
 	if failStatusCode.Valid {
 		detail.FailStatusCode = int(failStatusCode.Int64)
 	}
@@ -462,7 +469,7 @@ func scanExportRow(rows *sql.Rows) (exportRow, error) {
 	var requestID, provider, executorType, endpoint, method, path, authType, authIndex, source, sourceHash, apiKeyHash, accountSnapshot, authLabelSnapshot, authFileSnapshot, authProviderSnapshot, authProjectIDSnapshot, requestedModel, resolvedModel, reasoningEffort, serviceTier, failSummary sql.NullString
 	var responseMetadataJSON, quotaPlanType, errorKind, errorCode, traceID string
 	var authSnapshotAt sql.NullInt64
-	var latency, ttft sql.NullInt64
+	var latency, ttft, generation sql.NullInt64
 	var failStatusCode sql.NullInt64
 	var quotaRecoverAt sql.NullInt64
 	var quotaUsedPercent sql.NullFloat64
@@ -504,6 +511,7 @@ func scanExportRow(rows *sql.Rows) (exportRow, error) {
 		&event.TotalTokens,
 		&latency,
 		&ttft,
+		&generation,
 		&failed,
 		&failStatusCode,
 		&failSummary,
@@ -554,6 +562,10 @@ func scanExportRow(rows *sql.Rows) (exportRow, error) {
 	if ttft.Valid {
 		value := ttft.Int64
 		event.TTFTMS = &value
+	}
+	if generation.Valid {
+		value := generation.Int64
+		event.GenerationMS = &value
 	}
 	if failStatusCode.Valid {
 		event.FailStatusCode = int(failStatusCode.Int64)

@@ -49,6 +49,7 @@ type RawEventRecord struct {
 	TotalTokens           int64  `json:"total_tokens"`
 	LatencyMS             *int64 `json:"latency_ms"`
 	TTFTMS                *int64 `json:"ttft_ms"`
+	GenerationMS          *int64 `json:"generation_ms,omitempty"`
 	Failed                bool   `json:"failed"`
 	FailStatusCode        *int64 `json:"fail_status_code"`
 	FailSummary           string `json:"fail_summary"`
@@ -110,6 +111,7 @@ func (s *Service) RawEvent(ctx context.Context, eventHash string) (RawEventRespo
 			TotalTokens:           event.TotalTokens,
 			LatencyMS:             event.LatencyMS,
 			TTFTMS:                event.TTFTMS,
+			GenerationMS:          event.GenerationMS,
 			Failed:                event.Failed,
 			FailStatusCode:        event.FailStatusCode,
 			FailSummary:           event.FailSummary,

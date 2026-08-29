@@ -7,7 +7,8 @@ my-feature working tree is preserved and packaged without merging. The script
 increments a local build number based on the latest upstream tag, injects it as
 the Docker build VERSION, uploads the local working tree, and recreates the
 Docker service on Oracle 01 bound to 0.0.0.0 for public access on
-wcpap.edmundvps.site:18317.
+wcpap.edmundvps.site:18317. After the service is healthy, Docker Build Cache is
+pruned so a successful deploy does not leave BuildKit cache on the server.
 """
 
 from __future__ import annotations
@@ -468,6 +469,12 @@ def main() -> int:
             logger,
             ssh_command(remote_deploy_script(version)),
             "Building and deploying on server",
+        )
+
+        run_checked(
+            logger,
+            ssh_command("docker builder prune -af"),
+            "Pruning Docker Build Cache after successful deploy",
         )
 
         logger.section("Done")

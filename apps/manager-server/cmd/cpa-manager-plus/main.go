@@ -151,7 +151,6 @@ func runServer() {
 		serverApp.AppContext().WxaiInspectionService,
 	)
 	wxaiConditionalInspectionWorker := worker.NewWxaiConditionalInspectionWorker(
-		serverApp.AppContext().Store,
 		serverApp.AppContext().WxaiInspectionService,
 	)
 	manager.SetUsageEventHandler(worker.NewUsageEventFanout(
@@ -171,7 +170,6 @@ func runServer() {
 	antigravityInspectionWorker.Start(ctx)
 	wxaiInspectionWorker := worker.NewWxaiInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().WxaiInspectionService)
 	wxaiInspectionWorker.Start(ctx)
-	wxaiConditionalInspectionWorker.Start(ctx)
 	antigravityConditionalInspectionWorker := worker.NewAntigravityConditionalInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().AntigravityInspectionService)
 	antigravityConditionalInspectionWorker.Start(ctx)
 

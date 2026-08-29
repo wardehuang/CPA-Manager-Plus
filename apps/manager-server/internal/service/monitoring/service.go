@@ -714,6 +714,7 @@ type EventRow struct {
 	TotalTokens            int64                         `json:"total_tokens"`
 	LatencyMS              *int64                        `json:"latency_ms"`
 	TTFTMS                 *int64                        `json:"ttft_ms"`
+	GenerationMS           *int64                        `json:"generation_ms,omitempty"`
 	Failed                 bool                          `json:"failed"`
 	FailStatusCode         *int64                        `json:"fail_status_code,omitempty"`
 	FailSummary            string                        `json:"fail_summary,omitempty"`
@@ -3134,6 +3135,7 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			TotalTokens:            item.TotalTokens,
 			LatencyMS:              nullableInt(item.LatencyMS.Valid, item.LatencyMS.Int64),
 			TTFTMS:                 nullableInt(item.TTFTMS.Valid, item.TTFTMS.Int64),
+			GenerationMS:           nullableInt(item.GenerationMS.Valid, item.GenerationMS.Int64),
 			Failed:                 item.Failed,
 			FailStatusCode:         nullableInt(item.FailStatusCode.Valid, item.FailStatusCode.Int64),
 			FailSummary:            item.FailSummary,

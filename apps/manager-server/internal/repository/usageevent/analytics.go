@@ -385,6 +385,7 @@ type EventPageItem struct {
 	TotalTokens            int64
 	LatencyMS              sql.NullInt64
 	TTFTMS                 sql.NullInt64
+	GenerationMS           sql.NullInt64
 	Failed                 bool
 	FailStatusCode         sql.NullInt64
 	FailSummary            string
@@ -2324,6 +2325,7 @@ func (r *repository) EventsPageWithFilter(ctx context.Context, filter AnalyticsF
 	total_tokens,
 	latency_ms,
 	ttft_ms,
+	generation_ms,
 	failed,
 	fail_status_code,
 	coalesce(fail_summary, ''),
@@ -2379,6 +2381,7 @@ limit ?`, args...)
 			&item.TotalTokens,
 			&item.LatencyMS,
 			&item.TTFTMS,
+			&item.GenerationMS,
 			&failed,
 			&item.FailStatusCode,
 			&item.FailSummary,

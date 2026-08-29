@@ -133,6 +133,7 @@ type Detail struct {
 	AuthSnapshotAtMS      int64                   `json:"auth_snapshot_at_ms,omitempty"`
 	LatencyMS             *int64                  `json:"latency_ms,omitempty"`
 	TTFTMS                *int64                  `json:"ttft_ms,omitempty"`
+	GenerationMS          *int64                  `json:"generation_ms,omitempty"`
 	ResolvedModel         string                  `json:"resolved_model,omitempty"`
 	ReasoningEffort       string                  `json:"reasoning_effort,omitempty"`
 	ServiceTier           string                  `json:"service_tier,omitempty"`
@@ -523,6 +524,7 @@ func NormalizeRaw(raw []byte) (Event, error) {
 
 	latencyMS := readOptionalInt(record, "latency_ms", "latencyMs", "duration_ms", "durationMs", "elapsed_ms", "elapsedMs")
 	ttftMS := readOptionalInt(record, "ttft_ms", "ttftMs", "time_to_first_token_ms", "timeToFirstTokenMs")
+	generationMS := readOptionalInt(record, "generation_ms", "generationMs")
 	failed := readFailed(record)
 	failStatusCode, failBody := readFailFields(record)
 	failSummary := FailSummaryFromBody(failBody)
@@ -602,6 +604,7 @@ func NormalizeRaw(raw []byte) (Event, error) {
 		TotalTokens:                   totalTokens,
 		LatencyMS:                     latencyMS,
 		TTFTMS:                        ttftMS,
+		GenerationMS:                  generationMS,
 		Failed:                        failed,
 		FailStatusCode:                int(failStatusCode),
 		FailSummary:                   failSummary,
@@ -666,6 +669,7 @@ func BuildPayload(events []Event) Payload {
 			AuthSnapshotAtMS:      event.AuthSnapshotAtMS,
 			LatencyMS:             event.LatencyMS,
 			TTFTMS:                event.TTFTMS,
+			GenerationMS:          event.GenerationMS,
 			ResolvedModel:         event.ResolvedModel,
 			ReasoningEffort:       event.ReasoningEffort,
 			ServiceTier:           event.ServiceTier,
