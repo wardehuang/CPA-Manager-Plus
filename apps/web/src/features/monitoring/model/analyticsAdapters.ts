@@ -988,6 +988,7 @@ export const buildUsageDetailsFromAnalyticsEvents = (
     executor_type: readString(item.executor_type),
     latency_ms: item.latency_ms ?? undefined,
     ttft_ms: item.ttft_ms ?? undefined,
+    generation_ms: item.generation_ms ?? undefined,
     tokens: {
       input_tokens: item.input_tokens,
       output_tokens: item.output_tokens,

@@ -1437,6 +1437,7 @@ export interface MonitoringAnalyticsEventRow {
   total_tokens: number;
   latency_ms: number | null;
   ttft_ms?: number | null;
+  generation_ms?: number | null;
   failed: boolean;
   fail_status_code?: number | null;
   fail_summary?: string;
@@ -1519,6 +1520,7 @@ export interface MonitoringRawEventRecord {
   total_tokens: number;
   latency_ms: number | null;
   ttft_ms: number | null;
+  generation_ms?: number | null;
   failed: boolean;
   fail_status_code: number | null;
   fail_summary: string;
