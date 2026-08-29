@@ -174,7 +174,11 @@ func fromExisting(
 			codexinspectionsvc.ServiceOptions{AuthFileMutationCoordinator: authFileMutationCoordinator},
 		),
 		AntigravityInspectionService: antigravityinspectionsvc.New(st, managerConfigService),
-		WxaiInspectionService:        wxaiinspectionsvc.New(st, managerConfigService),
+		WxaiInspectionService: wxaiinspectionsvc.NewWithOptions(
+			st,
+			managerConfigService,
+			wxaiinspectionsvc.ServiceOptions{AuthFileMutationCoordinator: authFileMutationCoordinator},
+		),
 		MonitoringService:            monitoringsvc.New(st, cfg.DashboardHourlyRollupEnabled),
 		ModelPriceService:            modelpricesvc.NewMultiSourceWithModelsDev(st, modelsDevModelPriceSyncURL, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
 		APIKeyAliasService:           apikeyaliassvc.New(st),

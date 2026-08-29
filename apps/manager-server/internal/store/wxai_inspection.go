@@ -31,6 +31,10 @@ func (s *Store) UpsertWxaiAccountStatusDetail(ctx context.Context, detail model.
 	return s.wxaiInspections().UpsertAccountStatusDetail(ctx, detail)
 }
 
+func (s *Store) UpdateWxaiAccountScheduleGroups(ctx context.Context, runID int64, groups map[string]int) error {
+	return s.wxaiInspections().UpdateAccountScheduleGroups(ctx, runID, groups)
+}
+
 func (s *Store) UpsertWxaiAccountProfile(ctx context.Context, profile model.WxaiAccountProfile) error {
 	return s.wxaiInspections().UpsertAccountProfile(ctx, profile)
 }

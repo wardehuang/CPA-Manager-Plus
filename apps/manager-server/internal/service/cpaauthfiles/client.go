@@ -1075,6 +1075,13 @@ func (c *Client) PatchPriority(ctx context.Context, baseURL string, managementKe
 	})
 }
 
+func (c *Client) PatchScheduleGroup(ctx context.Context, baseURL string, managementKey string, fileName string, scheduleGroup int) error {
+	return c.PatchFields(ctx, baseURL, managementKey, map[string]any{
+		"name":           fileName,
+		"schedule_group": scheduleGroup,
+	})
+}
+
 func (c *Client) patchFieldsEndpoint(ctx context.Context, endpoint string, managementKey string, data []byte) (int, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()

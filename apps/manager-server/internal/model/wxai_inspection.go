@@ -146,6 +146,7 @@ type WxaiAccountStatusDetail struct {
 	RunID              int64    `json:"runId"`
 	AccountKey         string   `json:"accountKey"`
 	Priority           *int     `json:"priority,omitempty"`
+	ScheduleGroup      *int     `json:"scheduleGroup,omitempty"`
 	AccountType        string   `json:"accountType,omitempty"`
 	WeeklyUsedPercent  *float64 `json:"weeklyUsedPercent,omitempty"`
 	WeeklyResetAtMS    int64    `json:"weeklyResetAtMs,omitempty"`
@@ -162,6 +163,7 @@ type WxaiAccountStatusItem struct {
 	WxaiInspectionResult
 	ResultCreatedAtMS  int64    `json:"resultCreatedAtMs"`
 	Priority           *int     `json:"priority,omitempty"`
+	ScheduleGroup      *int     `json:"scheduleGroup,omitempty"`
 	OriginalPriority   *int     `json:"originalPriority,omitempty"`
 	RecoverAtMS        int64    `json:"recoverAtMs,omitempty"`
 	AccountType        string   `json:"accountType,omitempty"`

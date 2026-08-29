@@ -98,6 +98,7 @@ func migrateWxaiInspection(db *sql.DB) error {
 			run_id integer not null,
 			account_key text not null,
 			priority integer,
+			schedule_group integer,
 			account_type text,
 			weekly_used_percent real,
 			weekly_reset_at_ms integer,
@@ -200,7 +201,19 @@ func migrateWxaiInspection(db *sql.DB) error {
 	if err := ensureWxaiInspectionResultActionColumns(db); err != nil {
 		return err
 	}
-	return ensureWxaiInspectionHTTPResponseColumns(db)
+	if err := ensureWxaiInspectionHTTPResponseColumns(db); err != nil {
+		return err
+	}
+	return ensureWxaiAccountStatusDetailColumns(db)
+}
+
+func ensureWxaiAccountStatusDetailColumns(db *sql.DB) error {
+	return ensureWxaiInspectionColumns(db, "wxai_account_status_details", []struct {
+		name       string
+		definition string
+	}{
+		{name: "schedule_group", definition: "integer"},
+	})
 }
 
 func ensureWxaiInspectionRunCountColumns(db *sql.DB) error {

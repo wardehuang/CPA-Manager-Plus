@@ -33,6 +33,7 @@ type Service struct {
 	store                *store.Store
 	managerConfigService *managerconfig.Service
 	client               *http.Client
+	authFileMutations    *cpaauthfiles.MutationCoordinator
 
 	mutex                   sync.Mutex
 	running                 bool
@@ -90,16 +91,30 @@ type account struct {
 	AuthIndex      string
 	AccountID      string
 	Priority       *int
+	ScheduleGroup  *int
 	AccountType    string
 	Status         string
 	State          string
 }
 
 func New(st *store.Store, managerConfigService *managerconfig.Service) *Service {
+	return NewWithOptions(st, managerConfigService, ServiceOptions{})
+}
+
+type ServiceOptions struct {
+	AuthFileMutationCoordinator *cpaauthfiles.MutationCoordinator
+}
+
+func NewWithOptions(st *store.Store, managerConfigService *managerconfig.Service, options ServiceOptions) *Service {
+	coordinator := options.AuthFileMutationCoordinator
+	if coordinator == nil {
+		coordinator = cpaauthfiles.NewMutationCoordinator()
+	}
 	return &Service{
 		store:                st,
 		managerConfigService: managerConfigService,
 		client:               &http.Client{Timeout: 60 * time.Second},
+		authFileMutations:    coordinator,
 	}
 }
 
@@ -153,6 +168,11 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	}
 	logger := runLogger{service: service, runID: run.ID}
 	logger.info(ctx, "wXAi 巡检开始", map[string]any{"triggerType": triggerType, "triggerKey": triggerKey})
+	scheduleGroupCount, err := service.fetchScheduleGroupCount(ctx, setup)
+	if err != nil {
+		logger.error(ctx, "读取 xAI 调度组配置失败", map[string]any{"error": err.Error()})
+		return service.failRun(ctx, run, err)
+	}
 
 	accounts, err := service.fetchAccounts(ctx, setup)
 	if err != nil {
@@ -221,6 +241,19 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	run.QuotaExhaustedCount = countWxaiQuotaResults(results)
 	run.AbnormalCount = countWxaiAbnormalResults(results)
 	run.KeepCount = len(results) - run.QuotaExhaustedCount - run.AbnormalCount
+	assignments, err := service.assignScheduleGroups(ctx, setup, scheduleGroupCount)
+	if err != nil {
+		logger.error(ctx, "分配 xAI 调度组失败", map[string]any{"error": err.Error()})
+		return service.failRun(ctx, run, err)
+	}
+	if err := service.persistScheduleGroupAssignments(context.WithoutCancel(ctx), run.ID, assignments); err != nil {
+		logger.error(ctx, "持久化 xAI 调度组状态失败", map[string]any{"error": err.Error()})
+		return service.failRun(ctx, run, err)
+	}
+	if err := service.resetScheduleGroupCounters(context.WithoutCancel(ctx), setup); err != nil {
+		logger.error(ctx, "重置 xAI 调度组调用次数失败", map[string]any{"error": err.Error()})
+		return service.failRun(ctx, run, err)
+	}
 	run.Status = model.WxaiInspectionStatusCompleted
 	run.FinishedAtMS = time.Now().UnixMilli()
 	logger.info(ctx, "wXAi 巡检完成", map[string]any{
@@ -343,17 +376,17 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 		return err
 	}
 
-	latestRun, err := service.LatestCompletedScheduledRun(ctx)
-	if err != nil || !latestRun.Found {
+	runID, err := service.latestReusableWxaiRunID(ctx)
+	if err != nil || runID <= 0 {
 		return err
 	}
 	statusDetail := model.WxaiAccountStatusDetail{
-		RunID:       latestRun.Run.ID,
+		RunID:       runID,
 		AccountKey:  request.AccountKey,
 		Priority:    intPointer(stage.Priority),
 		CheckedAtMS: time.Now().UnixMilli(),
 	}
-	latestItems, err := service.store.ListWxaiAccountStatusItems(ctx, latestRun.Run.ID)
+	latestItems, err := service.store.ListWxaiAccountStatusItems(ctx, runID)
 	if err != nil {
 		return err
 	}
@@ -362,6 +395,7 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 			continue
 		}
 		statusDetail.AccountType = item.AccountType
+		statusDetail.ScheduleGroup = item.ScheduleGroup
 		statusDetail.WeeklyUsedPercent = item.WeeklyUsedPercent
 		statusDetail.WeeklyResetAtMS = item.WeeklyResetAtMS
 		statusDetail.MonthlyUsedPercent = item.MonthlyUsedPercent
@@ -374,7 +408,7 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 		return err
 	}
 	result := model.WxaiInspectionResult{
-		RunID:          latestRun.Run.ID,
+		RunID:          runID,
 		AccountKey:     request.AccountKey,
 		FileName:       request.FileName,
 		DisplayAccount: request.DisplayAccount,
@@ -394,7 +428,7 @@ func (service *Service) RecordRealtimeDegradation(ctx context.Context, request R
 		return err
 	}
 	_, err = service.store.InsertWxaiInspectionLog(ctx, model.WxaiInspectionLog{
-		RunID:   latestRun.Run.ID,
+		RunID:   runID,
 		Level:   "warn",
 		Message: stage.LogMessage,
 		Detail: map[string]any{
@@ -523,6 +557,7 @@ func (service *Service) fetchAccounts(ctx context.Context, setup store.Setup) ([
 			AuthIndex:      authIndex,
 			AccountID:      accountID,
 			Priority:       readNestedInt(file.Raw, "priority"),
+			ScheduleGroup:  readNestedInt(file.Raw, "schedule_group"),
 			Status:         firstString(file.Raw, "status"),
 			State:          firstString(file.Raw, "state"),
 		})
@@ -712,6 +747,7 @@ func (service *Service) writeAccountStatusDetail(
 		RunID:             runID,
 		AccountKey:        result.AccountKey,
 		Priority:          currentAccount.Priority,
+		ScheduleGroup:     currentAccount.ScheduleGroup,
 		AccountType:       firstNonEmpty(result.PlanType, currentAccount.AccountType),
 		MonthlyLimitCents: result.MonthlyLimitCents,
 		MonthlyUsedCents:  result.MonthlyUsedCents,

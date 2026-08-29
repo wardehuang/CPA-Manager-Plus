@@ -50,6 +50,7 @@ type WxaiAccountStatusRow = {
   exitIp: string;
   accountType: string | null;
   priority: number | null;
+  scheduleGroup: number | null;
   originalPriority: number | null;
   recoverAtMs: number | null;
   statusCode: number | null;
@@ -78,6 +79,7 @@ const buildRow = (item: WxaiAccountStatusItem): WxaiAccountStatusRow => ({
   exitIp: item.exitIp,
   accountType: item.accountType || item.planType || null,
   priority: normalizeNumber(item.priority),
+  scheduleGroup: normalizeNumber(item.scheduleGroup),
   originalPriority: normalizeNumber(item.originalPriority),
   recoverAtMs: normalizeNumber(item.recoverAtMs),
   statusCode: normalizeNumber(item.statusCode),
@@ -597,6 +599,7 @@ export function WxaiInspectionPage() {
                 <col className={styles.accountStatusColType} />
                 <col className={styles.accountStatusColStatus} />
                 <col className={styles.accountStatusColPriority} />
+                <col className={styles.accountStatusColScheduleGroup} />
                 <col className={styles.accountStatusColQuota} />
                 <col className={styles.accountStatusColCost} />
                 <col className={styles.accountStatusColInfo} />
@@ -620,6 +623,7 @@ export function WxaiInspectionPage() {
                     direction={sortDirection}
                     onClick={handleSort}
                   />
+                  <th>调度组</th>
                   <th>额度窗口</th>
                   <th>预计花费</th>
                   <th>最后巡检</th>
@@ -628,7 +632,7 @@ export function WxaiInspectionPage() {
               <tbody>
                 {pagedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={styles.accountStatusEmpty}>
+                    <td colSpan={9} className={styles.accountStatusEmpty}>
                       {loading ? (
                         <div className={styles.accountStatusLoadingState} role="status" aria-live="polite">
                           <span className={styles.accountStatusLoadingOrb} aria-hidden="true">
@@ -920,6 +924,14 @@ function AccountRow({
           </span>
         </td>
         <td>
+          <span
+            className={styles.priorityBadge}
+            style={{ fontSize: getFixedBadgeTextSize(String(row.scheduleGroup ?? '-')) }}
+          >
+            {row.scheduleGroup ?? '-'}
+          </span>
+        </td>
+        <td>
           <div className={styles.accountStatusQuotaList}>
             {quotaItems.length === 0 ? (
               <span className={styles.accountStatusNoQuotaState}>
@@ -993,7 +1005,7 @@ function AccountRow({
       </tr>
       {expanded ? (
         <tr className={styles.accountStatusDetailRow}>
-          <td colSpan={8}>
+          <td colSpan={9}>
             <AccountDetailPanel
               row={row}
               language={language}

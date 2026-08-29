@@ -83,6 +83,9 @@ func fillWxaiAccountStatusDetailsFromDonor(selected *model.WxaiAccountStatusItem
 	if selected.Priority == nil {
 		selected.Priority = donor.Priority
 	}
+	if selected.ScheduleGroup == nil {
+		selected.ScheduleGroup = donor.ScheduleGroup
+	}
 	if strings.TrimSpace(selected.AccountType) == "" {
 		selected.AccountType = donor.AccountType
 	}

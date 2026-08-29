@@ -100,6 +100,7 @@ export interface WxaiInspectionResult {
 export interface WxaiAccountStatusItem extends WxaiInspectionResult {
   resultCreatedAtMs: number;
   priority?: number;
+  scheduleGroup?: number;
   originalPriority?: number;
   recoverAtMs?: number;
   accountType?: string;

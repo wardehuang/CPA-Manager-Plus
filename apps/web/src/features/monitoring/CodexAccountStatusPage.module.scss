@@ -343,8 +343,12 @@
   width: 80px;
 }
 
+.accountStatusColScheduleGroup {
+  width: 76px;
+}
+
 .accountStatusColQuota {
-  width: 340px;
+  width: 264px;
 }
 
 .accountStatusColCost {
@@ -389,14 +393,14 @@
 }
 
 .accountStatusTable td:first-child,
-.accountStatusTable td:nth-child(6) {
+.accountStatusTable td:nth-child(7) {
   text-align: left;
 }
 
-.accountStatusTable th:nth-child(7),
-.accountStatusTable td:nth-child(7),
 .accountStatusTable th:nth-child(8),
-.accountStatusTable td:nth-child(8) {
+.accountStatusTable td:nth-child(8),
+.accountStatusTable th:nth-child(9),
+.accountStatusTable td:nth-child(9) {
   text-align: center;
 }
 
@@ -411,7 +415,8 @@
 
 .accountStatusTable td:nth-child(3) .accountTypeBadge,
 .accountStatusTable td:nth-child(4) .statusBadge,
-.accountStatusTable td:nth-child(5) .priorityBadge {
+.accountStatusTable td:nth-child(5) .priorityBadge,
+.accountStatusTable td:nth-child(6) .priorityBadge {
   margin-inline: auto;
 }
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ type Repository interface {
 	InsertResult(ctx context.Context, result model.WxaiInspectionResult) (model.WxaiInspectionResult, error)
 	InsertLog(ctx context.Context, entry model.WxaiInspectionLog) (model.WxaiInspectionLog, error)
 	UpsertAccountStatusDetail(ctx context.Context, detail model.WxaiAccountStatusDetail) error
+	UpdateAccountScheduleGroups(ctx context.Context, runID int64, groups map[string]int) error
 	UpsertAccountProfile(ctx context.Context, profile model.WxaiAccountProfile) error
 	ListAccountProfiles(ctx context.Context) ([]model.WxaiAccountProfile, error)
 	ListRuns(ctx context.Context, limit int) ([]model.WxaiInspectionRun, error)
@@ -163,23 +165,52 @@ func (repository *repository) UpsertAccountStatusDetail(ctx context.Context, det
 	}
 	detail.UpdatedAtMS = now
 	_, err := repository.db.ExecContext(ctx, `insert into wxai_account_status_details (
-		run_id, account_key, priority, account_type, weekly_used_percent, weekly_reset_at_ms,
+		run_id, account_key, priority, schedule_group, account_type, weekly_used_percent, weekly_reset_at_ms,
 		monthly_used_percent, monthly_reset_at_ms, monthly_limit_cents, monthly_used_cents,
 		checked_at_ms, created_at_ms, updated_at_ms
-	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	on conflict(run_id, account_key) do update set
-		priority = excluded.priority, account_type = excluded.account_type,
+		priority = excluded.priority, schedule_group = excluded.schedule_group, account_type = excluded.account_type,
 		weekly_used_percent = excluded.weekly_used_percent, weekly_reset_at_ms = excluded.weekly_reset_at_ms,
 		monthly_used_percent = excluded.monthly_used_percent, monthly_reset_at_ms = excluded.monthly_reset_at_ms,
 		monthly_limit_cents = excluded.monthly_limit_cents, monthly_used_cents = excluded.monthly_used_cents,
 		checked_at_ms = excluded.checked_at_ms, updated_at_ms = excluded.updated_at_ms`,
-		detail.RunID, detail.AccountKey, nullableInt(detail.Priority), nullableString(detail.AccountType),
+		detail.RunID, detail.AccountKey, nullableInt(detail.Priority), nullableInt(detail.ScheduleGroup), nullableString(detail.AccountType),
 		nullableFloat(detail.WeeklyUsedPercent), nullablePositiveInt64(detail.WeeklyResetAtMS),
 		nullableFloat(detail.MonthlyUsedPercent), nullablePositiveInt64(detail.MonthlyResetAtMS),
 		nullableFloat(detail.MonthlyLimitCents), nullableFloat(detail.MonthlyUsedCents),
 		nullablePositiveInt64(detail.CheckedAtMS), detail.CreatedAtMS, detail.UpdatedAtMS,
 	)
 	return err
+}
+
+func (repository *repository) UpdateAccountScheduleGroups(ctx context.Context, runID int64, groups map[string]int) error {
+	transaction, err := repository.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	for accountKey, group := range groups {
+		result, updateErr := transaction.ExecContext(
+			ctx,
+			`update wxai_account_status_details set schedule_group = ?, updated_at_ms = ? where run_id = ? and account_key = ?`,
+			group,
+			time.Now().UnixMilli(),
+			runID,
+			accountKey,
+		)
+		if updateErr != nil {
+			return updateErr
+		}
+		updated, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if updated != 1 {
+			return fmt.Errorf("wxai account status detail not found: run_id=%d account_key=%s", runID, accountKey)
+		}
+	}
+	return transaction.Commit()
 }
 
 func (repository *repository) UpsertAccountProfile(ctx context.Context, profile model.WxaiAccountProfile) error {
@@ -329,7 +360,7 @@ func (repository *repository) ListAccountStatusItems(ctx context.Context, runID 
 		r.provider, r.disabled, r.status, r.state, r.action, r.action_reason, r.action_status,
 		r.executed_action, r.action_error, r.status_code, r.used_percent, r.is_quota, r.error, r.plan_type, r.quota_windows_json,
 		r.monthly_limit_cents, r.monthly_used_cents, r.error_kind, r.error_detail, r.created_at_ms,
-		d.priority, d.account_type, d.weekly_used_percent, d.weekly_reset_at_ms,
+		d.priority, d.schedule_group, d.account_type, d.weekly_used_percent, d.weekly_reset_at_ms,
 		d.monthly_used_percent, d.monthly_reset_at_ms, d.checked_at_ms
 	from wxai_inspection_results r
 	left join wxai_account_status_details d on d.run_id = r.run_id and d.account_key = r.account_key
@@ -476,14 +507,14 @@ func scanAccountStatusItem(row scanner) (model.WxaiAccountStatusItem, error) {
 	var item model.WxaiAccountStatusItem
 	var authIndex, accountID, status, state, actionReason, actionStatus sql.NullString
 	var executedAction, actionError, errorText, planType, quotaWindowsJSON, errorKind, errorDetail, accountType sql.NullString
-	var statusCode, priority, weeklyResetAt, monthlyResetAt, checkedAt sql.NullInt64
+	var statusCode, priority, scheduleGroup, weeklyResetAt, monthlyResetAt, checkedAt sql.NullInt64
 	var usedPercent, monthlyLimitCents, monthlyUsedCents, weeklyUsedPercent, monthlyUsedPercent sql.NullFloat64
 	var disabled, isQuota int
 	err := row.Scan(&item.ID, &item.RunID, &item.AccountKey, &item.FileName, &item.DisplayAccount,
 		&authIndex, &accountID, &item.Provider, &disabled, &status, &state, &item.Action, &actionReason,
 		&actionStatus, &executedAction, &actionError, &statusCode, &usedPercent, &isQuota, &errorText, &planType,
 		&quotaWindowsJSON, &monthlyLimitCents, &monthlyUsedCents, &errorKind, &errorDetail, &item.ResultCreatedAtMS,
-		&priority, &accountType, &weeklyUsedPercent, &weeklyResetAt, &monthlyUsedPercent, &monthlyResetAt, &checkedAt)
+		&priority, &scheduleGroup, &accountType, &weeklyUsedPercent, &weeklyResetAt, &monthlyUsedPercent, &monthlyResetAt, &checkedAt)
 	if err != nil {
 		return model.WxaiAccountStatusItem{}, err
 	}
@@ -524,6 +555,10 @@ func scanAccountStatusItem(row scanner) (model.WxaiAccountStatusItem, error) {
 	if priority.Valid {
 		value := int(priority.Int64)
 		item.Priority = &value
+	}
+	if scheduleGroup.Valid {
+		value := int(scheduleGroup.Int64)
+		item.ScheduleGroup = &value
 	}
 	if weeklyUsedPercent.Valid {
 		value := weeklyUsedPercent.Float64

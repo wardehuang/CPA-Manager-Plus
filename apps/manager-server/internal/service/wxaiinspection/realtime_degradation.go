@@ -235,12 +235,12 @@ func (service *Service) RecordRealtimeHealthy(ctx context.Context, request Realt
 	if err := service.store.DeleteWxaiRealtimeDegradationState(ctx, state.AccountKey); err != nil {
 		return false, err
 	}
-	latestRun, err := service.LatestCompletedScheduledRun(ctx)
-	if err != nil || !latestRun.Found {
+	runID, err := service.latestReusableWxaiRunID(ctx)
+	if err != nil || runID <= 0 {
 		return true, err
 	}
 	_, err = service.store.InsertWxaiInspectionLog(ctx, model.WxaiInspectionLog{
-		RunID:   latestRun.Run.ID,
+		RunID:   runID,
 		Level:   "info",
 		Message: "实时守护确认 xAI 账号恢复正常，连续降智次数已清零",
 		Detail: map[string]any{
