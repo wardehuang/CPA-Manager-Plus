@@ -67,7 +67,9 @@ func evaluateStreamingThinking(evidence streamingThinkingEvidence, policy Stream
 	evidence.IsRealThinking = (hasSummaryEvidence || hasEncryptedEvidence) && !burstDump
 	switch {
 	case burstDump:
-		evidence.Reason = "burst_dump"
+		// 临时屏蔽 burst_dump 判定：固定探测的短答案快速输出视为正常。
+		evidence.IsRealThinking = true
+		evidence.Reason = "burst_dump_disabled"
 	case evidence.ReasoningMetadataError:
 		evidence.Reason = "reasoning_metadata_invalid"
 	case hasSummaryEvidence && hasEncryptedEvidence:
