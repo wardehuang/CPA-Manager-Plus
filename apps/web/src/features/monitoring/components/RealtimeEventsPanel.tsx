@@ -293,6 +293,34 @@ const formatRealtimeCompactDuration = (value: number | null | undefined, locale:
   return `${formatNumber(seconds, seconds < 10 ? 2 : 1)} s`;
 };
 
+const formatTpsCalculationTitle = (
+  row: MonitoringEventRow,
+  t: TFunction,
+  locale: string
+): string | undefined => {
+  if (
+    row.tokensPerSecond === null ||
+    row.tpsWindowMs === null ||
+    row.tpsWindowSource === null
+  ) {
+    return undefined;
+  }
+
+  const formatTokenCount = (value: number) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value);
+  const key =
+    row.tpsWindowSource === 'generation_ms'
+      ? 'monitoring.tps_formula_generation'
+      : 'monitoring.tps_formula_estimated';
+
+  return t(key, {
+    output: formatTokenCount(row.outputTokens),
+    reasoning: formatTokenCount(row.reasoningTokens),
+    window: formatRealtimeCompactDuration(row.tpsWindowMs, locale),
+    tps: formatTokensPerSecond(row.tokensPerSecond, locale),
+  });
+};
+
 const getRealtimeDurationToneClass = (value: number | null | undefined) => {
   if (value === null || value === undefined) return undefined;
 
@@ -1125,6 +1153,13 @@ export function RealtimeEventsPanel({
                 : undefined;
               const timeParts = formatRealtimeDateParts(row.timestampMs, locale);
               const hasTtftMs = row.ttftMs !== null && row.ttftMs !== undefined;
+              const hasTpsWindowMs =
+                row.tpsWindowMs !== null && row.tpsWindowMs !== undefined;
+              const tpsWindowLabel =
+                row.tpsWindowSource === 'latency_minus_ttft'
+                  ? t('monitoring.estimated_window_short')
+                  : t('monitoring.generation_window_short');
+              const tpsCalculationTitle = formatTpsCalculationTitle(row, t, locale);
               const ttftToneClass = getRealtimeDurationToneClass(row.ttftMs);
               const latencyToneClass = getRealtimeDurationToneClass(row.latencyMs);
               const tokenUsage = buildRealtimeTokenUsageDetails(row, t);
@@ -1241,7 +1276,7 @@ export function RealtimeEventsPanel({
                     {formatCompactNumber(row.requestCount)}
                   </td>
                   <td className={styles.realtimeTpsColumn}>
-                    <span className={styles.realtimeTpsCell}>
+                    <span className={styles.realtimeTpsCell} title={tpsCalculationTitle}>
                       {formatTokensPerSecond(row.tokensPerSecond, locale)}
                     </span>
                   </td>
@@ -1257,6 +1292,14 @@ export function RealtimeEventsPanel({
                             .join(' ')}
                         >
                           {hasTtftMs ? formatRealtimeCompactDuration(row.ttftMs, locale) : '--'}
+                        </span>
+                      </span>
+                      <span className={styles.realtimeMetricLine}>
+                        <span className={styles.realtimeMetricLabel}>{tpsWindowLabel}</span>
+                        <span className={styles.realtimeMetricText}>
+                          {hasTpsWindowMs
+                            ? formatRealtimeCompactDuration(row.tpsWindowMs, locale)
+                            : '--'}
                         </span>
                       </span>
                       <span className={styles.realtimeMetricLine}>

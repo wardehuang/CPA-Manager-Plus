@@ -27,6 +27,7 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'monitoring.column_time': 'Time',
     'monitoring.column_type': 'Type',
     'monitoring.elapsed_short': 'Elapsed',
+    'monitoring.estimated_window_short': 'Estimated window',
     'monitoring.executor_type_short': 'Executor',
     'monitoring.fail_status_code_short': 'HTTP',
     'monitoring.header_should_retry': 'Should retry',
@@ -76,7 +77,12 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'monitoring.response_service_tier_short': 'Reported tier',
     'monitoring.this_call_cost': 'Cost',
     'monitoring.this_call_usage': 'Usage',
-    'monitoring.ttft_short': 'TTFT',
+    'monitoring.ttft_short': 'Upstream first byte',
+    'monitoring.generation_window_short': 'Generation window',
+    'monitoring.tps_formula_generation':
+      '({{output}} output + {{reasoning}} reasoning) / {{window}} (generation window) = {{tps}} Token/s',
+    'monitoring.tps_formula_estimated':
+      '({{output}} output + {{reasoning}} reasoning) / {{window}} (elapsed - upstream first byte) = {{tps}} Token/s',
   };
   let message = messages[key] ?? key;
   if (options) {
@@ -137,7 +143,10 @@ const baseRow = (overrides: Partial<PanelRow> = {}): PanelRow => ({
   statsIncluded: true,
   latencyMs: 1500,
   ttftMs: 500,
-  tokensPerSecond: 13.3,
+  generationMs: 1000,
+  tpsWindowMs: 1000,
+  tpsWindowSource: 'generation_ms',
+  tokensPerSecond: 23,
   inputTokens: 10,
   outputTokens: 20,
   reasoningTokens: 3,
@@ -448,10 +457,32 @@ describe('RealtimeEventsPanel', () => {
     expect(markup).toContain('>Elapsed</th>');
     expect(markup).not.toContain('500 ms');
     expect(markup).toContain('1.5 s');
-    expect(markup).toContain('>TTFT</span><span class=');
+    expect(markup).toContain('>Upstream first byte</span><span class=');
     expect(markup).toContain('>--</span>');
+    expect(markup).toContain('>Generation window</span><span class=');
+    expect(markup).toContain('>1 s</span>');
     expect(markup).toContain('>Elapsed</span><span class=');
     expect(markup).toContain('>1.5 s</span>');
+  });
+
+  it('renders the TPS window source and calculation tooltip', () => {
+    const generationMarkup = renderPanel(baseRow());
+    const estimatedMarkup = renderPanel(
+      baseRow({
+        generationMs: null,
+        tpsWindowMs: 1000,
+        tpsWindowSource: 'latency_minus_ttft',
+      })
+    );
+
+    expect(generationMarkup).toContain('>Generation window</span><span class=');
+    expect(generationMarkup).toContain(
+      'title="(20 output + 3 reasoning) / 1 s (generation window) = 23 Token/s"'
+    );
+    expect(estimatedMarkup).toContain('>Estimated window</span><span class=');
+    expect(estimatedMarkup).toContain(
+      'title="(20 output + 3 reasoning) / 1 s (elapsed - upstream first byte) = 23 Token/s"'
+    );
   });
 
   it('keeps latency warning and error tone classes on plain text metrics', () => {

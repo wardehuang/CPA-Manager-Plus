@@ -44,6 +44,8 @@ export type MonitoringStatusChip = {
   tone: MonitoringStatusTone;
 };
 
+export type MonitoringTpsWindowSource = 'generation_ms' | 'latency_minus_ttft';
+
 export type MonitoringKpi = {
   key: string;
   label: string;
@@ -174,6 +176,9 @@ export type MonitoringEventRow = {
   statsIncluded: boolean;
   latencyMs: number | null;
   ttftMs: number | null;
+  generationMs: number | null;
+  tpsWindowMs: number | null;
+  tpsWindowSource: MonitoringTpsWindowSource | null;
   tokensPerSecond: number | null;
   inputTokens: number;
   outputTokens: number;

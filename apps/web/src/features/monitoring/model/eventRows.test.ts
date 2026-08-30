@@ -40,11 +40,14 @@ const buildRows = (
   );
 
 describe('buildEventRows', () => {
-  it('calculates generated tokens per second from the generation window', () => {
+  it('calculates generated tokens per second from the estimated latency minus TTFT window', () => {
     const [row] = buildRows();
 
     expect(row.latencyMs).toBe(1500);
     expect(row.ttftMs).toBe(500);
+    expect(row.generationMs).toBeNull();
+    expect(row.tpsWindowMs).toBe(1000);
+    expect(row.tpsWindowSource).toBe('latency_minus_ttft');
     expect(row.tokensPerSecond).toBeCloseTo((20 + 10) / 1);
   });
 
@@ -54,8 +57,12 @@ describe('buildEventRows', () => {
     const [longerTTFT] = buildRows({ ttft_ms: 1000 });
 
     expect(withoutTTFT.tokensPerSecond).toBeNull();
+    expect(withoutTTFT.tpsWindowSource).toBeNull();
     expect(equalTTFT.tokensPerSecond).toBeNull();
+    expect(equalTTFT.tpsWindowSource).toBeNull();
     expect(longerTTFT.tokensPerSecond).toBeCloseTo((20 + 10) / 0.5);
+    expect(longerTTFT.tpsWindowMs).toBe(500);
+    expect(longerTTFT.tpsWindowSource).toBe('latency_minus_ttft');
   });
 
   it('prefers explicit generation_ms for xAI stream TPS', () => {
@@ -71,6 +78,9 @@ describe('buildEventRows', () => {
 
     expect(row.latencyMs).toBe(8000);
     expect(row.ttftMs).toBe(6625);
+    expect(row.generationMs).toBe(1342);
+    expect(row.tpsWindowMs).toBe(1342);
+    expect(row.tpsWindowSource).toBe('generation_ms');
     expect(row.tokensPerSecond).toBeCloseTo((74 + 68) / 1.342);
   });
 
@@ -82,6 +92,8 @@ describe('buildEventRows', () => {
     const [zeroLatency] = buildRows({ latency_ms: 0 });
 
     expect(noGeneratedTokens.tokensPerSecond).toBeNull();
+    expect(noGeneratedTokens.tpsWindowMs).toBe(1000);
+    expect(noGeneratedTokens.tpsWindowSource).toBe('latency_minus_ttft');
     expect(noLatency.tokensPerSecond).toBeNull();
     expect(zeroLatency.tokensPerSecond).toBeNull();
   });

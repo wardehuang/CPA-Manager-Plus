@@ -11,28 +11,41 @@ import { buildSearchText, maskAuthIndex, maskEmailLike, readString } from './bas
 import { sanitizeApiKeyDisplayText, type ApiKeyDisplayInfo } from './apiKeys';
 import { isKeyDisambiguatedLabel } from './sourceDisplay';
 import { buildHourLabel, buildLocalDayKey } from './range';
-import type { MonitoringAuthMeta, MonitoringChannelMeta, MonitoringEventRow } from './types';
+import type {
+  MonitoringAuthMeta,
+  MonitoringChannelMeta,
+  MonitoringEventRow,
+  MonitoringTpsWindowSource,
+} from './types';
 
 const toDurationMs = (value: unknown): number | null => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
   return value;
 };
 
-const calculateGeneratedTokensPerSecond = (
+type GeneratedThroughput = {
+  tokensPerSecond: number | null;
+  windowMs: number | null;
+  windowSource: MonitoringTpsWindowSource | null;
+};
+
+const calculateGeneratedThroughput = (
   outputTokens: number,
   reasoningTokens: number,
   latencyMs: number | null,
   ttftMs: number | null,
   generationMs: number | null = null
-): number | null => {
+): GeneratedThroughput => {
   const generatedTokens = outputTokens + reasoningTokens;
-  if (generatedTokens <= 0) {
-    return null;
-  }
 
   // Prefer explicit generation window (xAI stream / degradation TPS denominator).
   if (generationMs !== null && generationMs > 0) {
-    return generatedTokens / (generationMs / 1000);
+    return {
+      tokensPerSecond:
+        generatedTokens > 0 ? generatedTokens / (generationMs / 1000) : null,
+      windowMs: generationMs,
+      windowSource: 'generation_ms',
+    };
   }
 
   // Classic path: end-to-end latency minus TTFT.
@@ -42,10 +55,16 @@ const calculateGeneratedTokensPerSecond = (
     ttftMs === null ||
     latencyMs <= ttftMs
   ) {
-    return null;
+    return { tokensPerSecond: null, windowMs: null, windowSource: null };
   }
 
-  return generatedTokens / ((latencyMs - ttftMs) / 1000);
+  const estimatedWindowMs = latencyMs - ttftMs;
+  return {
+    tokensPerSecond:
+      generatedTokens > 0 ? generatedTokens / (estimatedWindowMs / 1000) : null,
+    windowMs: estimatedWindowMs,
+    windowSource: 'latency_minus_ttft',
+  };
 };
 
 export const buildEventRows = (
@@ -145,7 +164,7 @@ export const buildEventRows = (
       const generationMs = toDurationMs(
         detail.generation_ms ?? detail.generationMs ?? null
       );
-      const tokensPerSecond = calculateGeneratedTokensPerSecond(
+      const throughput = calculateGeneratedThroughput(
         outputTokens,
         reasoningTokens,
         latencyMs,
@@ -246,7 +265,10 @@ export const buildEventRows = (
         statsIncluded,
         latencyMs,
         ttftMs,
-        tokensPerSecond,
+        generationMs,
+        tpsWindowMs: throughput.windowMs,
+        tpsWindowSource: throughput.windowSource,
+        tokensPerSecond: throughput.tokensPerSecond,
         inputTokens,
         outputTokens,
         reasoningTokens,
