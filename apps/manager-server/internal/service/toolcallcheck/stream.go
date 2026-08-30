@@ -26,20 +26,29 @@ const (
 	ExpectedAnswer              = "391"
 	qualityProbeStreamReadBytes = 32 << 10
 	qualityExpectedAnswer       = ExpectedAnswer
-	qualitySoftTokensPerSecond  = 500.0
-	qualityHardTokensPerSecond  = 1000.0
 )
 
 type streamingMetrics struct {
-	modelAnswer         strings.Builder
-	outputTokens        *int
-	reasoningTokens     *int
-	thinkingDelta       bool
-	errorCode           string
-	errorMessage        string
-	firstGeneratedReady bool
-	firstGeneratedAt    time.Time
-	visibleCharacters   int
+	modelAnswer            strings.Builder
+	summaryDelta           strings.Builder
+	outputTokens           *int
+	reasoningTokens        *int
+	thinkingDelta          bool
+	errorCode              string
+	errorMessage           string
+	firstPayloadReady      bool
+	firstPayloadAt         time.Time
+	firstGeneratedReady    bool
+	firstGeneratedAt       time.Time
+	firstVisibleReady      bool
+	firstVisibleAt         time.Time
+	visibleCharacters      int
+	summaryChars           int
+	summaryText            string
+	encryptedBytes         int
+	reasoningItemID        string
+	reasoningItemCompleted bool
+	reasoningMetadataError bool
 }
 
 type streamingResponsesUsage struct {
@@ -91,6 +100,7 @@ func runStreamingResponse(
 	httpRequest *http.Request,
 	result *Result,
 	startedAt time.Time,
+	qualityPolicy StreamingQualityPolicy,
 ) {
 	result.ExpectedAnswer = qualityExpectedAnswer
 	response, requestError := httpClient.Do(httpRequest)
@@ -135,7 +145,7 @@ func runStreamingResponse(
 			streamChunk := streamBuffer[:readCount]
 			streamInspector.Inspect(streamChunk)
 			appendResponseBody(&responseBody, string(streamChunk), &result.ResponseBodyTruncated)
-			streamInspector.MarkFirstGeneratedTokenConsumed()
+			streamInspector.MarkEventTimingsConsumed()
 			if streamInspector.streamTerminated {
 				break
 			}
@@ -143,7 +153,7 @@ func runStreamingResponse(
 		if readError != nil {
 			if errors.Is(readError, io.EOF) {
 				streamInspector.Finish()
-				streamInspector.MarkFirstGeneratedTokenConsumed()
+				streamInspector.MarkEventTimingsConsumed()
 				break
 			}
 			result.Error = readError.Error()
@@ -164,24 +174,51 @@ func runStreamingResponse(
 	result.ThinkingDelta = metrics.thinkingDelta
 	result.OutputTokens = metrics.outputTokens
 	result.ReasoningTokens = metrics.reasoningTokens
-	visibleTokens := calculateVisibleTokens(metrics.outputTokens, metrics.reasoningTokens, metrics.visibleCharacters)
-	result.VisibleTokens = intPointer(visibleTokens)
 	result.ErrorCode = metrics.errorCode
 
 	currentTotalMS := time.Since(startedAt).Milliseconds()
 	result.TotalMS = currentTotalMS
 	result.DurationMS = currentTotalMS
-	if !metrics.firstGeneratedAt.IsZero() {
-		result.FirstTokenMS = metrics.firstGeneratedAt.Sub(startedAt).Milliseconds()
-		result.GenerationMS = currentTotalMS - result.FirstTokenMS
+	if !metrics.firstPayloadAt.IsZero() {
+		firstPayloadMS := metrics.firstPayloadAt.Sub(startedAt).Milliseconds()
+		result.GenerationMS = currentTotalMS - firstPayloadMS
 		if result.GenerationMS < 1 {
 			result.GenerationMS = 1
 		}
 	}
+	if !metrics.firstGeneratedAt.IsZero() {
+		result.FirstTokenMS = metrics.firstGeneratedAt.Sub(startedAt).Milliseconds()
+	}
+	visibleFlushMS := int64(-1)
+	if !metrics.firstVisibleAt.IsZero() {
+		visibleFlushMS = currentTotalMS - metrics.firstVisibleAt.Sub(startedAt).Milliseconds()
+	}
+	outputTokens := pointerIntValue(metrics.outputTokens)
+	reasoningTokens := pointerIntValue(metrics.reasoningTokens)
+	recordStreamingSummary(metrics.summaryDelta.String(), &metrics.summaryChars, &metrics.summaryText)
+	evidence := evaluateStreamingThinking(streamingThinkingEvidence{
+		OutputTokens:           outputTokens,
+		ReasoningTokens:        reasoningTokens,
+		SummaryChars:           metrics.summaryChars,
+		SummaryText:            metrics.summaryText,
+		EncryptedBytes:         metrics.encryptedBytes,
+		ReasoningItemID:        metrics.reasoningItemID,
+		ReasoningItemCompleted: metrics.reasoningItemCompleted,
+		ReasoningMetadataError: metrics.reasoningMetadataError,
+		VisibleFlushMS:         visibleFlushMS,
+	}, qualityPolicy)
+	result.VisibleTokens = intPointer(evidence.VisibleTokens)
+	result.SummaryChars = evidence.SummaryChars
+	result.EncryptedBytes = evidence.EncryptedBytes
+	result.EncryptedFloor = evidence.EncryptedFloor
+	result.IsRealThinking = evidence.IsRealThinking
+	result.RealThinkingReason = evidence.Reason
+	result.VisibleFlushMS = evidence.VisibleFlushMS
+	result.EvaluatedTokens = outputTokens + reasoningTokens
 
 	outputTokensPerSecond := 0.0
-	if result.GenerationMS > 0 && metrics.outputTokens != nil && *metrics.outputTokens > 0 {
-		outputTokensPerSecond = float64(*metrics.outputTokens) * 1000 / float64(result.GenerationMS)
+	if result.GenerationMS > 0 && result.EvaluatedTokens > 0 {
+		outputTokensPerSecond = float64(result.EvaluatedTokens) * 1000 / float64(result.GenerationMS)
 	}
 	result.OutputTokensPerSecond = &outputTokensPerSecond
 	answerMatched := strings.Contains(result.ModelAnswer, qualityExpectedAnswer)
@@ -193,6 +230,10 @@ func runStreamingResponse(
 		metrics.errorMessage,
 		result.ResponseBody,
 		outputTokensPerSecond,
+		result.TTFBMS,
+		result.GenerationMS,
+		evidence,
+		qualityPolicy,
 	)
 }
 
@@ -233,13 +274,21 @@ func (inspector *streamingSSEInspector) Finish() {
 	inspector.Inspect(nil)
 }
 
-func (inspector *streamingSSEInspector) MarkFirstGeneratedTokenConsumed() {
+func (inspector *streamingSSEInspector) MarkEventTimingsConsumed() {
 	metrics := inspector.metrics
-	if !metrics.firstGeneratedReady || !metrics.firstGeneratedAt.IsZero() {
-		return
+	now := time.Now()
+	if metrics.firstPayloadReady && metrics.firstPayloadAt.IsZero() {
+		metrics.firstPayloadReady = false
+		metrics.firstPayloadAt = now
 	}
-	metrics.firstGeneratedReady = false
-	metrics.firstGeneratedAt = time.Now()
+	if metrics.firstGeneratedReady && metrics.firstGeneratedAt.IsZero() {
+		metrics.firstGeneratedReady = false
+		metrics.firstGeneratedAt = now
+	}
+	if metrics.firstVisibleReady && metrics.firstVisibleAt.IsZero() {
+		metrics.firstVisibleReady = false
+		metrics.firstVisibleAt = now
+	}
 }
 
 func processSSELine(line string, metrics *streamingMetrics) bool {
@@ -268,6 +317,13 @@ func processStreamingEvent(rawData string, metrics *streamingMetrics) bool {
 	if err := json.Unmarshal([]byte(trimmedData), &event); err != nil {
 		return false
 	}
+	var message map[string]any
+	if err := json.Unmarshal([]byte(trimmedData), &message); err != nil {
+		return false
+	}
+	if metrics.firstPayloadAt.IsZero() && !metrics.firstPayloadReady {
+		metrics.firstPayloadReady = true
+	}
 	captureStreamingEventError(event, metrics)
 	if event.Response.Usage != nil {
 		metrics.outputTokens = intPointer(event.Response.Usage.OutputTokens)
@@ -283,7 +339,11 @@ func processStreamingEvent(rawData string, metrics *streamingMetrics) bool {
 	if event.Type == "response.output_text.delta" && deltaText != "" {
 		metrics.modelAnswer.WriteString(deltaText)
 		metrics.visibleCharacters += utf8.RuneCountInString(deltaText)
+		if metrics.firstVisibleAt.IsZero() && !metrics.firstVisibleReady {
+			metrics.firstVisibleReady = true
+		}
 	}
+	collectStreamingThinkingEvidence(message, metrics)
 
 	switch event.Type {
 	case "response.completed":
@@ -415,42 +475,118 @@ func captureStreamingError(value any, metrics *streamingMetrics) {
 	}
 }
 
-func calculateVisibleTokens(outputTokens *int, reasoningTokens *int, visibleCharacters int) int {
-	visibleTokenCount := 0
-	if outputTokens != nil {
-		visibleTokenCount = *outputTokens
-		if reasoningTokens != nil {
-			visibleTokenCount -= *reasoningTokens
+func collectStreamingThinkingEvidence(message map[string]any, metrics *streamingMetrics) {
+	eventType := strings.ToLower(streamingStringField(message, "type"))
+	switch eventType {
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		recordStreamingReasoningItemID(streamingStringField(message, "item_id"), metrics)
+		metrics.summaryDelta.WriteString(streamingStringField(message, "delta"))
+	case "response.reasoning_summary_text.done", "response.reasoning_text.done":
+		recordStreamingReasoningItemID(streamingStringField(message, "item_id"), metrics)
+		recordStreamingSummary(streamingStringField(message, "text"), &metrics.summaryChars, &metrics.summaryText)
+	case "response.reasoning_summary_part.done":
+		recordStreamingReasoningItemID(streamingStringField(message, "item_id"), metrics)
+		if part, ok := message["part"].(map[string]any); ok && strings.EqualFold(streamingStringField(part, "type"), "summary_text") {
+			recordStreamingSummary(streamingStringField(part, "text"), &metrics.summaryChars, &metrics.summaryText)
+		}
+	case "response.output_item.added":
+		if item, ok := message["item"].(map[string]any); ok {
+			collectStreamingOutputItem(item, metrics, false)
+		}
+	case "response.output_item.done":
+		if item, ok := message["item"].(map[string]any); ok {
+			collectStreamingOutputItem(item, metrics, true)
+		}
+	case "response.completed":
+		if response, ok := message["response"].(map[string]any); ok {
+			if output, ok := response["output"].([]any); ok {
+				for _, rawItem := range output {
+					if item, itemOK := rawItem.(map[string]any); itemOK {
+						collectStreamingOutputItem(item, metrics, true)
+					}
+				}
+			}
 		}
 	}
-	if visibleTokenCount <= 0 && visibleCharacters > 0 {
-		visibleTokenCount = (visibleCharacters + 3) / 4
-	}
-	return visibleTokenCount
 }
 
-func classifyStreamingResult(
-	statusCode int,
-	requestError string,
-	errorCode string,
-	errorMessage string,
-	responseBody string,
-	tokensPerSecond float64,
-) (string, string, string) {
-	if isFreeUsageExhaustedError(errorCode, errorMessage, requestError) ||
-		(statusCode == http.StatusTooManyRequests && isFreeUsageExhaustedError(responseBody)) {
-		return ClassificationQuotaExhausted, QualityLevelQuotaExhausted, "free_usage_exhausted"
+func collectStreamingOutputItem(item map[string]any, metrics *streamingMetrics, terminal bool) {
+	switch strings.ToLower(streamingStringField(item, "type")) {
+	case "reasoning":
+		recordStreamingReasoningItemID(streamingStringField(item, "id"), metrics)
+		if terminal || strings.EqualFold(streamingStringField(item, "status"), "completed") {
+			metrics.reasoningItemCompleted = true
+		}
+		metrics.encryptedBytes = maxStreamingInt(metrics.encryptedBytes, len([]byte(strings.TrimSpace(streamingStringField(item, "encrypted_content")))))
+		if summaries, ok := item["summary"].([]any); ok {
+			for _, rawSummary := range summaries {
+				summary, summaryOK := rawSummary.(map[string]any)
+				if !summaryOK || !strings.EqualFold(streamingStringField(summary, "type"), "summary_text") {
+					continue
+				}
+				recordStreamingSummary(streamingStringField(summary, "text"), &metrics.summaryChars, &metrics.summaryText)
+			}
+		}
+	case "message":
+		if content, ok := item["content"].([]any); ok {
+			visibleCharacters := 0
+			for _, rawContent := range content {
+				part, partOK := rawContent.(map[string]any)
+				if !partOK {
+					continue
+				}
+				text := streamingStringField(part, "text")
+				if text == "" {
+					text = streamingStringField(part, "refusal")
+				}
+				visibleCharacters += utf8.RuneCountInString(text)
+			}
+			metrics.visibleCharacters = maxStreamingInt(metrics.visibleCharacters, visibleCharacters)
+		}
 	}
-	if requestError != "" || statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return ClassificationUnknown, QualityLevelUnknown, "request_error"
+}
+
+func recordStreamingReasoningItemID(itemID string, metrics *streamingMetrics) {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		metrics.reasoningMetadataError = true
+		return
 	}
-	if tokensPerSecond >= qualityHardTokensPerSecond {
-		return ClassificationSuspectedDegraded, QualityLevelHard, "hard_tps"
+	if metrics.reasoningItemID == "" {
+		metrics.reasoningItemID = itemID
+		return
 	}
-	if tokensPerSecond >= qualitySoftTokensPerSecond {
-		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps"
+	if metrics.reasoningItemID != itemID {
+		metrics.reasoningMetadataError = true
 	}
-	return ClassificationNormal, QualityLevelHealthy, "within_threshold"
+}
+
+func recordStreamingSummary(text string, summaryChars *int, summaryText *string) {
+	text = strings.TrimSpace(text)
+	characters := utf8.RuneCountInString(text)
+	if characters > *summaryChars {
+		*summaryChars = characters
+		*summaryText = text
+	}
+}
+
+func streamingStringField(value map[string]any, key string) string {
+	text, _ := value[key].(string)
+	return strings.TrimSpace(text)
+}
+
+func pointerIntValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func maxStreamingInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func intPointer(value int) *int {

@@ -28,10 +28,15 @@ type Repository interface {
 	GetLatestRunByTrigger(ctx context.Context, triggerType string, triggerKey string) (model.WxaiInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.WxaiInspectionResult, error)
 	ListLogs(ctx context.Context, runID int64) ([]model.WxaiInspectionLog, error)
-	FindRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error)
+	FindRealtimeDegradedAttempts(ctx context.Context, attempts []RealtimeDegradedAttemptKey) (map[RealtimeDegradedAttemptKey]struct{}, error)
 	ListAccountStatusItems(ctx context.Context, runID int64) ([]model.WxaiAccountStatusItem, error)
 	GetSettings(ctx context.Context) (model.ManagerWxaiInspectionConfig, bool, error)
 	SaveSettings(ctx context.Context, settings model.ManagerWxaiInspectionConfig) (model.ManagerWxaiInspectionConfig, error)
+}
+
+type RealtimeDegradedAttemptKey struct {
+	RequestID string `json:"requestID"`
+	AuthIndex string `json:"authIndex"`
 }
 
 type repository struct {
@@ -159,29 +164,33 @@ func (repository *repository) InsertLog(ctx context.Context, entry model.WxaiIns
 	return entry, nil
 }
 
-func (repository *repository) FindRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error) {
-	result := make(map[string]struct{})
-	if len(requestIDs) == 0 {
+func (repository *repository) FindRealtimeDegradedAttempts(ctx context.Context, attempts []RealtimeDegradedAttemptKey) (map[RealtimeDegradedAttemptKey]struct{}, error) {
+	result := make(map[RealtimeDegradedAttemptKey]struct{})
+	if len(attempts) == 0 {
 		return result, nil
 	}
-	encodedRequestIDs, err := json.Marshal(requestIDs)
+	encodedAttempts, err := json.Marshal(attempts)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := repository.db.QueryContext(ctx, `select distinct json_extract(detail_json, '$.requestID')
-		from wxai_inspection_logs
-		where json_extract(detail_json, '$.reason') = 'position_degradation'
-		and json_extract(detail_json, '$.requestID') in (select value from json_each(?))`, string(encodedRequestIDs))
+	rows, err := repository.db.QueryContext(ctx, `select distinct
+		json_extract(log.detail_json, '$.requestID'),
+		json_extract(log.detail_json, '$.authIndex')
+		from wxai_inspection_logs log
+		join json_each(?) requested
+			on json_extract(log.detail_json, '$.requestID') = json_extract(requested.value, '$.requestID')
+			and json_extract(log.detail_json, '$.authIndex') = json_extract(requested.value, '$.authIndex')
+		where json_extract(log.detail_json, '$.reason') = 'position_degradation'`, string(encodedAttempts))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var requestID string
-		if err := rows.Scan(&requestID); err != nil {
+		var attempt RealtimeDegradedAttemptKey
+		if err := rows.Scan(&attempt.RequestID, &attempt.AuthIndex); err != nil {
 			return nil, err
 		}
-		result[requestID] = struct{}{}
+		result[attempt] = struct{}{}
 	}
 	return result, rows.Err()
 }

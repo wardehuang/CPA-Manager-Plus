@@ -7,6 +7,8 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/wxaiinspection"
 )
 
+type RealtimeDegradedAttemptKey = wxaiinspection.RealtimeDegradedAttemptKey
+
 func (s *Store) wxaiInspections() wxaiinspection.Repository {
 	return wxaiinspection.New(s.db)
 }
@@ -71,8 +73,8 @@ func (s *Store) ListWxaiInspectionLogs(ctx context.Context, runID int64) ([]mode
 	return s.wxaiInspections().ListLogs(ctx, runID)
 }
 
-func (s *Store) FindWxaiRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error) {
-	return s.wxaiInspections().FindRealtimeDegradedRequestIDs(ctx, requestIDs)
+func (s *Store) FindWxaiRealtimeDegradedAttempts(ctx context.Context, attempts []RealtimeDegradedAttemptKey) (map[RealtimeDegradedAttemptKey]struct{}, error) {
+	return s.wxaiInspections().FindRealtimeDegradedAttempts(ctx, attempts)
 }
 
 func (s *Store) ListWxaiAccountStatusItems(ctx context.Context, runID int64) ([]model.WxaiAccountStatusItem, error) {

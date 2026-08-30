@@ -96,6 +96,17 @@ func (handler *Handler) Handle(responseWriter http.ResponseWriter, request *http
 			return
 		}
 		response.JSON(responseWriter, http.StatusOK, result)
+	case path == "/v0/management/wxai-inspection/tool-call-check/config":
+		if request.Method != http.MethodGet {
+			response.MethodNotAllowed(responseWriter)
+			return
+		}
+		result, err := handler.App.WxaiInspectionService.GetToolCallCheckConfig(request.Context())
+		if err != nil {
+			response.Error(responseWriter, wxaiInspectionErrorStatus(err), err)
+			return
+		}
+		response.JSON(responseWriter, http.StatusOK, result)
 	case path == "/v0/management/wxai-inspection/tool-call-check":
 		if request.Method != http.MethodPost {
 			response.MethodNotAllowed(responseWriter)

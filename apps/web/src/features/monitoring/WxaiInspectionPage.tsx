@@ -311,6 +311,8 @@ export function WxaiInspectionPage() {
     () => cachedLastToolCallCheckResult
   );
   const [toolCallCheckDialogOpen, setToolCallCheckDialogOpen] = useState(false);
+  const [toolCallCheckRow, setToolCallCheckRow] = useState<WxaiAccountStatusRow | null>(null);
+  const [toolCallCheckModel, setToolCallCheckModel] = useState('');
   const [rowOperationLoading, setRowOperationLoading] = useState(false);
   const [rowOperationMessage, setRowOperationMessage] = useState('');
 
@@ -445,13 +447,52 @@ export function WxaiInspectionPage() {
     await loadLatest();
   };
 
-  const runToolCallCheck = async (row: WxaiAccountStatusRow) => {
+  const runToolCallCheck = async (row: WxaiAccountStatusRow, model: string) => {
     const { serviceBase, activeManagementKey } = requireServiceConnection();
     return wxaiInspectionApi.runToolCallCheck(serviceBase, activeManagementKey, {
       accountKey: row.raw.accountKey,
       fileName: row.raw.fileName,
       authIndex: row.raw.authIndex,
+      model,
     });
+  };
+
+  const openToolCallCheckDialog = async (row: WxaiAccountStatusRow) => {
+    const { serviceBase, activeManagementKey } = requireServiceConnection();
+    const config = await wxaiInspectionApi.getToolCallCheckConfig(serviceBase, activeManagementKey);
+    setToolCallCheckModel(config.defaultModel);
+    setToolCallCheckRow(row);
+  };
+
+  const closeToolCallCheckSetup = () => {
+    if (rowOperationLoading) return;
+    setToolCallCheckRow(null);
+    setToolCallCheckModel('');
+  };
+
+  const submitToolCallCheck = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!toolCallCheckRow || rowOperationLoading) return;
+    const model = toolCallCheckModel.trim();
+    if (!model) {
+      showNotification('检测模型不能为空', 'error');
+      return;
+    }
+    setRowOperationLoading(true);
+    setRowOperationMessage('降智检测中...');
+    try {
+      const result = await runToolCallCheck(toolCallCheckRow, model);
+      cachedLastToolCallCheckResult = result;
+      setLastToolCallCheckResult(result);
+      setToolCallCheckRow(null);
+      setToolCallCheckModel('');
+      setToolCallCheckDialogOpen(true);
+    } catch (error) {
+      showNotification(readWxaiRowActionError(error), 'error');
+    } finally {
+      setRowOperationLoading(false);
+      setRowOperationMessage('');
+    }
   };
 
   const openPriorityDialog = (row: WxaiAccountStatusRow) => {
@@ -504,11 +545,8 @@ export function WxaiInspectionPage() {
     try {
       if (action === 'toolCallCheck') {
         setToolCallCheckDialogOpen(false);
-        setRowOperationMessage('降智检测中...');
-        const result = await runToolCallCheck(row);
-        cachedLastToolCallCheckResult = result;
-        setLastToolCallCheckResult(result);
-        setToolCallCheckDialogOpen(true);
+        setRowOperationMessage('读取降智检测配置...');
+        await openToolCallCheckDialog(row);
         return;
       }
       if (action === 'refresh') {
@@ -753,6 +791,41 @@ export function WxaiInspectionPage() {
             <div className={styles.accountStatusPriorityDialogActions}>
               <button type="button" onClick={closePriorityDialog} disabled={prioritySubmitting}>取消</button>
               <button type="submit" disabled={prioritySubmitting}>{prioritySubmitting ? '保存中...' : '保存'}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {toolCallCheckRow ? renderViewportPortal(
+        <div className={styles.accountStatusDialogBackdrop} onClick={closeToolCallCheckSetup} role="presentation">
+          <form
+            className={styles.accountStatusPriorityDialog}
+            onSubmit={submitToolCallCheck}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.accountStatusPriorityDialogHeader}>
+              <span>降智检测</span>
+              <button type="button" onClick={closeToolCallCheckSetup} aria-label="关闭" disabled={rowOperationLoading}>×</button>
+            </div>
+            <div className={styles.accountStatusPriorityDialogBody}>
+              <p>{maskMode === 'masked' ? maskAccountName(toolCallCheckRow.name) : toolCallCheckRow.name}</p>
+              <label>
+                <span>检测模型</span>
+                <input
+                  type="text"
+                  value={toolCallCheckModel}
+                  disabled={rowOperationLoading}
+                  onChange={(event) => setToolCallCheckModel(event.target.value)}
+                  autoFocus
+                />
+              </label>
+              <small className={styles.accountStatusToolCallNotice}>
+                默认读取 xAI IP Switcher 的 qualityProbeModel；判定阈值与 Realtime Guard 保持一致。
+              </small>
+            </div>
+            <div className={styles.accountStatusPriorityDialogActions}>
+              <button type="button" onClick={closeToolCallCheckSetup} disabled={rowOperationLoading}>取消</button>
+              <button type="submit" disabled={rowOperationLoading}>开始检测</button>
             </div>
           </form>
         </div>
@@ -1214,7 +1287,7 @@ function ToolCallCheckResultDialog({
   const requestHeaders = checkResult.requestHeaders && Object.keys(checkResult.requestHeaders).length > 0
     ? checkResult.requestHeaders
     : '-';
-  const formatMilliseconds = (value?: number) => typeof value === 'number' ? `${value} ms` : '-';
+  const formatMilliseconds = (value?: number) => typeof value === 'number' && value >= 0 ? `${value} ms` : '-';
   const formatTokensPerSecond = (value?: number) => typeof value === 'number' ? value.toFixed(2) : '-';
 
   return (
@@ -1236,7 +1309,7 @@ function ToolCallCheckResultDialog({
             <h3 id="wxai-tool-call-check-title">降智检测结果</h3>
             <p>{displayAccount || result.fileName}</p>
             <small className={styles.accountStatusToolCallNotice}>
-              仅按原有 TPS 规则判定；thinking_delta 和答案仅展示，不参与分类
+              使用 xAI IP Switcher 当前 Realtime Guard 阈值与真实 thinking 证据判定
             </small>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭">×</button>
@@ -1259,18 +1332,27 @@ function ToolCallCheckResultDialog({
             <div><dt>Check ID</dt><dd>{checkResult.checkId}</dd></div>
             <div><dt>检测时间</dt><dd>{formatFullDateTime(checkResult.startedAtMs, language)}</dd></div>
             <div className={styles.accountStatusToolCallMetaWide}><dt>Endpoint</dt><dd>{checkResult.endpoint}</dd></div>
-            <div><dt>模型</dt><dd>grok-4.5</dd></div>
+            <div><dt>模型</dt><dd>{checkResult.model}</dd></div>
             <div><dt>流式请求</dt><dd>{checkResult.stream ? 'stream=true' : 'stream=false'}</dd></div>
             <div><dt>代理来源</dt><dd>{checkResult.proxySource}</dd></div>
             <div><dt>代理地址</dt><dd>{checkResult.proxyUrl || '直连'}</dd></div>
             <div><dt>质量等级</dt><dd>{qualityLevel}</dd></div>
             <div><dt>判定原因</dt><dd>{checkResult.classificationReason || '-'}</dd></div>
-            <div><dt>输出 tokens（含推理）</dt><dd>{checkResult.outputTokens ?? '-'}</dd></div>
+            <div><dt>Output tokens</dt><dd>{checkResult.outputTokens ?? '-'}</dd></div>
             <div><dt>Reasoning tokens</dt><dd>{checkResult.reasoningTokens ?? '-'}</dd></div>
+            <div><dt>判定 tokens</dt><dd>{checkResult.evaluatedTokens}</dd></div>
             <div><dt>Visible tokens</dt><dd>{checkResult.visibleTokens ?? '-'}</dd></div>
             <div><dt>是否有 thinking_delta</dt><dd>{checkResult.thinkingDelta ? '是' : '否'}</dd></div>
+            <div><dt>真实 Thinking</dt><dd>{checkResult.isRealThinking ? '是' : '否'}</dd></div>
+            <div><dt>Thinking 原因</dt><dd>{checkResult.realThinkingReason || '-'}</dd></div>
+            <div><dt>Summary 字符</dt><dd>{checkResult.summaryChars}</dd></div>
+            <div><dt>Encrypted</dt><dd>{checkResult.encryptedBytes}/{checkResult.encryptedFloor} bytes</dd></div>
+            <div><dt>可见倾倒窗口</dt><dd>{formatMilliseconds(checkResult.visibleFlushMs)}</dd></div>
             <div><dt>答案（应为 391）</dt><dd>{checkResult.answerMatched ? '是' : '否'}</dd></div>
             <div><dt>错误码</dt><dd>{checkResult.errorCode || '-'}</dd></div>
+            <div><dt>Soft TPS</dt><dd>{checkResult.qualityPolicy.softTokensPerSecond}</dd></div>
+            <div><dt>Hard TPS</dt><dd>{checkResult.qualityPolicy.hardTokensPerSecond}</dd></div>
+            <div><dt>TTFB 阈值</dt><dd>{checkResult.qualityPolicy.ttfbSeconds} s</dd></div>
             {checkResult.error ? (
               <div className={styles.accountStatusToolCallMetaWide}>
                 <dt>请求错误</dt>

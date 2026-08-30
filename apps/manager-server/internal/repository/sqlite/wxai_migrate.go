@@ -94,8 +94,12 @@ func migrateWxaiInspection(db *sql.DB) error {
 			foreign key(run_id) references wxai_inspection_runs(id) on delete cascade
 		)`,
 		`create index if not exists idx_wxai_inspection_logs_run on wxai_inspection_logs(run_id, created_at_ms)`,
-		`create index if not exists idx_wxai_inspection_logs_realtime_request_id
-			on wxai_inspection_logs(json_extract(detail_json, '$.requestID'))
+		`drop index if exists idx_wxai_inspection_logs_realtime_request_id`,
+		`create index if not exists idx_wxai_inspection_logs_realtime_attempt
+			on wxai_inspection_logs(
+				json_extract(detail_json, '$.requestID'),
+				json_extract(detail_json, '$.authIndex')
+			)
 			where json_extract(detail_json, '$.reason') = 'position_degradation'`,
 		`create table if not exists wxai_account_status_details (
 			run_id integer not null,

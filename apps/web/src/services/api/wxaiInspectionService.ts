@@ -198,10 +198,32 @@ export interface WxaiToolCallCheckRequest {
   accountKey?: string;
   fileName?: string;
   authIndex?: string;
+  model?: string;
+}
+
+export interface WxaiToolCallCheckQualityPolicy {
+  softTokensPerSecond: number;
+  hardTokensPerSecond: number;
+  ttfbSeconds: number;
+  generationSeconds: number;
+  tokenThreshold: number;
+  minSummaryChars: number;
+  minEncryptedBytes: number;
+  encryptedBytesPerReasoningToken: number;
+  minOutputTokens: number;
+  burstMinReasoningTokens: number;
+  burstMaxVisibleTokens: number;
+  burstMaxWindowMs: number;
+}
+
+export interface WxaiToolCallCheckConfigResponse {
+  defaultModel: string;
+  policy: WxaiToolCallCheckQualityPolicy;
 }
 
 export interface WxaiToolCallCheckResult {
   checkId: string;
+  model: string;
   endpoint: string;
   proxySource: 'auth' | 'global' | 'direct' | string;
   proxyMode: 'proxy' | 'direct' | string;
@@ -223,6 +245,14 @@ export interface WxaiToolCallCheckResult {
   reasoningTokens?: number;
   thinkingDelta: boolean;
   visibleTokens?: number;
+  summaryChars: number;
+  encryptedBytes: number;
+  encryptedFloor: number;
+  isRealThinking: boolean;
+  realThinkingReason: string;
+  visibleFlushMs: number;
+  evaluatedTokens: number;
+  qualityPolicy: WxaiToolCallCheckQualityPolicy;
   expectedAnswer?: string;
   answerMatched: boolean;
   outputTokensPerSecond?: number;
@@ -351,6 +381,17 @@ export const wxaiInspectionApi = {
       buildUrl(base, '/v0/management/wxai-inspection/tool-call-check'),
       payload,
       { timeout: TOOL_CALL_CHECK_TIMEOUT_MS, headers: authHeaders(managementKey) }
+    );
+    return response.data;
+  },
+
+  getToolCallCheckConfig: async (
+    base: string,
+    managementKey: string | undefined
+  ): Promise<WxaiToolCallCheckConfigResponse> => {
+    const response = await axios.get<WxaiToolCallCheckConfigResponse>(
+      buildUrl(base, '/v0/management/wxai-inspection/tool-call-check/config'),
+      { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders(managementKey) }
     );
     return response.data;
   },

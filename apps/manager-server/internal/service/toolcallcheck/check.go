@@ -37,19 +37,22 @@ type ProxySelection struct {
 }
 
 type Request struct {
-	CheckID     string
-	Endpoint    string
-	AccessToken string
-	Headers     map[string]string
-	Body        any
-	Proxy       ProxySelection
-	Timeout     time.Duration
-	Stream      bool
-	CleanupPath string
+	CheckID       string
+	Model         string
+	Endpoint      string
+	AccessToken   string
+	Headers       map[string]string
+	Body          any
+	Proxy         ProxySelection
+	Timeout       time.Duration
+	Stream        bool
+	QualityPolicy QualityPolicy
+	CleanupPath   string
 }
 
 type Result struct {
 	CheckID               string              `json:"checkId"`
+	Model                 string              `json:"model"`
 	Endpoint              string              `json:"endpoint"`
 	ProxySource           ProxySource         `json:"proxySource"`
 	ProxyMode             string              `json:"proxyMode"`
@@ -71,6 +74,14 @@ type Result struct {
 	ReasoningTokens       *int                `json:"reasoningTokens,omitempty"`
 	ThinkingDelta         bool                `json:"thinkingDelta"`
 	VisibleTokens         *int                `json:"visibleTokens,omitempty"`
+	SummaryChars          int                 `json:"summaryChars"`
+	EncryptedBytes        int                 `json:"encryptedBytes"`
+	EncryptedFloor        int                 `json:"encryptedFloor"`
+	IsRealThinking        bool                `json:"isRealThinking"`
+	RealThinkingReason    string              `json:"realThinkingReason"`
+	VisibleFlushMS        int64               `json:"visibleFlushMs"`
+	EvaluatedTokens       int                 `json:"evaluatedTokens"`
+	QualityPolicy         QualityPolicy       `json:"qualityPolicy"`
 	ExpectedAnswer        string              `json:"expectedAnswer,omitempty"`
 	AnswerMatched         bool                `json:"answerMatched"`
 	OutputTokensPerSecond *float64            `json:"outputTokensPerSecond,omitempty"`
@@ -119,13 +130,15 @@ func ResolveProxy(authProxyURL string, globalProxyURL string) ProxySelection {
 func Run(ctx context.Context, request Request) (result Result, err error) {
 	startedAt := time.Now()
 	result = Result{
-		CheckID:     strings.TrimSpace(request.CheckID),
-		Endpoint:    strings.TrimSpace(request.Endpoint),
-		ProxySource: request.Proxy.Source,
-		ProxyURL:    RedactProxyURL(request.Proxy.URL),
-		Stream:      request.Stream,
-		StartedAtMS: startedAt.UnixMilli(),
-		CleanupPath: strings.TrimSpace(request.CleanupPath),
+		CheckID:       strings.TrimSpace(request.CheckID),
+		Model:         strings.TrimSpace(request.Model),
+		Endpoint:      strings.TrimSpace(request.Endpoint),
+		ProxySource:   request.Proxy.Source,
+		ProxyURL:      RedactProxyURL(request.Proxy.URL),
+		Stream:        request.Stream,
+		QualityPolicy: request.QualityPolicy,
+		StartedAtMS:   startedAt.UnixMilli(),
+		CleanupPath:   strings.TrimSpace(request.CleanupPath),
 	}
 	if result.CheckID == "" {
 		result.CheckID, err = NewExecutionID()
@@ -193,7 +206,7 @@ func Run(ctx context.Context, request Request) (result Result, err error) {
 	result.RequestHeaders = sanitizeRequestHeaders(httpRequest.Header)
 
 	if request.Stream {
-		runStreamingResponse(httpClient, httpRequest, &result, startedAt)
+		runStreamingResponse(httpClient, httpRequest, &result, startedAt, request.QualityPolicy)
 		return result, nil
 	}
 

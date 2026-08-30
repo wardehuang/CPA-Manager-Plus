@@ -1682,18 +1682,24 @@ func (s *Service) eventsPage(ctx context.Context, filter store.AnalyticsFilter, 
 }
 
 func (s *Service) markRealtimeDegradedEvents(ctx context.Context, page store.EventsPage) (store.EventsPage, error) {
-	requestIDs := make([]string, 0, len(page.Items))
+	attempts := make([]store.RealtimeDegradedAttemptKey, 0, len(page.Items))
 	for _, item := range page.Items {
-		if item.RequestID != "" {
-			requestIDs = append(requestIDs, item.RequestID)
+		if item.RequestID != "" && item.AuthIndex != "" {
+			attempts = append(attempts, store.RealtimeDegradedAttemptKey{
+				RequestID: item.RequestID,
+				AuthIndex: item.AuthIndex,
+			})
 		}
 	}
-	degradedRequestIDs, err := s.store.FindWxaiRealtimeDegradedRequestIDs(ctx, requestIDs)
+	degradedAttempts, err := s.store.FindWxaiRealtimeDegradedAttempts(ctx, attempts)
 	if err != nil {
 		return store.EventsPage{}, err
 	}
 	for index := range page.Items {
-		_, page.Items[index].Degraded = degradedRequestIDs[page.Items[index].RequestID]
+		_, page.Items[index].Degraded = degradedAttempts[store.RealtimeDegradedAttemptKey{
+			RequestID: page.Items[index].RequestID,
+			AuthIndex: page.Items[index].AuthIndex,
+		}]
 	}
 	return page, nil
 }

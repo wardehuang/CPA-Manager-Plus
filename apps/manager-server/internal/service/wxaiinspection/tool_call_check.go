@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/toolcallcheck"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
 
 var ErrWxaiToolCallCheckAccountNotFound = errors.New("wxai tool call check account not found")
@@ -19,6 +21,34 @@ type ToolCallCheckRequest struct {
 	AccountKey string `json:"accountKey,omitempty"`
 	FileName   string `json:"fileName,omitempty"`
 	AuthIndex  string `json:"authIndex,omitempty"`
+	Model      string `json:"model,omitempty"`
+}
+
+type ToolCallCheckConfigResponse struct {
+	DefaultModel string                               `json:"defaultModel"`
+	Policy       toolcallcheck.StreamingQualityPolicy `json:"policy"`
+}
+
+type xaiSwitcherToolCallSettingsResponse struct {
+	Data struct {
+		QualityProbeModel                            string  `json:"qualityProbeModel"`
+		QualitySoftTPS                               float64 `json:"qualitySoftTPS"`
+		QualityHardTPS                               float64 `json:"qualityHardTPS"`
+		RealtimeGuardTTFBSeconds                     float64 `json:"realtimeGuardTTFBSeconds"`
+		RealtimeGuardGenerationSeconds               float64 `json:"realtimeGuardGenerationSeconds"`
+		RealtimeGuardTokenThreshold                  int     `json:"realtimeGuardTokenThreshold"`
+		RealtimeGuardMinSummaryChars                 int     `json:"realtimeGuardMinSummaryChars"`
+		RealtimeGuardMinEncryptedBytes               int     `json:"realtimeGuardMinEncryptedBytes"`
+		RealtimeGuardEncryptedBytesPerReasoningToken int     `json:"realtimeGuardEncryptedBytesPerReasoningToken"`
+		RealtimeGuardMinOutputTokens                 int     `json:"realtimeGuardMinOutputTokens"`
+		RealtimeGuardBurstMinReasoningTokens         int     `json:"realtimeGuardBurstMinReasoningTokens"`
+		RealtimeGuardBurstMaxVisibleTokens           int     `json:"realtimeGuardBurstMaxVisibleTokens"`
+		RealtimeGuardBurstMaxWindowMS                int     `json:"realtimeGuardBurstMaxWindowMs"`
+	} `json:"data"`
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 type ToolCallCheckResponse struct {
@@ -27,6 +57,45 @@ type ToolCallCheckResponse struct {
 	DisplayAccount string               `json:"displayAccount"`
 	AuthIndex      string               `json:"authIndex,omitempty"`
 	Result         toolcallcheck.Result `json:"result"`
+}
+
+func (service *Service) GetToolCallCheckConfig(ctx context.Context) (ToolCallCheckConfigResponse, error) {
+	_, setup, err := service.resolveRuntime(ctx)
+	if err != nil {
+		return ToolCallCheckConfigResponse{}, err
+	}
+	return service.loadToolCallCheckConfig(ctx, setup)
+}
+
+func (service *Service) loadToolCallCheckConfig(ctx context.Context, setup store.Setup) (ToolCallCheckConfigResponse, error) {
+	var response xaiSwitcherToolCallSettingsResponse
+	if err := service.doXaiSwitcherManagementRequest(ctx, setup, http.MethodGet, "/settings", nil, &response); err != nil {
+		return ToolCallCheckConfigResponse{}, err
+	}
+	if response.Error != nil {
+		return ToolCallCheckConfigResponse{}, fmt.Errorf("%s: %s", response.Error.Code, response.Error.Message)
+	}
+	defaultModel := strings.TrimSpace(response.Data.QualityProbeModel)
+	if defaultModel == "" {
+		return ToolCallCheckConfigResponse{}, errors.New("xAI IP Switcher qualityProbeModel 为空")
+	}
+	return ToolCallCheckConfigResponse{
+		DefaultModel: defaultModel,
+		Policy: toolcallcheck.StreamingQualityPolicy{
+			SoftTokensPerSecond:             response.Data.QualitySoftTPS,
+			HardTokensPerSecond:             response.Data.QualityHardTPS,
+			TTFBSeconds:                     response.Data.RealtimeGuardTTFBSeconds,
+			GenerationSeconds:               response.Data.RealtimeGuardGenerationSeconds,
+			TokenThreshold:                  response.Data.RealtimeGuardTokenThreshold,
+			MinSummaryChars:                 response.Data.RealtimeGuardMinSummaryChars,
+			MinEncryptedBytes:               response.Data.RealtimeGuardMinEncryptedBytes,
+			EncryptedBytesPerReasoningToken: response.Data.RealtimeGuardEncryptedBytesPerReasoningToken,
+			MinOutputTokens:                 response.Data.RealtimeGuardMinOutputTokens,
+			BurstMinReasoningTokens:         response.Data.RealtimeGuardBurstMinReasoningTokens,
+			BurstMaxVisibleTokens:           response.Data.RealtimeGuardBurstMaxVisibleTokens,
+			BurstMaxWindowMS:                response.Data.RealtimeGuardBurstMaxWindowMS,
+		},
+	}, nil
 }
 
 func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCheckRequest) (ToolCallCheckResponse, error) {
@@ -55,6 +124,14 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 	logWxaiToolCallCheck(executionID, operationStartedAt, "resolve_runtime_completed", map[string]any{
 		"timeoutMs": settings.Timeout,
 	})
+	toolCallConfig, err := service.loadToolCallCheckConfig(ctx, setup)
+	if err != nil {
+		return ToolCallCheckResponse{}, fmt.Errorf("读取 xAI IP Switcher 实时守护配置: %w", err)
+	}
+	selectedModel := strings.TrimSpace(request.Model)
+	if selectedModel == "" {
+		selectedModel = toolCallConfig.DefaultModel
+	}
 
 	logWxaiToolCallCheck(executionID, operationStartedAt, "fetch_accounts_started", nil)
 	accounts, err := service.fetchAccounts(ctx, setup)
@@ -175,7 +252,7 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 
 	logWxaiToolCallCheck(executionID, operationStartedAt, "upstream_request_started", map[string]any{
 		"endpoint":         wxaiResponsesURL,
-		"model":            wxaiProbeModel,
+		"model":            selectedModel,
 		"prompt":           wxaiToolCallCheckPrompt,
 		"expectedAnswer":   toolcallcheck.ExpectedAnswer,
 		"stream":           true,
@@ -189,14 +266,16 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 		"proxyURL":         toolcallcheck.RedactProxyURL(proxySelection.URL),
 	})
 	checkResult, err := toolcallcheck.Run(ctx, toolcallcheck.Request{
-		CheckID:     executionID,
-		Endpoint:    wxaiResponsesURL,
-		AccessToken: accessToken,
-		Headers:     wxaiToolCallCheckHeaders(accessToken, clientVersion),
-		Body:        buildWxaiResponsesStreamingProbePayload(),
-		Proxy:       proxySelection,
-		Timeout:     time.Duration(settings.Timeout) * time.Millisecond,
-		Stream:      true,
+		CheckID:       executionID,
+		Model:         selectedModel,
+		Endpoint:      wxaiResponsesURL,
+		AccessToken:   accessToken,
+		Headers:       wxaiToolCallCheckHeaders(accessToken, clientVersion),
+		Body:          buildWxaiResponsesStreamingProbePayload(selectedModel),
+		Proxy:         proxySelection,
+		Timeout:       time.Duration(settings.Timeout) * time.Millisecond,
+		Stream:        true,
+		QualityPolicy: toolCallConfig.Policy,
 	})
 	if err != nil {
 		checkResult.Error = err.Error()
@@ -254,9 +333,9 @@ func wxaiToolCallCheckHeaders(accessToken string, clientVersion string) map[stri
 
 const wxaiToolCallCheckPrompt = "用中文回答：17 × 23 等于多少？只输出计算过程和答案。"
 
-func buildWxaiResponsesStreamingProbePayload() map[string]any {
+func buildWxaiResponsesStreamingProbePayload(model string) map[string]any {
 	return map[string]any{
-		"model":             wxaiProbeModel,
+		"model":             strings.TrimSpace(model),
 		"input":             wxaiToolCallCheckPrompt,
 		"stream":            true,
 		"reasoning":         map[string]string{"effort": "high", "summary": "detailed"},
