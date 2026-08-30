@@ -2537,6 +2537,7 @@
     "state_active": "Активно",
     "state_inactive": "Неактивно",
     "result_failed": "Ошибка",
+    "result_degraded": "Снижено качество",
     "result_success": "Успех",
     "resolved_model_label": "resolved: {{model}}",
     "no_failures": "В выбранном диапазоне нет неуспешных вызовов.",

@@ -1248,14 +1248,18 @@ export function RealtimeEventsPanel({
                             styles.realtimeRequestStatus,
                             row.failed
                               ? styles.realtimeRequestStatusBad
-                              : styles.realtimeRequestStatusGood,
+                              : row.degraded
+                                ? styles.realtimeRequestStatusWarn
+                                : styles.realtimeRequestStatusGood,
                           ]
                             .filter(Boolean)
                             .join(' ')}
                         >
                           {row.failed
                             ? t('monitoring.result_failed')
-                            : t('monitoring.result_success')}
+                            : row.degraded
+                              ? t('monitoring.result_degraded')
+                              : t('monitoring.result_success')}
                         </span>
                       )}
                     </div>

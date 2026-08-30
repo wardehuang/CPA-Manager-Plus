@@ -1116,6 +1116,10 @@
     color: var(--monitor-green);
   }
 
+  .realtimeRequestStatusWarn {
+    color: var(--monitor-amber);
+  }
+
   .realtimeRequestStatusBad {
     color: var(--monitor-red);
   }

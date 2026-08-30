@@ -2537,6 +2537,7 @@
     "state_active": "Active",
     "state_inactive": "Inactive",
     "result_failed": "Failed",
+    "result_degraded": "Degraded",
     "result_success": "Success",
     "resolved_model_label": "resolved: {{model}}",
     "no_failures": "No failed calls in the selected range.",

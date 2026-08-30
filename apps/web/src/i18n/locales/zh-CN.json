@@ -2536,6 +2536,7 @@
     "state_active": "活跃",
     "state_inactive": "未生效",
     "result_failed": "失败",
+    "result_degraded": "降智",
     "result_success": "成功",
     "resolved_model_label": "实际调用：{{model}}",
     "no_failures": "当前时间范围内没有失败调用。",

@@ -28,6 +28,7 @@ type Repository interface {
 	GetLatestRunByTrigger(ctx context.Context, triggerType string, triggerKey string) (model.WxaiInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.WxaiInspectionResult, error)
 	ListLogs(ctx context.Context, runID int64) ([]model.WxaiInspectionLog, error)
+	FindRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error)
 	ListAccountStatusItems(ctx context.Context, runID int64) ([]model.WxaiAccountStatusItem, error)
 	GetSettings(ctx context.Context) (model.ManagerWxaiInspectionConfig, bool, error)
 	SaveSettings(ctx context.Context, settings model.ManagerWxaiInspectionConfig) (model.ManagerWxaiInspectionConfig, error)
@@ -156,6 +157,33 @@ func (repository *repository) InsertLog(ctx context.Context, entry model.WxaiIns
 	}
 	entry.ID, _ = databaseResult.LastInsertId()
 	return entry, nil
+}
+
+func (repository *repository) FindRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	if len(requestIDs) == 0 {
+		return result, nil
+	}
+	encodedRequestIDs, err := json.Marshal(requestIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := repository.db.QueryContext(ctx, `select distinct json_extract(detail_json, '$.requestID')
+		from wxai_inspection_logs
+		where json_extract(detail_json, '$.reason') = 'position_degradation'
+		and json_extract(detail_json, '$.requestID') in (select value from json_each(?))`, string(encodedRequestIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var requestID string
+		if err := rows.Scan(&requestID); err != nil {
+			return nil, err
+		}
+		result[requestID] = struct{}{}
+	}
+	return result, rows.Err()
 }
 
 func (repository *repository) UpsertAccountStatusDetail(ctx context.Context, detail model.WxaiAccountStatusDetail) error {

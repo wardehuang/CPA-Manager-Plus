@@ -716,6 +716,7 @@ type EventRow struct {
 	TTFTMS                 *int64                        `json:"ttft_ms"`
 	GenerationMS           *int64                        `json:"generation_ms,omitempty"`
 	Failed                 bool                          `json:"failed"`
+	Degraded               bool                          `json:"degraded,omitempty"`
 	FailStatusCode         *int64                        `json:"fail_status_code,omitempty"`
 	FailSummary            string                        `json:"fail_summary,omitempty"`
 	ResponseMetadata       *usage.ResponseHeaderMetadata `json:"response_metadata,omitempty"`
@@ -1671,9 +1672,30 @@ func (s *Service) eventsCount(ctx context.Context, filter store.AnalyticsFilter)
 
 func (s *Service) eventsPage(ctx context.Context, filter store.AnalyticsFilter, beforeMS, beforeID int64, limit int) (store.EventsPage, error) {
 	if page, available := s.monitoringReader.EventsPage(ctx, filter, beforeMS, beforeID, limit); available {
-		return page, nil
+		return s.markRealtimeDegradedEvents(ctx, page)
 	}
-	return s.store.EventsPageWithFilter(ctx, filter, beforeMS, beforeID, limit)
+	page, err := s.store.EventsPageWithFilter(ctx, filter, beforeMS, beforeID, limit)
+	if err != nil {
+		return store.EventsPage{}, err
+	}
+	return s.markRealtimeDegradedEvents(ctx, page)
+}
+
+func (s *Service) markRealtimeDegradedEvents(ctx context.Context, page store.EventsPage) (store.EventsPage, error) {
+	requestIDs := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		if item.RequestID != "" {
+			requestIDs = append(requestIDs, item.RequestID)
+		}
+	}
+	degradedRequestIDs, err := s.store.FindWxaiRealtimeDegradedRequestIDs(ctx, requestIDs)
+	if err != nil {
+		return store.EventsPage{}, err
+	}
+	for index := range page.Items {
+		_, page.Items[index].Degraded = degradedRequestIDs[page.Items[index].RequestID]
+	}
+	return page, nil
 }
 
 func countAPIKeySelectors(values store.FilterSelectorValues) int {
@@ -3137,6 +3159,7 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			TTFTMS:                 nullableInt(item.TTFTMS.Valid, item.TTFTMS.Int64),
 			GenerationMS:           nullableInt(item.GenerationMS.Valid, item.GenerationMS.Int64),
 			Failed:                 item.Failed,
+			Degraded:               item.Degraded,
 			FailStatusCode:         nullableInt(item.FailStatusCode.Valid, item.FailStatusCode.Int64),
 			FailSummary:            item.FailSummary,
 			ResponseMetadata:       item.ResponseMetadata,

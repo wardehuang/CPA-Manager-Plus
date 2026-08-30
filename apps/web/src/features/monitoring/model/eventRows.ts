@@ -262,6 +262,7 @@ export const buildEventRows = (
         channelHost: channelMeta?.host || '-',
         channelDisabled: channelMeta?.disabled || false,
         failed: detail.failed === true,
+        degraded: detail.degraded === true,
         statsIncluded,
         latencyMs,
         ttftMs,

@@ -387,6 +387,7 @@ type EventPageItem struct {
 	TTFTMS                 sql.NullInt64
 	GenerationMS           sql.NullInt64
 	Failed                 bool
+	Degraded               bool
 	FailStatusCode         sql.NullInt64
 	FailSummary            string
 	ResponseMetadata       *usage.ResponseHeaderMetadata

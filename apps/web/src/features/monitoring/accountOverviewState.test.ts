@@ -74,6 +74,7 @@ const createEventRow = (overrides: Partial<MonitoringEventRow> = {}): Monitoring
   channelHost: overrides.channelHost ?? 'localhost',
   channelDisabled: overrides.channelDisabled ?? false,
   failed: overrides.failed ?? false,
+  degraded: overrides.degraded ?? false,
   statsIncluded: overrides.statsIncluded ?? true,
   latencyMs: overrides.latencyMs ?? 120,
   ttftMs: overrides.ttftMs ?? 40,

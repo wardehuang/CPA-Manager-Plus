@@ -1439,6 +1439,7 @@ export interface MonitoringAnalyticsEventRow {
   ttft_ms?: number | null;
   generation_ms?: number | null;
   failed: boolean;
+  degraded?: boolean;
   fail_status_code?: number | null;
   fail_summary?: string;
   response_metadata?: ResponseHeaderMetadata;

@@ -71,6 +71,10 @@ func (s *Store) ListWxaiInspectionLogs(ctx context.Context, runID int64) ([]mode
 	return s.wxaiInspections().ListLogs(ctx, runID)
 }
 
+func (s *Store) FindWxaiRealtimeDegradedRequestIDs(ctx context.Context, requestIDs []string) (map[string]struct{}, error) {
+	return s.wxaiInspections().FindRealtimeDegradedRequestIDs(ctx, requestIDs)
+}
+
 func (s *Store) ListWxaiAccountStatusItems(ctx context.Context, runID int64) ([]model.WxaiAccountStatusItem, error) {
 	return s.wxaiInspections().ListAccountStatusItems(ctx, runID)
 }

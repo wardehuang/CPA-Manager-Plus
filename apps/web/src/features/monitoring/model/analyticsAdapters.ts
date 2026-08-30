@@ -999,6 +999,7 @@ export const buildUsageDetailsFromAnalyticsEvents = (
       total_tokens: item.total_tokens,
     },
     failed: item.failed === true,
+    degraded: item.degraded === true,
     fail_status_code: item.fail_status_code ?? null,
     fail_summary: readString(item.fail_summary),
     __eventHash: readString(item.event_hash),

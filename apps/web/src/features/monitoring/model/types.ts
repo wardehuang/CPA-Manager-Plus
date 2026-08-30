@@ -173,6 +173,7 @@ export type MonitoringEventRow = {
   channelHost: string;
   channelDisabled: boolean;
   failed: boolean;
+  degraded: boolean;
   statsIncluded: boolean;
   latencyMs: number | null;
   ttftMs: number | null;

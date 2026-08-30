@@ -215,6 +215,7 @@ export interface UsageDetail {
   generationMs?: number;
   tokens: UsageTokens;
   failed: boolean;
+  degraded?: boolean;
   fail_status_code?: number | null;
   failStatusCode?: number | null;
   fail_summary?: string;
