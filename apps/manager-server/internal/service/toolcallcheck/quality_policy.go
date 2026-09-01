@@ -23,19 +23,21 @@ type StreamingQualityPolicy struct {
 type QualityPolicy = StreamingQualityPolicy
 
 type streamingThinkingEvidence struct {
-	OutputTokens           int
-	ReasoningTokens        int
-	SummaryChars           int
-	SummaryText            string
-	EncryptedBytes         int
-	ReasoningItemID        string
-	ReasoningItemCompleted bool
-	ReasoningMetadataError bool
-	VisibleTokens          int
-	VisibleFlushMS         int64
-	EncryptedFloor         int
-	IsRealThinking         bool
-	Reason                 string
+	OutputTokens               int
+	ReasoningTokens            int
+	SummaryChars               int
+	SummaryText                string
+	EncryptedBytes             int
+	ReasoningItemID            string
+	ReasoningItemCompleted     bool
+	ReasoningMetadataError     bool
+	VisibleTokens              int
+	VisibleFlushMS             int64
+	EncryptedFloor             int
+	IsRealThinking             bool
+	Reason                     string
+	CompletedFunctionCallCount int
+	ToolCallOnly               bool
 }
 
 func evaluateStreamingThinking(evidence streamingThinkingEvidence, policy StreamingQualityPolicy) streamingThinkingEvidence {
@@ -110,13 +112,18 @@ func classifyStreamingResult(
 	}
 	if tokensPerSecond > policy.SoftTokensPerSecond &&
 		tokensPerSecond < policy.HardTokensPerSecond &&
-		!evidence.IsRealThinking {
+		!evidence.IsRealThinking &&
+		!evidence.ToolCallOnly {
 		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps_missing_real_thinking"
 	}
 	if float64(ttfbMS) > policy.TTFBSeconds*1000 &&
 		float64(generationMS) < policy.GenerationSeconds*1000 &&
 		evidence.OutputTokens+evidence.ReasoningTokens > policy.TokenThreshold {
 		return ClassificationSuspectedDegraded, QualityLevelSoft, "ttfb_downgrade"
+	}
+	if evidence.ToolCallOnly {
+		// 已完成的纯工具调用是有效行动证据，只跳过 soft Thinking 判定。
+		return ClassificationNormal, QualityLevelHealthy, "completed_tool_call"
 	}
 	return ClassificationNormal, QualityLevelHealthy, "within_threshold"
 }

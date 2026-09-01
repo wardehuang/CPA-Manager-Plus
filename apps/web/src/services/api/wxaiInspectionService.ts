@@ -264,6 +264,8 @@ export interface WxaiToolCallCheckResult {
   responseBodyTruncated: boolean;
   toolCallDetected: boolean;
   toolCallNames?: string[];
+  completedFunctionCallCount: number;
+  toolCallOnly: boolean;
   error?: string;
   cleanupPath?: string;
   cleanupAttempted: boolean;

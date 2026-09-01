@@ -1289,6 +1289,11 @@ function ToolCallCheckResultDialog({
     : '-';
   const formatMilliseconds = (value?: number) => typeof value === 'number' && value >= 0 ? `${value} ms` : '-';
   const formatTokensPerSecond = (value?: number) => typeof value === 'number' ? value.toFixed(2) : '-';
+  const responseType = checkResult.toolCallOnly
+    ? '纯工具调用'
+    : checkResult.toolCallDetected
+      ? '正文 + 工具调用'
+      : '正文';
 
   return (
     <div
@@ -1347,6 +1352,9 @@ function ToolCallCheckResultDialog({
             <div><dt>Thinking 原因</dt><dd>{checkResult.realThinkingReason || '-'}</dd></div>
             <div><dt>Summary 字符</dt><dd>{checkResult.summaryChars}</dd></div>
             <div><dt>Encrypted</dt><dd>{checkResult.encryptedBytes}/{checkResult.encryptedFloor} bytes</dd></div>
+            <div><dt>响应类型</dt><dd>{responseType}</dd></div>
+            <div><dt>已完成工具调用</dt><dd>{checkResult.completedFunctionCallCount}</dd></div>
+            <div><dt>工具</dt><dd>{checkResult.toolCallNames?.join(', ') || '-'}</dd></div>
             <div><dt>可见倾倒窗口</dt><dd>{formatMilliseconds(checkResult.visibleFlushMs)}</dd></div>
             <div><dt>答案（应为 391）</dt><dd>{checkResult.answerMatched ? '是' : '否'}</dd></div>
             <div><dt>错误码</dt><dd>{checkResult.errorCode || '-'}</dd></div>

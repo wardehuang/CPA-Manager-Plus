@@ -29,26 +29,30 @@ const (
 )
 
 type streamingMetrics struct {
-	modelAnswer            strings.Builder
-	summaryDelta           strings.Builder
-	outputTokens           *int
-	reasoningTokens        *int
-	thinkingDelta          bool
-	errorCode              string
-	errorMessage           string
-	firstPayloadReady      bool
-	firstPayloadAt         time.Time
-	firstGeneratedReady    bool
-	firstGeneratedAt       time.Time
-	firstVisibleReady      bool
-	firstVisibleAt         time.Time
-	visibleCharacters      int
-	summaryChars           int
-	summaryText            string
-	encryptedBytes         int
-	reasoningItemID        string
-	reasoningItemCompleted bool
-	reasoningMetadataError bool
+	modelAnswer                strings.Builder
+	summaryDelta               strings.Builder
+	outputTokens               *int
+	reasoningTokens            *int
+	thinkingDelta              bool
+	errorCode                  string
+	errorMessage               string
+	firstPayloadReady          bool
+	firstPayloadAt             time.Time
+	firstGeneratedReady        bool
+	firstGeneratedAt           time.Time
+	firstVisibleReady          bool
+	firstVisibleAt             time.Time
+	visibleCharacters          int
+	summaryChars               int
+	summaryText                string
+	encryptedBytes             int
+	reasoningItemID            string
+	reasoningItemCompleted     bool
+	reasoningMetadataError     bool
+	completedFunctionCallCount int
+	completedFunctionCallIDs   map[string]struct{}
+	toolCallNames              []string
+	toolCallNameSet            map[string]struct{}
 }
 
 type streamingResponsesUsage struct {
@@ -197,15 +201,17 @@ func runStreamingResponse(
 	reasoningTokens := pointerIntValue(metrics.reasoningTokens)
 	recordStreamingSummary(metrics.summaryDelta.String(), &metrics.summaryChars, &metrics.summaryText)
 	evidence := evaluateStreamingThinking(streamingThinkingEvidence{
-		OutputTokens:           outputTokens,
-		ReasoningTokens:        reasoningTokens,
-		SummaryChars:           metrics.summaryChars,
-		SummaryText:            metrics.summaryText,
-		EncryptedBytes:         metrics.encryptedBytes,
-		ReasoningItemID:        metrics.reasoningItemID,
-		ReasoningItemCompleted: metrics.reasoningItemCompleted,
-		ReasoningMetadataError: metrics.reasoningMetadataError,
-		VisibleFlushMS:         visibleFlushMS,
+		OutputTokens:               outputTokens,
+		ReasoningTokens:            reasoningTokens,
+		SummaryChars:               metrics.summaryChars,
+		SummaryText:                metrics.summaryText,
+		EncryptedBytes:             metrics.encryptedBytes,
+		ReasoningItemID:            metrics.reasoningItemID,
+		ReasoningItemCompleted:     metrics.reasoningItemCompleted,
+		ReasoningMetadataError:     metrics.reasoningMetadataError,
+		VisibleFlushMS:             visibleFlushMS,
+		CompletedFunctionCallCount: metrics.completedFunctionCallCount,
+		ToolCallOnly:               metrics.completedFunctionCallCount > 0 && metrics.visibleCharacters == 0,
 	}, qualityPolicy)
 	result.VisibleTokens = intPointer(evidence.VisibleTokens)
 	result.SummaryChars = evidence.SummaryChars
@@ -215,6 +221,10 @@ func runStreamingResponse(
 	result.RealThinkingReason = evidence.Reason
 	result.VisibleFlushMS = evidence.VisibleFlushMS
 	result.EvaluatedTokens = outputTokens + reasoningTokens
+	result.ToolCallDetected = metrics.completedFunctionCallCount > 0
+	result.ToolCallNames = metrics.toolCallNames
+	result.CompletedFunctionCallCount = metrics.completedFunctionCallCount
+	result.ToolCallOnly = evidence.ToolCallOnly
 
 	outputTokensPerSecond := 0.0
 	if result.GenerationMS > 0 && result.EvaluatedTokens > 0 {
@@ -542,6 +552,27 @@ func collectStreamingOutputItem(item map[string]any, metrics *streamingMetrics, 
 				visibleCharacters += utf8.RuneCountInString(text)
 			}
 			metrics.visibleCharacters = maxStreamingInt(metrics.visibleCharacters, visibleCharacters)
+		}
+	case "function_call":
+		callID := streamingStringField(item, "call_id")
+		name := streamingStringField(item, "name")
+		if !terminal || !strings.EqualFold(streamingStringField(item, "status"), "completed") || callID == "" || name == "" || streamingStringField(item, "arguments") == "" {
+			return
+		}
+		if metrics.completedFunctionCallIDs == nil {
+			metrics.completedFunctionCallIDs = make(map[string]struct{})
+		}
+		if _, exists := metrics.completedFunctionCallIDs[callID]; exists {
+			return
+		}
+		metrics.completedFunctionCallIDs[callID] = struct{}{}
+		metrics.completedFunctionCallCount++
+		if metrics.toolCallNameSet == nil {
+			metrics.toolCallNameSet = make(map[string]struct{})
+		}
+		if _, exists := metrics.toolCallNameSet[name]; !exists {
+			metrics.toolCallNameSet[name] = struct{}{}
+			metrics.toolCallNames = append(metrics.toolCallNames, name)
 		}
 	}
 }
