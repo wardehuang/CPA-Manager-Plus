@@ -210,6 +210,8 @@ export interface WxaiToolCallCheckQualityPolicy {
   minSummaryChars: number;
   minEncryptedBytes: number;
   encryptedBytesPerReasoningToken: number;
+  minSubstantiveVisibleChars: number;
+  minSubstantiveVisibleMs: number;
   minOutputTokens: number;
   burstMinReasoningTokens: number;
   burstMaxVisibleTokens: number;
@@ -266,6 +268,12 @@ export interface WxaiToolCallCheckResult {
   toolCallNames?: string[];
   completedFunctionCallCount: number;
   toolCallOnly: boolean;
+  outputTextChars: number;
+  completedMessageCount: number;
+  refusalDetected: boolean;
+  substantiveVisibleResponse: boolean;
+  validResponseEvidence: boolean;
+  validResponseEvidenceReason: string;
   error?: string;
   cleanupPath?: string;
   cleanupAttempted: boolean;

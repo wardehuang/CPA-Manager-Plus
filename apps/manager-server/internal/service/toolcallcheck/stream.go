@@ -42,7 +42,10 @@ type streamingMetrics struct {
 	firstGeneratedAt           time.Time
 	firstVisibleReady          bool
 	firstVisibleAt             time.Time
-	visibleCharacters          int
+	outputTextChars            int
+	completedMessageCount      int
+	completedMessageIDs        map[string]struct{}
+	refusalDetected            bool
 	summaryChars               int
 	summaryText                string
 	encryptedBytes             int
@@ -211,7 +214,9 @@ func runStreamingResponse(
 		ReasoningMetadataError:     metrics.reasoningMetadataError,
 		VisibleFlushMS:             visibleFlushMS,
 		CompletedFunctionCallCount: metrics.completedFunctionCallCount,
-		ToolCallOnly:               metrics.completedFunctionCallCount > 0 && metrics.visibleCharacters == 0,
+		OutputTextChars:            metrics.outputTextChars,
+		CompletedMessageCount:      metrics.completedMessageCount,
+		RefusalDetected:            metrics.refusalDetected,
 	}, qualityPolicy)
 	result.VisibleTokens = intPointer(evidence.VisibleTokens)
 	result.SummaryChars = evidence.SummaryChars
@@ -225,6 +230,12 @@ func runStreamingResponse(
 	result.ToolCallNames = metrics.toolCallNames
 	result.CompletedFunctionCallCount = metrics.completedFunctionCallCount
 	result.ToolCallOnly = evidence.ToolCallOnly
+	result.OutputTextChars = evidence.OutputTextChars
+	result.CompletedMessageCount = evidence.CompletedMessageCount
+	result.RefusalDetected = evidence.RefusalDetected
+	result.SubstantiveVisibleResponse = evidence.SubstantiveVisibleResponse
+	result.ValidResponseEvidence = evidence.ValidResponseEvidence
+	result.ValidResponseEvidenceReason = evidence.ValidResponseEvidenceReason
 
 	outputTokensPerSecond := 0.0
 	if result.GenerationMS > 0 && result.EvaluatedTokens > 0 {
@@ -348,10 +359,13 @@ func processStreamingEvent(rawData string, metrics *streamingMetrics) bool {
 	}
 	if event.Type == "response.output_text.delta" && deltaText != "" {
 		metrics.modelAnswer.WriteString(deltaText)
-		metrics.visibleCharacters += utf8.RuneCountInString(deltaText)
+		metrics.outputTextChars += utf8.RuneCountInString(deltaText)
 		if metrics.firstVisibleAt.IsZero() && !metrics.firstVisibleReady {
 			metrics.firstVisibleReady = true
 		}
+	}
+	if event.Type == "response.refusal.delta" && deltaText != "" {
+		metrics.refusalDetected = true
 	}
 	collectStreamingThinkingEvidence(message, metrics)
 
@@ -538,20 +552,31 @@ func collectStreamingOutputItem(item map[string]any, metrics *streamingMetrics, 
 			}
 		}
 	case "message":
+		itemID := streamingStringField(item, "id")
+		if terminal && strings.EqualFold(streamingStringField(item, "status"), "completed") && itemID != "" {
+			if metrics.completedMessageIDs == nil {
+				metrics.completedMessageIDs = make(map[string]struct{})
+			}
+			if _, exists := metrics.completedMessageIDs[itemID]; !exists {
+				metrics.completedMessageIDs[itemID] = struct{}{}
+				metrics.completedMessageCount++
+			}
+		}
 		if content, ok := item["content"].([]any); ok {
-			visibleCharacters := 0
+			outputTextChars := 0
 			for _, rawContent := range content {
 				part, partOK := rawContent.(map[string]any)
 				if !partOK {
 					continue
 				}
-				text := streamingStringField(part, "text")
-				if text == "" {
-					text = streamingStringField(part, "refusal")
+				switch strings.ToLower(streamingStringField(part, "type")) {
+				case "output_text":
+					outputTextChars += utf8.RuneCountInString(streamingStringField(part, "text"))
+				case "refusal":
+					metrics.refusalDetected = true
 				}
-				visibleCharacters += utf8.RuneCountInString(text)
 			}
-			metrics.visibleCharacters = maxStreamingInt(metrics.visibleCharacters, visibleCharacters)
+			metrics.outputTextChars = maxStreamingInt(metrics.outputTextChars, outputTextChars)
 		}
 	case "function_call":
 		callID := streamingStringField(item, "call_id")
