@@ -233,9 +233,6 @@ func runStreamingResponse(
 	result.OutputTextChars = evidence.OutputTextChars
 	result.CompletedMessageCount = evidence.CompletedMessageCount
 	result.RefusalDetected = evidence.RefusalDetected
-	result.SubstantiveVisibleResponse = evidence.SubstantiveVisibleResponse
-	result.ValidResponseEvidence = evidence.ValidResponseEvidence
-	result.ValidResponseEvidenceReason = evidence.ValidResponseEvidenceReason
 
 	outputTokensPerSecond := 0.0
 	if result.GenerationMS > 0 && result.EvaluatedTokens > 0 {

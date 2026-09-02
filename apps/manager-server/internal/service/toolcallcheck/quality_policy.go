@@ -14,8 +14,6 @@ type StreamingQualityPolicy struct {
 	MinSummaryChars                 int     `json:"minSummaryChars"`
 	MinEncryptedBytes               int     `json:"minEncryptedBytes"`
 	EncryptedBytesPerReasoningToken int     `json:"encryptedBytesPerReasoningToken"`
-	MinSubstantiveVisibleChars      int     `json:"minSubstantiveVisibleChars"`
-	MinSubstantiveVisibleMS         int     `json:"minSubstantiveVisibleMs"`
 	MinOutputTokens                 int     `json:"minOutputTokens"`
 	BurstMinReasoningTokens         int     `json:"burstMinReasoningTokens"`
 	BurstMaxVisibleTokens           int     `json:"burstMaxVisibleTokens"`
@@ -25,34 +23,31 @@ type StreamingQualityPolicy struct {
 type QualityPolicy = StreamingQualityPolicy
 
 type streamingThinkingEvidence struct {
-	OutputTokens                int
-	ReasoningTokens             int
-	SummaryChars                int
-	SummaryText                 string
-	EncryptedBytes              int
-	ReasoningItemID             string
-	ReasoningItemCompleted      bool
-	ReasoningMetadataError      bool
-	VisibleTokens               int
-	VisibleFlushMS              int64
-	EncryptedFloor              int
-	IsRealThinking              bool
-	Reason                      string
-	CompletedFunctionCallCount  int
-	ToolCallOnly                bool
-	OutputTextChars             int
-	CompletedMessageCount       int
-	RefusalDetected             bool
-	SubstantiveVisibleResponse  bool
-	ValidResponseEvidence       bool
-	ValidResponseEvidenceReason string
+	OutputTokens               int
+	ReasoningTokens            int
+	SummaryChars               int
+	SummaryText                string
+	EncryptedBytes             int
+	ReasoningItemID            string
+	ReasoningItemCompleted     bool
+	ReasoningMetadataError     bool
+	VisibleTokens              int
+	VisibleFlushMS             int64
+	EncryptedFloor             int
+	IsRealThinking             bool
+	Reason                     string
+	CompletedFunctionCallCount int
+	ToolCallOnly               bool
+	OutputTextChars            int
+	CompletedMessageCount      int
+	RefusalDetected            bool
 }
 
 func evaluateStreamingThinking(evidence streamingThinkingEvidence, policy StreamingQualityPolicy) streamingThinkingEvidence {
 	if evidence.OutputTokens < policy.MinOutputTokens {
 		evidence.IsRealThinking = true
 		evidence.Reason = "below_minimum_output_tokens"
-		return finalizeStreamingResponseEvidence(evidence, policy)
+		return finalizeStreamingResponseEvidence(evidence)
 	}
 	evidence.VisibleTokens = evidence.OutputTokens - evidence.ReasoningTokens
 	if evidence.VisibleTokens < 0 {
@@ -93,25 +88,11 @@ func evaluateStreamingThinking(evidence streamingThinkingEvidence, policy Stream
 	default:
 		evidence.Reason = "missing_thinking_evidence"
 	}
-	return finalizeStreamingResponseEvidence(evidence, policy)
+	return finalizeStreamingResponseEvidence(evidence)
 }
 
-func finalizeStreamingResponseEvidence(evidence streamingThinkingEvidence, policy StreamingQualityPolicy) streamingThinkingEvidence {
+func finalizeStreamingResponseEvidence(evidence streamingThinkingEvidence) streamingThinkingEvidence {
 	evidence.ToolCallOnly = evidence.CompletedFunctionCallCount > 0 && evidence.OutputTextChars == 0 && !evidence.RefusalDetected
-	evidence.SubstantiveVisibleResponse = evidence.CompletedMessageCount > 0 &&
-		evidence.CompletedFunctionCallCount == 0 &&
-		evidence.OutputTextChars >= policy.MinSubstantiveVisibleChars &&
-		evidence.VisibleFlushMS >= int64(policy.MinSubstantiveVisibleMS) &&
-		!evidence.RefusalDetected
-	evidence.ValidResponseEvidence = evidence.IsRealThinking || evidence.ToolCallOnly || evidence.SubstantiveVisibleResponse
-	switch {
-	case evidence.ToolCallOnly:
-		evidence.ValidResponseEvidenceReason = "completed_tool_call"
-	case evidence.SubstantiveVisibleResponse:
-		evidence.ValidResponseEvidenceReason = "substantive_visible_response"
-	case evidence.IsRealThinking:
-		evidence.ValidResponseEvidenceReason = "real_thinking"
-	}
 	return evidence
 }
 
@@ -144,15 +125,13 @@ func classifyStreamingResult(
 	}
 	if tokensPerSecond > policy.SoftTokensPerSecond &&
 		tokensPerSecond < policy.HardTokensPerSecond &&
-		!evidence.ValidResponseEvidence {
-		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps_missing_valid_response_evidence"
+		!evidence.IsRealThinking &&
+		!evidence.ToolCallOnly {
+		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps_missing_real_thinking"
 	}
 	if evidence.ToolCallOnly {
 		// 已完成的纯工具调用是有效行动证据，只跳过 soft Thinking 判定。
 		return ClassificationNormal, QualityLevelHealthy, "completed_tool_call"
-	}
-	if evidence.SubstantiveVisibleResponse {
-		return ClassificationNormal, QualityLevelHealthy, "substantive_visible_response"
 	}
 	return ClassificationNormal, QualityLevelHealthy, "within_threshold"
 }

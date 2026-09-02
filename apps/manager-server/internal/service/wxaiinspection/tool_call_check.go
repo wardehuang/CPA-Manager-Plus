@@ -40,8 +40,6 @@ type xaiSwitcherToolCallSettingsResponse struct {
 		RealtimeGuardMinSummaryChars                 int     `json:"realtimeGuardMinSummaryChars"`
 		RealtimeGuardMinEncryptedBytes               int     `json:"realtimeGuardMinEncryptedBytes"`
 		RealtimeGuardEncryptedBytesPerReasoningToken int     `json:"realtimeGuardEncryptedBytesPerReasoningToken"`
-		RealtimeGuardMinSubstantiveVisibleChars      int     `json:"realtimeGuardMinSubstantiveVisibleChars"`
-		RealtimeGuardMinSubstantiveVisibleMS         int     `json:"realtimeGuardMinSubstantiveVisibleMs"`
 		RealtimeGuardMinOutputTokens                 int     `json:"realtimeGuardMinOutputTokens"`
 		RealtimeGuardBurstMinReasoningTokens         int     `json:"realtimeGuardBurstMinReasoningTokens"`
 		RealtimeGuardBurstMaxVisibleTokens           int     `json:"realtimeGuardBurstMaxVisibleTokens"`
@@ -92,8 +90,6 @@ func (service *Service) loadToolCallCheckConfig(ctx context.Context, setup store
 			MinSummaryChars:                 response.Data.RealtimeGuardMinSummaryChars,
 			MinEncryptedBytes:               response.Data.RealtimeGuardMinEncryptedBytes,
 			EncryptedBytesPerReasoningToken: response.Data.RealtimeGuardEncryptedBytesPerReasoningToken,
-			MinSubstantiveVisibleChars:      response.Data.RealtimeGuardMinSubstantiveVisibleChars,
-			MinSubstantiveVisibleMS:         response.Data.RealtimeGuardMinSubstantiveVisibleMS,
 			MinOutputTokens:                 response.Data.RealtimeGuardMinOutputTokens,
 			BurstMinReasoningTokens:         response.Data.RealtimeGuardBurstMinReasoningTokens,
 			BurstMaxVisibleTokens:           response.Data.RealtimeGuardBurstMaxVisibleTokens,
@@ -289,38 +285,35 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 		outputTokensPerSecond = *checkResult.OutputTokensPerSecond
 	}
 	logWxaiToolCallCheck(executionID, operationStartedAt, "upstream_request_completed", map[string]any{
-		"statusCode":                  checkResult.StatusCode,
-		"ttfbMs":                      checkResult.TTFBMS,
-		"firstTokenMs":                checkResult.FirstTokenMS,
-		"generationMs":                checkResult.GenerationMS,
-		"totalMs":                     checkResult.TotalMS,
-		"outputTokensPerSecond":       outputTokensPerSecond,
-		"outputTokens":                checkResult.OutputTokens,
-		"reasoningTokens":             checkResult.ReasoningTokens,
-		"visibleTokens":               checkResult.VisibleTokens,
-		"thinkingDelta":               checkResult.ThinkingDelta,
-		"summaryChars":                checkResult.SummaryChars,
-		"encryptedBytes":              checkResult.EncryptedBytes,
-		"encryptedFloor":              checkResult.EncryptedFloor,
-		"toolCallDetected":            checkResult.ToolCallDetected,
-		"toolCallNames":               checkResult.ToolCallNames,
-		"completedFunctionCallCount":  checkResult.CompletedFunctionCallCount,
-		"toolCallOnly":                checkResult.ToolCallOnly,
-		"outputTextChars":             checkResult.OutputTextChars,
-		"completedMessageCount":       checkResult.CompletedMessageCount,
-		"refusalDetected":             checkResult.RefusalDetected,
-		"substantiveVisibleResponse":  checkResult.SubstantiveVisibleResponse,
-		"validResponseEvidence":       checkResult.ValidResponseEvidence,
-		"validResponseEvidenceReason": checkResult.ValidResponseEvidenceReason,
-		"expectedAnswer":              checkResult.ExpectedAnswer,
-		"answerMatched":               checkResult.AnswerMatched,
-		"classification":              checkResult.Classification,
-		"qualityLevel":                checkResult.QualityLevel,
-		"classificationReason":        checkResult.ClassificationReason,
-		"errorCode":                   checkResult.ErrorCode,
-		"proxyMode":                   checkResult.ProxyMode,
-		"error":                       checkResult.Error,
-		"operationContextError":       contextError(ctx),
+		"statusCode":                 checkResult.StatusCode,
+		"ttfbMs":                     checkResult.TTFBMS,
+		"firstTokenMs":               checkResult.FirstTokenMS,
+		"generationMs":               checkResult.GenerationMS,
+		"totalMs":                    checkResult.TotalMS,
+		"outputTokensPerSecond":      outputTokensPerSecond,
+		"outputTokens":               checkResult.OutputTokens,
+		"reasoningTokens":            checkResult.ReasoningTokens,
+		"visibleTokens":              checkResult.VisibleTokens,
+		"thinkingDelta":              checkResult.ThinkingDelta,
+		"summaryChars":               checkResult.SummaryChars,
+		"encryptedBytes":             checkResult.EncryptedBytes,
+		"encryptedFloor":             checkResult.EncryptedFloor,
+		"toolCallDetected":           checkResult.ToolCallDetected,
+		"toolCallNames":              checkResult.ToolCallNames,
+		"completedFunctionCallCount": checkResult.CompletedFunctionCallCount,
+		"toolCallOnly":               checkResult.ToolCallOnly,
+		"outputTextChars":            checkResult.OutputTextChars,
+		"completedMessageCount":      checkResult.CompletedMessageCount,
+		"refusalDetected":            checkResult.RefusalDetected,
+		"expectedAnswer":             checkResult.ExpectedAnswer,
+		"answerMatched":              checkResult.AnswerMatched,
+		"classification":             checkResult.Classification,
+		"qualityLevel":               checkResult.QualityLevel,
+		"classificationReason":       checkResult.ClassificationReason,
+		"errorCode":                  checkResult.ErrorCode,
+		"proxyMode":                  checkResult.ProxyMode,
+		"error":                      checkResult.Error,
+		"operationContextError":      contextError(ctx),
 	})
 	response.Result = checkResult
 	return response, nil

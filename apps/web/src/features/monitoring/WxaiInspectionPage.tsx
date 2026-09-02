@@ -1314,7 +1314,7 @@ function ToolCallCheckResultDialog({
             <h3 id="wxai-tool-call-check-title">降智检测结果</h3>
             <p>{displayAccount || result.fileName}</p>
             <small className={styles.accountStatusToolCallNotice}>
-              使用 xAI IP Switcher 当前 Realtime Guard 阈值与有效响应证据判定
+              使用 xAI IP Switcher 当前 Realtime Guard 阈值判定
             </small>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭">×</button>
@@ -1353,22 +1353,17 @@ function ToolCallCheckResultDialog({
             <div><dt>Summary 字符</dt><dd>{checkResult.summaryChars}</dd></div>
             <div><dt>Encrypted</dt><dd>{checkResult.encryptedBytes}/{checkResult.encryptedFloor} bytes</dd></div>
             <div><dt>响应类型</dt><dd>{responseType}</dd></div>
-            <div><dt>有效响应证据</dt><dd>{checkResult.validResponseEvidence ? '是' : '否'}</dd></div>
-            <div><dt>响应证据原因</dt><dd>{checkResult.validResponseEvidenceReason || '-'}</dd></div>
             <div><dt>正文字符</dt><dd>{checkResult.outputTextChars}</dd></div>
             <div><dt>已完成正文</dt><dd>{checkResult.completedMessageCount}</dd></div>
             <div><dt>已完成工具调用</dt><dd>{checkResult.completedFunctionCallCount}</dd></div>
             <div><dt>工具</dt><dd>{checkResult.toolCallNames?.join(', ') || '-'}</dd></div>
             <div><dt>Refusal</dt><dd>{checkResult.refusalDetected ? '是' : '否'}</dd></div>
-            <div><dt>实质可见正文</dt><dd>{checkResult.substantiveVisibleResponse ? '是' : '否'}</dd></div>
             <div><dt>可见倾倒窗口</dt><dd>{formatMilliseconds(checkResult.visibleFlushMs)}</dd></div>
             <div><dt>答案（应为 391）</dt><dd>{checkResult.answerMatched ? '是' : '否'}</dd></div>
             <div><dt>错误码</dt><dd>{checkResult.errorCode || '-'}</dd></div>
             <div><dt>Soft TPS</dt><dd>{checkResult.qualityPolicy.softTokensPerSecond}</dd></div>
             <div><dt>Hard TPS</dt><dd>{checkResult.qualityPolicy.hardTokensPerSecond}</dd></div>
             <div><dt>TTFB 阈值</dt><dd>{checkResult.qualityPolicy.ttfbSeconds} s</dd></div>
-            <div><dt>实质正文字符阈值</dt><dd>{checkResult.qualityPolicy.minSubstantiveVisibleChars}</dd></div>
-            <div><dt>实质正文持续阈值</dt><dd>{checkResult.qualityPolicy.minSubstantiveVisibleMs} ms</dd></div>
             {checkResult.error ? (
               <div className={styles.accountStatusToolCallMetaWide}>
                 <dt>请求错误</dt>
