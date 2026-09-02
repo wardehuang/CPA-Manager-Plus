@@ -239,6 +239,13 @@ func runStreamingResponse(
 		outputTokensPerSecond = float64(result.EvaluatedTokens) * 1000 / float64(result.GenerationMS)
 	}
 	result.OutputTokensPerSecond = &outputTokensPerSecond
+	if outputTokensPerSecond > qualityPolicy.SoftTokensPerSecond &&
+		outputTokensPerSecond < qualityPolicy.HardTokensPerSecond &&
+		!evidence.IsRealThinking &&
+		!evidence.ToolCallOnly &&
+		evidence.CompletedMessageCount > 0 {
+		result.CompletedMutationEvidence = hasCompletedMutationEvidence(result.RequestBody)
+	}
 	answerMatched := strings.Contains(result.ModelAnswer, qualityExpectedAnswer)
 	result.AnswerMatched = answerMatched
 	result.Classification, result.QualityLevel, result.ClassificationReason = classifyStreamingResult(
@@ -251,6 +258,7 @@ func runStreamingResponse(
 		result.TTFBMS,
 		result.GenerationMS,
 		evidence,
+		result.CompletedMutationEvidence,
 		qualityPolicy,
 	)
 }

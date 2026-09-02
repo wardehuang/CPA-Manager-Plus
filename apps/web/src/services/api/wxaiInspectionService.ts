@@ -266,6 +266,7 @@ export interface WxaiToolCallCheckResult {
   toolCallNames?: string[];
   completedFunctionCallCount: number;
   toolCallOnly: boolean;
+  completedMutationEvidence: boolean;
   outputTextChars: number;
   completedMessageCount: number;
   refusalDetected: boolean;

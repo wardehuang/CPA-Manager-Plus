@@ -106,6 +106,7 @@ func classifyStreamingResult(
 	ttfbMS int64,
 	generationMS int64,
 	evidence streamingThinkingEvidence,
+	completedMutationEvidence bool,
 	policy StreamingQualityPolicy,
 ) (string, string, string) {
 	if isFreeUsageExhaustedError(errorCode, errorMessage, requestError) ||
@@ -126,12 +127,16 @@ func classifyStreamingResult(
 	if tokensPerSecond > policy.SoftTokensPerSecond &&
 		tokensPerSecond < policy.HardTokensPerSecond &&
 		!evidence.IsRealThinking &&
-		!evidence.ToolCallOnly {
+		!evidence.ToolCallOnly &&
+		!completedMutationEvidence {
 		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps_missing_real_thinking"
 	}
 	if evidence.ToolCallOnly {
 		// 已完成的纯工具调用是有效行动证据，只跳过 soft Thinking 判定。
 		return ClassificationNormal, QualityLevelHealthy, "completed_tool_call"
+	}
+	if completedMutationEvidence {
+		return ClassificationNormal, QualityLevelHealthy, "completed_mutation_evidence"
 	}
 	return ClassificationNormal, QualityLevelHealthy, "within_threshold"
 }

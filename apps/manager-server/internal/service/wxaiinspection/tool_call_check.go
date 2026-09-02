@@ -302,6 +302,7 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 		"toolCallNames":              checkResult.ToolCallNames,
 		"completedFunctionCallCount": checkResult.CompletedFunctionCallCount,
 		"toolCallOnly":               checkResult.ToolCallOnly,
+		"completedMutationEvidence":  checkResult.CompletedMutationEvidence,
 		"outputTextChars":            checkResult.OutputTextChars,
 		"completedMessageCount":      checkResult.CompletedMessageCount,
 		"refusalDetected":            checkResult.RefusalDetected,

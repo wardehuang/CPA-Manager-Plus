@@ -95,6 +95,7 @@ type Result struct {
 	ToolCallNames              []string            `json:"toolCallNames,omitempty"`
 	CompletedFunctionCallCount int                 `json:"completedFunctionCallCount"`
 	ToolCallOnly               bool                `json:"toolCallOnly"`
+	CompletedMutationEvidence  bool                `json:"completedMutationEvidence"`
 	OutputTextChars            int                 `json:"outputTextChars"`
 	CompletedMessageCount      int                 `json:"completedMessageCount"`
 	RefusalDetected            bool                `json:"refusalDetected"`
