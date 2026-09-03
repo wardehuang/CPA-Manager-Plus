@@ -229,6 +229,7 @@ func runStreamingResponse(
 	result.ToolCallDetected = metrics.completedFunctionCallCount > 0
 	result.ToolCallNames = metrics.toolCallNames
 	result.CompletedFunctionCallCount = metrics.completedFunctionCallCount
+	result.CompletedToolCallEvidence = evidence.CompletedToolCallEvidence
 	result.ToolCallOnly = evidence.ToolCallOnly
 	result.OutputTextChars = evidence.OutputTextChars
 	result.CompletedMessageCount = evidence.CompletedMessageCount
@@ -242,7 +243,7 @@ func runStreamingResponse(
 	if outputTokensPerSecond > qualityPolicy.SoftTokensPerSecond &&
 		outputTokensPerSecond < qualityPolicy.HardTokensPerSecond &&
 		!evidence.IsRealThinking &&
-		!evidence.ToolCallOnly &&
+		!evidence.CompletedToolCallEvidence &&
 		evidence.CompletedMessageCount > 0 {
 		result.CompletedMutationEvidence = hasCompletedMutationEvidence(result.RequestBody)
 	}

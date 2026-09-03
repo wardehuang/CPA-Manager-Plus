@@ -37,6 +37,7 @@ type streamingThinkingEvidence struct {
 	IsRealThinking             bool
 	Reason                     string
 	CompletedFunctionCallCount int
+	CompletedToolCallEvidence  bool
 	ToolCallOnly               bool
 	OutputTextChars            int
 	CompletedMessageCount      int
@@ -92,6 +93,7 @@ func evaluateStreamingThinking(evidence streamingThinkingEvidence, policy Stream
 }
 
 func finalizeStreamingResponseEvidence(evidence streamingThinkingEvidence) streamingThinkingEvidence {
+	evidence.CompletedToolCallEvidence = evidence.CompletedFunctionCallCount > 0 && !evidence.RefusalDetected
 	evidence.ToolCallOnly = evidence.CompletedFunctionCallCount > 0 && evidence.OutputTextChars == 0 && !evidence.RefusalDetected
 	return evidence
 }
@@ -127,13 +129,12 @@ func classifyStreamingResult(
 	if tokensPerSecond > policy.SoftTokensPerSecond &&
 		tokensPerSecond < policy.HardTokensPerSecond &&
 		!evidence.IsRealThinking &&
-		!evidence.ToolCallOnly &&
+		!evidence.CompletedToolCallEvidence &&
 		!completedMutationEvidence {
 		return ClassificationSuspectedDegraded, QualityLevelSoft, "soft_tps_missing_real_thinking"
 	}
-	if evidence.ToolCallOnly {
-		// 已完成的纯工具调用是有效行动证据，只跳过 soft Thinking 判定。
-		return ClassificationNormal, QualityLevelHealthy, "completed_tool_call"
+	if evidence.CompletedToolCallEvidence {
+		return ClassificationNormal, QualityLevelHealthy, "completed_tool_call_evidence"
 	}
 	if completedMutationEvidence {
 		return ClassificationNormal, QualityLevelHealthy, "completed_mutation_evidence"

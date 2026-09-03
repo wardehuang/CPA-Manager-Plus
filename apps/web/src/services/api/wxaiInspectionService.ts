@@ -265,6 +265,7 @@ export interface WxaiToolCallCheckResult {
   toolCallDetected: boolean;
   toolCallNames?: string[];
   completedFunctionCallCount: number;
+  completedToolCallEvidence: boolean;
   toolCallOnly: boolean;
   completedMutationEvidence: boolean;
   outputTextChars: number;
