@@ -45,12 +45,12 @@ type scheduleGroupResetResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func scheduleGroupFileKey(file cpaauthfiles.File) string {
+func scheduleGroupAccountSortKey(currentAccount account) string {
 	return strings.Join([]string{
-		strings.TrimSpace(file.ID),
-		strings.TrimSpace(file.Name),
-		strings.TrimSpace(file.AuthIndex),
-		strings.TrimSpace(file.AccountID),
+		strings.TrimSpace(currentAccount.RuntimeID),
+		strings.TrimSpace(currentAccount.FileName),
+		strings.TrimSpace(currentAccount.AuthIndex),
+		strings.TrimSpace(currentAccount.AccountID),
 	}, "\x00")
 }
 
@@ -133,6 +133,7 @@ func (service *Service) assignScheduleGroups(
 	ctx context.Context,
 	setup store.Setup,
 	groupCount int,
+	accounts []account,
 ) ([]scheduleGroupAssignment, error) {
 	if service.authFileMutations == nil {
 		return nil, cpaauthfiles.ErrMutationCoordinatorUnavailable
@@ -143,57 +144,29 @@ func (service *Service) assignScheduleGroups(
 	}
 	defer release()
 
-	files, err := cpaauthfiles.New(service.client).Fetch(ctx, setup.CPAUpstreamURL, setup.ManagementKey)
-	if err != nil {
-		return nil, fmt.Errorf("重新读取 xAI 授权文件: %w", err)
-	}
-	xaiFiles := make([]cpaauthfiles.File, 0, len(files))
-	accountKeys := make(map[string]string, len(files))
-	seenKeys := make(map[string]int, len(files))
-	for _, file := range files {
-		if normalizeWxaiProvider(firstNonEmpty(file.Provider, firstString(file.Raw, "provider", "type", "auth_type", "authType", "typo"))) != "xai" {
-			continue
-		}
-		xaiFiles = append(xaiFiles, file)
-		fileName := firstNonEmpty(file.Name, firstString(file.Raw, "name", "fileName", "file_name"))
-		displayAccount := firstString(file.Raw, "label", "account", "email", "displayAccount", "display_account")
-		if displayAccount == "" {
-			displayAccount = fileName
-		}
-		authIndex := firstNonEmpty(file.AuthIndex, firstString(file.Raw, "auth_index", "authIndex", "index", "id"))
-		accountID := firstNonEmpty(file.AccountID, firstString(file.Raw, "account_id", "accountId", "sub", "subject", "user_id", "userId"))
-		baseKey := strings.Join([]string{fileName, displayAccount, authIndex, accountID}, "|")
-		duplicateIndex := seenKeys[baseKey]
-		seenKeys[baseKey] = duplicateIndex + 1
-		accountKey := baseKey
-		if duplicateIndex > 0 {
-			accountKey = fmt.Sprintf("%s|duplicate-%d", baseKey, duplicateIndex)
-		}
-		accountKeys[scheduleGroupFileKey(file)] = accountKey
-	}
-	sort.SliceStable(xaiFiles, func(left, right int) bool {
-		leftPrimary := firstNonEmpty(strings.TrimSpace(xaiFiles[left].ID), strings.TrimSpace(xaiFiles[left].Name))
-		rightPrimary := firstNonEmpty(strings.TrimSpace(xaiFiles[right].ID), strings.TrimSpace(xaiFiles[right].Name))
+	xaiAccounts := append([]account(nil), accounts...)
+	sort.SliceStable(xaiAccounts, func(left, right int) bool {
+		leftPrimary := firstNonEmpty(strings.TrimSpace(xaiAccounts[left].RuntimeID), strings.TrimSpace(xaiAccounts[left].FileName))
+		rightPrimary := firstNonEmpty(strings.TrimSpace(xaiAccounts[right].RuntimeID), strings.TrimSpace(xaiAccounts[right].FileName))
 		if leftPrimary != rightPrimary {
 			return leftPrimary < rightPrimary
 		}
-		return scheduleGroupFileKey(xaiFiles[left]) < scheduleGroupFileKey(xaiFiles[right])
+		return scheduleGroupAccountSortKey(xaiAccounts[left]) < scheduleGroupAccountSortKey(xaiAccounts[right])
 	})
 
-	assignments := make([]scheduleGroupAssignment, 0, len(xaiFiles))
+	assignments := make([]scheduleGroupAssignment, 0, len(xaiAccounts))
 	authClient := cpaauthfiles.New(service.client)
-	for index, file := range xaiFiles {
-		fileName := firstNonEmpty(file.Name, firstString(file.Raw, "name", "fileName", "file_name"))
+	for index, currentAccount := range xaiAccounts {
+		fileName := strings.TrimSpace(currentAccount.FileName)
 		if fileName == "" {
-			return nil, fmt.Errorf("xAI auth %q 缺少文件名", strings.TrimSpace(file.ID))
+			return nil, fmt.Errorf("xAI auth %q 缺少文件名", strings.TrimSpace(currentAccount.RuntimeID))
 		}
 		group := (index % groupCount) + 1
 		if err := authClient.PatchScheduleGroup(ctx, setup.CPAUpstreamURL, setup.ManagementKey, fileName, group); err != nil {
 			return nil, fmt.Errorf("写入 xAI 调度组 file=%s group=%d: %w", fileName, group, err)
 		}
-		accountKey := accountKeys[scheduleGroupFileKey(file)]
 		assignments = append(assignments, scheduleGroupAssignment{
-			AccountKey: accountKey,
+			AccountKey: currentAccount.Key,
 			Group:      group,
 		})
 	}

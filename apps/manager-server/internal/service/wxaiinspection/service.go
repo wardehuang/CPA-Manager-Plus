@@ -86,6 +86,7 @@ type LatestCompletedScheduledRunResponse struct {
 
 type account struct {
 	Key            string
+	RuntimeID      string
 	FileName       string
 	DisplayAccount string
 	AuthIndex      string
@@ -241,7 +242,7 @@ func (service *Service) Run(ctx context.Context, request RunRequest) (RunDetail,
 	run.QuotaExhaustedCount = countWxaiQuotaResults(results)
 	run.AbnormalCount = countWxaiAbnormalResults(results)
 	run.KeepCount = len(results) - run.QuotaExhaustedCount - run.AbnormalCount
-	assignments, err := service.assignScheduleGroups(ctx, setup, scheduleGroupCount)
+	assignments, err := service.assignScheduleGroups(ctx, setup, scheduleGroupCount, accounts)
 	if err != nil {
 		logger.error(ctx, "分配 xAI 调度组失败", map[string]any{"error": err.Error()})
 		return service.failRun(ctx, run, err)
@@ -552,6 +553,7 @@ func (service *Service) fetchAccounts(ctx context.Context, setup store.Setup) ([
 		}
 		accounts = append(accounts, account{
 			Key:            accountKey,
+			RuntimeID:      file.ID,
 			FileName:       fileName,
 			DisplayAccount: displayAccount,
 			AuthIndex:      authIndex,
