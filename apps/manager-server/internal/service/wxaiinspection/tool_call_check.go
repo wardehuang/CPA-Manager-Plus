@@ -318,6 +318,25 @@ func (service *Service) RunToolCallCheck(ctx context.Context, request ToolCallCh
 		"operationContextError":      contextError(ctx),
 	})
 	response.Result = checkResult
+	if checkResult.Classification == toolcallcheck.ClassificationNormal {
+		cleared, healthyErr := service.RecordRealtimeHealthy(ctx, RealtimeHealthyRequest{
+			AccountKey:      selectedAccount.Key,
+			FileName:        selectedAccount.FileName,
+			AuthIndex:       selectedAccount.AuthIndex,
+			AccountID:       selectedAccount.AccountID,
+			CurrentPriority: selectedAccount.Priority,
+		})
+		healthyDetail := map[string]any{
+			"cleared":    cleared,
+			"accountKey": selectedAccount.Key,
+			"fileName":   selectedAccount.FileName,
+			"authIndex":  selectedAccount.AuthIndex,
+		}
+		if healthyErr != nil {
+			healthyDetail["error"] = healthyErr.Error()
+		}
+		logWxaiToolCallCheck(executionID, operationStartedAt, "realtime_healthy_sync", healthyDetail)
+	}
 	return response, nil
 }
 

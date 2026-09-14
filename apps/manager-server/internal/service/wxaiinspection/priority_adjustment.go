@@ -113,6 +113,7 @@ func (service *Service) restoreWxaiPriority(
 	currentAccount account,
 	logger runLogger,
 ) (*int, error) {
+	// 冷却结束后只恢复 priority=1，不删除连续降智次数。
 	realtimeState, realtimeStateExists, err := service.store.GetWxaiRealtimeDegradationState(ctx, currentAccount.Key)
 	if err != nil {
 		return currentAccount.Priority, fmt.Errorf("读取 wXAi 实时降智状态: %w", err)

@@ -18,10 +18,11 @@ const (
 )
 
 type RealtimeHealthyRequest struct {
-	AccountKey string `json:"accountKey"`
-	FileName   string `json:"fileName"`
-	AuthIndex  string `json:"authIndex"`
-	AccountID  string `json:"accountId"`
+	AccountKey      string `json:"accountKey"`
+	FileName        string `json:"fileName"`
+	AuthIndex       string `json:"authIndex"`
+	AccountID       string `json:"accountId"`
+	CurrentPriority *int   `json:"currentPriority,omitempty"`
 }
 
 type realtimeDegradationStage struct {
@@ -204,33 +205,20 @@ func (service *Service) RecordRealtimeHealthy(ctx context.Context, request Realt
 	if err != nil {
 		return false, err
 	}
-	if exists && (state.DegradationCount >= wxaiTerminalRealtimeDegradationCount || state.CooldownUntilMS > time.Now().UnixMilli()) {
-		return false, nil
-	}
-
-	_, setup, err := service.resolveRuntime(ctx)
-	if err != nil {
-		return false, err
-	}
-	accounts, err := service.fetchAccounts(ctx, setup)
-	if err != nil {
-		return false, err
-	}
-	matchedAccount, matched := newWxaiConditionalAccountMatcher(accounts).match(wxaiConditionalAccountRef{
-		AccountKey: request.AccountKey,
-		FileName:   request.FileName,
-		AuthIndex:  request.AuthIndex,
-		AccountID:  request.AccountID,
-		Provider:   "xai",
-	})
-	if !matched {
-		return false, fmt.Errorf("实时健康账号未匹配: fileName=%s authIndex=%s accountID=%s", request.FileName, request.AuthIndex, request.AccountID)
-	}
-	if matchedAccount.Priority == nil || *matchedAccount.Priority != wxaiNormalizedPriorityValue {
-		return false, nil
-	}
 	if !exists {
-		return true, nil
+		return false, nil
+	}
+	// 冷却期内保留次数。巡检把 priority 恢复为 1 时也不清零。
+	// 仅当冷却已结束、当前 priority=1、且本次请求未降智时删除状态。
+	if state.CooldownUntilMS > time.Now().UnixMilli() {
+		return false, nil
+	}
+	currentPriority, err := service.resolveRealtimeHealthyPriority(ctx, request)
+	if err != nil {
+		return false, err
+	}
+	if currentPriority != wxaiNormalizedPriorityValue {
+		return false, nil
 	}
 	if err := service.store.DeleteWxaiRealtimeDegradationState(ctx, state.AccountKey); err != nil {
 		return false, err
@@ -251,4 +239,32 @@ func (service *Service) RecordRealtimeHealthy(ctx context.Context, request Realt
 		},
 	})
 	return true, err
+}
+
+func (service *Service) resolveRealtimeHealthyPriority(ctx context.Context, request RealtimeHealthyRequest) (int, error) {
+	if request.CurrentPriority != nil {
+		return *request.CurrentPriority, nil
+	}
+	_, setup, err := service.resolveRuntime(ctx)
+	if err != nil {
+		return 0, err
+	}
+	accounts, err := service.fetchAccounts(ctx, setup)
+	if err != nil {
+		return 0, err
+	}
+	matchedAccount, matched := newWxaiConditionalAccountMatcher(accounts).match(wxaiConditionalAccountRef{
+		AccountKey: request.AccountKey,
+		FileName:   request.FileName,
+		AuthIndex:  request.AuthIndex,
+		AccountID:  request.AccountID,
+		Provider:   "xai",
+	})
+	if !matched {
+		return 0, fmt.Errorf("实时健康账号未匹配: fileName=%s authIndex=%s accountID=%s", request.FileName, request.AuthIndex, request.AccountID)
+	}
+	if matchedAccount.Priority == nil {
+		return 0, nil
+	}
+	return *matchedAccount.Priority, nil
 }
