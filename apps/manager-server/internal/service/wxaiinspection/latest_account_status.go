@@ -1,10 +1,42 @@
 package wxaiinspection
 
 import (
+	"context"
 	"strings"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 )
+
+func (service *Service) refreshLatestWxaiPriorities(
+	ctx context.Context,
+	items []model.WxaiAccountStatusItem,
+) {
+	if len(items) == 0 {
+		return
+	}
+	_, setup, err := service.resolveRuntime(ctx)
+	if err != nil {
+		return
+	}
+	accounts, err := service.fetchAccounts(ctx, setup)
+	if err != nil {
+		return
+	}
+	matcher := newWxaiConditionalAccountMatcher(accounts)
+	for itemIndex := range items {
+		item := items[itemIndex]
+		currentAccount, matched := matcher.match(wxaiConditionalAccountRef{
+			AccountKey: item.AccountKey,
+			FileName:   item.FileName,
+			AuthIndex:  item.AuthIndex,
+			AccountID:  item.AccountID,
+			Provider:   item.Provider,
+		})
+		if matched && currentAccount.Priority != nil {
+			items[itemIndex].Priority = currentAccount.Priority
+		}
+	}
+}
 
 // collapseWxaiLatestAccountStatusItems keeps one row per fileName+authIndex.
 // Historical realtime-guard rows used a non-canonical account_key in the same

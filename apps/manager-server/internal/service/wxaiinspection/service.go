@@ -300,6 +300,7 @@ func (service *Service) Latest(ctx context.Context) (model.WxaiAccountStatusResp
 		return model.WxaiAccountStatusResponse{}, err
 	}
 	items = collapseWxaiLatestAccountStatusItems(items)
+	service.refreshLatestWxaiPriorities(ctx, items)
 	service.attachWxaiExitIPs(ctx, items)
 	windowCostsByAccount, err := service.listWxaiAccountWindowCostsByAccount(ctx, run.ID)
 	if err != nil {
