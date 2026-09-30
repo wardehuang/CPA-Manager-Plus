@@ -7,10 +7,7 @@ import { apiClient, pluginsApi } from '@/services/api';
 import { useAuthStore, useThemeStore } from '@/stores';
 import { getErrorMessage, isRecord } from '@/utils/helpers';
 import type { PluginListResponse } from '@/types';
-import {
-  createPluginHostStyleBridge,
-  type PluginHostStyleBridge,
-} from './pluginHostStyle';
+import { createPluginHostStyleBridge, type PluginHostStyleBridge } from './pluginHostStyle';
 import {
   collectPluginResourceEntries,
   PLUGIN_RESOURCES_REFRESH_EVENT,
@@ -18,8 +15,7 @@ import {
 } from './pluginResources';
 import styles from './PluginResourcePage.module.scss';
 
-const hasStatus = (error: unknown, status: number) =>
-  isRecord(error) && error.status === status;
+const hasStatus = (error: unknown, status: number) => isRecord(error) && error.status === status;
 
 const safeDecodeURIComponent = (value = '') => {
   try {
@@ -104,27 +100,43 @@ export function PluginResourcePage() {
     if (!iframeSrc) return '';
     return new URL(iframeSrc, window.location.href).origin;
   }, [iframeSrc]);
-  const pluginManagementAPIPath = `/v0/management/${pluginID}/api`;
+  const pluginManagementPrefix = `/v0/management/${pluginID}/`;
 
-  const handlePluginManagementRequest = useCallback(
+  const handlePluginAPIRequest = useCallback(
     (event: MessageEvent) => {
       const source = event.source as Window | null;
       if (!source || source !== iframeRef.current?.contentWindow) return;
       if (event.origin !== iframeOrigin) return;
       const data = event.data;
-      if (!data || data.type !== 'cpa-plugin-management-request') return;
-      if (data.endpoint !== pluginManagementAPIPath || data.method !== 'POST') return;
+      if (!data || data.type !== 'cpa-plugin-api-request') return;
+      const endpoint = data.endpoint;
+      const method = typeof data.method === 'string' ? data.method.toUpperCase() : '';
+      if (
+        typeof endpoint !== 'string' ||
+        !endpoint.startsWith(pluginManagementPrefix) ||
+        endpoint.includes('://') ||
+        endpoint.includes('?') ||
+        endpoint.includes('#') ||
+        endpoint.includes('..') ||
+        !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+      )
+        return;
       if (typeof data.requestId !== 'string') return;
 
       void apiClient
-        .post(data.endpoint, data.body, {headers: {'X-CPA-XAI-GUARDIAN-UI': '1'}})
+        .requestRaw({
+          method,
+          url: endpoint,
+          data: data.body,
+          headers: { 'X-CPA-Plugin-UI': pluginID },
+        })
         .then((response) => {
           source.postMessage(
             {
-              type: 'cpa-plugin-management-response',
+              type: 'cpa-plugin-api-response',
               requestId: data.requestId,
               ok: true,
-              response,
+              response: response.data,
             },
             event.origin || '*'
           );
@@ -132,7 +144,7 @@ export function PluginResourcePage() {
         .catch((error: unknown) => {
           source.postMessage(
             {
-              type: 'cpa-plugin-management-response',
+              type: 'cpa-plugin-api-response',
               requestId: data.requestId,
               ok: false,
               error: getErrorMessage(error, t('plugin_resource.load_failed')),
@@ -141,13 +153,13 @@ export function PluginResourcePage() {
           );
         });
     },
-    [iframeOrigin, pluginManagementAPIPath, t]
+    [iframeOrigin, pluginID, pluginManagementPrefix, t]
   );
 
   useLayoutEffect(() => {
-    window.addEventListener('message', handlePluginManagementRequest);
-    return () => window.removeEventListener('message', handlePluginManagementRequest);
-  }, [handlePluginManagementRequest]);
+    window.addEventListener('message', handlePluginAPIRequest);
+    return () => window.removeEventListener('message', handlePluginAPIRequest);
+  }, [handlePluginAPIRequest]);
 
   const refreshPluginHostStyle = useCallback(() => {
     const iframe = iframeRef.current;

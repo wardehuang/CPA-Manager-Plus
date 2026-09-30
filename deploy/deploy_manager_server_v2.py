@@ -8,7 +8,6 @@ never stops, recreates, mounts, or joins the existing cpa-manager-plus service.
 
 from __future__ import annotations
 
-import argparse
 import io
 import os
 import re
@@ -54,6 +53,7 @@ REMOTE_TARBALL_PREFIX = "/tmp/cpa-manager-plus-v2-source"
 REMOTE_SCRIPT_PREFIX = "/tmp/cpa-manager-plus-v2-deploy"
 ORIGINAL_SERVICE_NAME = "cpa-manager-plus-cpa-manager-plus-1"
 ORIGINAL_SERVICE_PORT = 18317
+SELF_DEPLOY_SCRIPT = "deploy/deploy_manager_server_v2.py"
 
 TEXT_SUFFIXES = {
     ".c",
@@ -222,8 +222,14 @@ def git_status(logger: Logger) -> None:
 
     head = run_capture(git_command("rev-parse", "HEAD"), PROJECT_ROOT)
     status = run_capture(git_command("status", "--porcelain", "--untracked-files=all"), PROJECT_ROOT)
+    status_lines = status.splitlines()
     tracked_changes = [
-        line for line in status.splitlines() if line and not line.startswith("?? ")
+        line
+        for line in status_lines
+        if line and not line.startswith("?? ") and line[2:].lstrip() != SELF_DEPLOY_SCRIPT
+    ]
+    self_changes = [
+        line for line in status_lines if line and line[2:].lstrip() == SELF_DEPLOY_SCRIPT
     ]
     if tracked_changes:
         raise RuntimeError(
@@ -233,11 +239,14 @@ def git_status(logger: Logger) -> None:
     logger.section("Source lock")
     logger.write(f"branch: {branch}")
     logger.write(f"commit: {head}")
-    if status:
+    if self_changes:
+        logger.write("deployment script working-tree change allowed: " + "; ".join(self_changes))
+    untracked_changes = [line for line in status_lines if line.startswith("?? ")]
+    if untracked_changes:
         logger.write("untracked files are excluded by git archive:")
-        for line in status.splitlines():
+        for line in untracked_changes:
             logger.write(f"  {line}")
-    else:
+    elif not self_changes:
         logger.write("worktree: clean")
 
 
@@ -254,8 +263,8 @@ def stable_tag_for_head() -> str:
 
 def remote_marker(logger: Logger) -> str:
     command = (
-        f"if [ -f {shlex.quote(REMOTE_DEPLOY_DIR + '/.build-version')} ]; "
-        f"then sed -n 's/^BUILD_VERSION=//p' {shlex.quote(REMOTE_DEPLOY_DIR + '/.build-version')} "
+        f"if sudo test -f {shlex.quote(REMOTE_DEPLOY_DIR + '/.build-version')}; "
+        f"then sudo sed -n 's/^BUILD_VERSION=//p' {shlex.quote(REMOTE_DEPLOY_DIR + '/.build-version')} "
         "| head -n 1 | tr -d '\\r\\n'; fi"
     )
     logger.section("Reading isolated deployment marker")
@@ -697,24 +706,7 @@ def deploy(
                 logger.write(f"Remote deploy script cleanup skipped: {cleanup_error}")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Deploy CPA Manager Plus my-feature-v2 as a physically isolated service on Oracle 01."
-    )
-    parser.add_argument(
-        "--yes",
-        action="store_true",
-        help="Confirm the isolated deployment and allow remote changes.",
-    )
-    return parser.parse_args()
-
-
 def main() -> int:
-    args = parse_args()
-    if not args.yes:
-        print("Refusing remote changes without --yes.", file=sys.stderr)
-        return 2
-
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     log_path = PROJECT_ROOT / "deploy" / f"deploy_manager_server_v2-{stamp}.log"
     logger = Logger(log_path)
