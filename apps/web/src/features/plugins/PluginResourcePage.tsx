@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { pluginsApi } from '@/services/api';
+import { apiClient, pluginsApi } from '@/services/api';
 import { useAuthStore, useThemeStore } from '@/stores';
 import { getErrorMessage, isRecord } from '@/utils/helpers';
 import type { PluginListResponse } from '@/types';
@@ -100,6 +100,54 @@ export function PluginResourcePage() {
   }, [data?.plugins, menuIndex, pluginID]);
 
   const iframeSrc = resource ? resolvePluginAssetURL(resource.menu.path, apiBase) : '';
+  const iframeOrigin = useMemo(() => {
+    if (!iframeSrc) return '';
+    return new URL(iframeSrc, window.location.href).origin;
+  }, [iframeSrc]);
+  const pluginManagementAPIPath = `/v0/management/${pluginID}/api`;
+
+  const handlePluginManagementRequest = useCallback(
+    (event: MessageEvent) => {
+      const source = event.source as Window | null;
+      if (!source || source !== iframeRef.current?.contentWindow) return;
+      if (event.origin !== iframeOrigin) return;
+      const data = event.data;
+      if (!data || data.type !== 'cpa-plugin-management-request') return;
+      if (data.endpoint !== pluginManagementAPIPath || data.method !== 'POST') return;
+      if (typeof data.requestId !== 'string') return;
+
+      void apiClient
+        .post(data.endpoint, data.body, {headers: {'X-CPA-XAI-GUARDIAN-UI': '1'}})
+        .then((response) => {
+          source.postMessage(
+            {
+              type: 'cpa-plugin-management-response',
+              requestId: data.requestId,
+              ok: true,
+              response,
+            },
+            event.origin || '*'
+          );
+        })
+        .catch((error: unknown) => {
+          source.postMessage(
+            {
+              type: 'cpa-plugin-management-response',
+              requestId: data.requestId,
+              ok: false,
+              error: getErrorMessage(error, t('plugin_resource.load_failed')),
+            },
+            event.origin || '*'
+          );
+        });
+    },
+    [iframeOrigin, pluginManagementAPIPath, t]
+  );
+
+  useLayoutEffect(() => {
+    window.addEventListener('message', handlePluginManagementRequest);
+    return () => window.removeEventListener('message', handlePluginManagementRequest);
+  }, [handlePluginManagementRequest]);
 
   const refreshPluginHostStyle = useCallback(() => {
     const iframe = iframeRef.current;
