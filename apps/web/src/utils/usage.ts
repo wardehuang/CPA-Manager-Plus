@@ -261,6 +261,7 @@ export interface UsageDetail {
   headerTraceId?: string;
   fail_body?: string;
   failBody?: string;
+  __eventHash?: string;
   __modelName?: string;
   __requestedModel?: string;
   __resolvedModel?: string;

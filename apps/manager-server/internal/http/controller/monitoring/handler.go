@@ -35,6 +35,10 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.handleAccountWindowUsage(w, r)
 		return
 	}
+	if path == "/v0/management/monitoring/raw-event" {
+		h.rawEvent(w, r)
+		return
+	}
 	if path != "/v0/management/monitoring/analytics" {
 		response.MethodNotAllowed(w)
 		return

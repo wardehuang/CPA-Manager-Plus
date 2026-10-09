@@ -6,6 +6,7 @@ import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { apiClient, pluginsApi } from '@/services/api';
 import { useAuthStore, useThemeStore } from '@/stores';
 import { getErrorMessage, isRecord } from '@/utils/helpers';
+import { MANAGEMENT_API_PREFIX } from '@/utils/constants';
 import type { PluginListResponse } from '@/types';
 import { createPluginHostStyleBridge, type PluginHostStyleBridge } from './pluginHostStyle';
 import {
@@ -100,7 +101,7 @@ export function PluginResourcePage() {
     if (!iframeSrc) return '';
     return new URL(iframeSrc, window.location.href).origin;
   }, [iframeSrc]);
-  const pluginManagementPrefix = `/v0/management/${pluginID}/`;
+  const pluginManagementPrefix = `${MANAGEMENT_API_PREFIX}/${pluginID}/`;
 
   const handlePluginAPIRequest = useCallback(
     (event: MessageEvent) => {
@@ -126,8 +127,10 @@ export function PluginResourcePage() {
       void apiClient
         .requestRaw({
           method,
-          url: endpoint,
+          url: endpoint.slice(MANAGEMENT_API_PREFIX.length),
           data: data.body,
+          // The plugin iframe reports its own path-specific timeout at 45 seconds.
+          timeout: 60 * 1000,
           headers: { 'X-CPA-Plugin-UI': pluginID },
         })
         .then((response) => {

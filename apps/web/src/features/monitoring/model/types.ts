@@ -153,6 +153,7 @@ export type MonitoringFailureRow = {
 
 export type MonitoringEventRow = {
   id: string;
+  eventHash?: string;
   timestamp: string;
   timestampMs: number;
   dayKey: string;

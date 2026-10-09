@@ -1075,6 +1075,7 @@ export const buildUsageDetailsFromAnalyticsEvents = (
       failed: item.failed === true,
       fail_status_code: item.fail_status_code ?? null,
       fail_summary: readString(item.fail_summary),
+      __eventHash: readString(item.event_hash),
       response_metadata: item.response_metadata,
       header_quota_recover_at_ms: item.header_quota_recover_at_ms ?? null,
       header_quota_used_percent: item.header_quota_used_percent ?? null,

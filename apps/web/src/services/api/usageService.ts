@@ -2091,6 +2091,55 @@ export interface MonitoringAnalyticsEventsResponse {
   total_count?: number;
 }
 
+export interface MonitoringRawEventRecord {
+  id: number;
+  request_id: string;
+  event_hash: string;
+  timestamp_ms: number;
+  timestamp: string;
+  provider: string;
+  executor_type: string;
+  model: string;
+  endpoint: string;
+  method: string;
+  path: string;
+  auth_type: string;
+  auth_index: string;
+  source: string;
+  source_hash: string;
+  api_key_hash: string;
+  account_snapshot: string;
+  auth_label_snapshot: string;
+  auth_file_snapshot: string;
+  auth_provider_snapshot: string;
+  auth_project_id_snapshot: string;
+  auth_snapshot_at_ms: number;
+  requested_model: string;
+  resolved_model: string;
+  reasoning_effort: string;
+  service_tier: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cache_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  latency_ms: number | null;
+  ttft_ms: number | null;
+  failed: boolean;
+  fail_status_code: number | null;
+  fail_summary: string;
+  created_at_ms: number;
+}
+
+export interface MonitoringRawEventResponse {
+  event: MonitoringRawEventRecord;
+  raw_json?: unknown;
+  raw_json_text?: string;
+}
+
 export interface MonitoringAnalyticsCoverageRange {
   scope: 'rolling_30m' | 'drilldown_preview' | string;
   from_ms: number;
@@ -4110,6 +4159,23 @@ export const monitoringAnalyticsApi = {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
           signal,
+        }
+      );
+      return response.data;
+    });
+  },
+  getRawEvent: async (
+    base: string,
+    managementKey: string | undefined,
+    eventId: string
+  ): Promise<MonitoringRawEventResponse> => {
+    return withUsageServiceError(async () => {
+      const response = await axios.get<MonitoringRawEventResponse>(
+        buildUrl(base, '/v0/management/monitoring/raw-event'),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+          params: { id: eventId },
         }
       );
       return response.data;

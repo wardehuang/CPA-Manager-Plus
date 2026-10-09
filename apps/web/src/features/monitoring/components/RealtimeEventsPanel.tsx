@@ -18,6 +18,7 @@ import {
   RecentPattern,
 } from '@/features/monitoring/components/MonitoringShared';
 import { MonitoringPanel } from '@/features/monitoring/components/MonitoringPanel';
+import { RawEventModal } from '@/features/monitoring/components/RawEventModal';
 import { formatPercent } from '@/features/monitoring/components/accountOverviewPresentation';
 import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
 import type { MonitoringEventRow } from '@/features/monitoring/hooks/useMonitoringData';
@@ -1030,6 +1031,7 @@ export function RealtimeEventsPanel({
 }: RealtimeEventsPanelProps) {
   const tooltipIdPrefix = useId();
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const [rawEventId, setRawEventId] = useState<string | null>(null);
   const sourceApiKeyLabel = shortLabel(
     t,
     'monitoring.column_source_api_key_short',
@@ -1069,6 +1071,10 @@ export function RealtimeEventsPanel({
       t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
       copied ? 'success' : 'error'
     );
+  };
+  const handleOpenRawEvent = (row: RealtimeLogRow) => {
+    if (!row.eventHash) return;
+    setRawEventId(row.eventHash);
   };
   const actions = (
     <RealtimeEventsPanelActions
@@ -1162,7 +1168,13 @@ export function RealtimeEventsPanel({
               const latencyToneClass = getRealtimeDurationToneClass(row.latencyMs);
               const tokenUsage = buildRealtimeTokenUsageDetails(row, t);
               return (
-                <tr key={row.id} className={row.failed ? styles.logRowFailed : undefined}>
+                <tr
+                  key={row.id}
+                  className={row.failed ? styles.logRowFailed : undefined}
+                  onClick={() => handleOpenRawEvent(row)}
+                  title={row.eventHash ? t('monitoring.raw_event_open_hint') : undefined}
+                  style={row.eventHash ? { cursor: 'pointer' } : undefined}
+                >
                   <td>
                     <div className={styles.logTypeCell}>
                       <div className={styles.primaryCell} title={sourceDisplay.title}>
@@ -1381,6 +1393,7 @@ export function RealtimeEventsPanel({
           ) : null}
         </div>
       ) : null}
+      <RawEventModal eventId={rawEventId} onClose={() => setRawEventId(null)} t={t} />
     </>
   );
 
