@@ -296,6 +296,7 @@ export function RawEventModal({ eventId, onClose, t }: RawEventModalProps) {
       readStringPath(rawRecord, ['endpoint']) ||
       data.event.endpoint ||
       `${data.event.method} ${data.event.path}`.trim();
+    const requestLogID = data.event.request_id.trim();
     const proxyMode = readProxyMetadata(rawRecord, 'mode');
     const proxySource = readProxyMetadata(rawRecord, 'source');
     const proxyScheme = readProxyMetadata(rawRecord, 'scheme');
@@ -323,7 +324,7 @@ export function RawEventModal({ eventId, onClose, t }: RawEventModalProps) {
       },
       {
         label: t('monitoring.raw_event_request_id'),
-        value: readStringPath(rawRecord, ['request_id'], ['requestId']) || data.event.request_id,
+        value: requestLogID ? requestLogID.slice(-8) : '',
       },
       { label: t('monitoring.raw_event_endpoint'), value: endpoint },
       {
