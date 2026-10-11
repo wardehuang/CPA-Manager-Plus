@@ -295,6 +295,9 @@ func Migrate(db *sql.DB) error {
 			access_token_sha256 text,
 			generate integer,
 			stream integer,
+			guard text,
+			guard_reason text,
+			degraded integer not null default 0,
 			created_at_ms integer not null
 		)`,
 		`create table if not exists usage_rollup_checkpoints (
@@ -3104,6 +3107,9 @@ func ensureUsageEventSnapshotColumns(db *sql.DB) error {
 		{name: "access_token_sha256", definition: "text"},
 		{name: "generate", definition: "integer"},
 		{name: "stream", definition: "integer"},
+		{name: "guard", definition: "text"},
+		{name: "guard_reason", definition: "text"},
+		{name: "degraded", definition: "integer not null default 0"},
 	}
 	for _, column := range columns {
 		if _, ok := existing[column.name]; ok {

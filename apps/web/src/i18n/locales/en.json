@@ -3868,6 +3868,7 @@
     "state_inactive": "Inactive",
     "result_failed": "Failed",
     "result_success": "Success",
+    "result_degraded": "Degraded",
     "resolved_model_label": "Routed model: {{model}}",
     "requested_model": "Requested model",
     "resolved_model": "Routed model",

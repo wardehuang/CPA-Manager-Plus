@@ -83,6 +83,12 @@ type Event struct {
 	Failed                       bool   `json:"failed"`
 	FailStatusCode               int    `json:"fail_status_code,omitempty"`
 	FailSummary                  string `json:"fail_summary,omitempty"`
+	// Guard/GuardReason/Degraded carry the CPA realtime-guard verdict of the attempt that
+	// produced this event: "quota_exhausted" for an upstream quota failure, "degraded" for
+	// a degraded response, "normal" when the guard allowed the attempt through.
+	Guard       string `json:"guard,omitempty"`
+	GuardReason string `json:"guard_reason,omitempty"`
+	Degraded    bool   `json:"degraded,omitempty"`
 	// FailBody is retained only in the local DB as a sensitive internal field.
 	// Public APIs, compatible payloads, and exports must use FailSummary instead.
 	FailBody               string                  `json:"-"`
@@ -687,6 +693,9 @@ func NormalizeRaw(raw []byte) (Event, error) {
 		Failed:                        failed,
 		FailStatusCode:                int(failStatusCode),
 		FailSummary:                   failSummary,
+		Guard:                         readString(record, "guard"),
+		GuardReason:                   readString(record, "guard_reason", "guardReason"),
+		Degraded:                      readBool(record, "degraded"),
 		FailBody:                      failBody,
 		RawJSON:                       string(redactedJSON),
 		CreatedAtMS:                   time.Now().UnixMilli(),

@@ -3863,6 +3863,7 @@
     "state_inactive": "未生效",
     "result_failed": "失败",
     "result_success": "成功",
+    "result_degraded": "降智",
     "resolved_model_label": "路由模型：{{model}}",
     "requested_model": "请求模型",
     "resolved_model": "路由模型",

@@ -217,6 +217,9 @@ export type MonitoringEventRow = {
   executorType?: string;
   failStatusCode?: number | null;
   failSummary?: string;
+  degraded?: boolean;
+  guard?: string;
+  guardReason?: string;
   responseMetadata?: ResponseHeaderMetadata;
   headerQuotaRecoverAtMs?: number | null;
   headerQuotaUsedPercent?: number | null;

@@ -901,6 +901,9 @@ type EventRow struct {
 	Failed                 bool                          `json:"failed"`
 	FailStatusCode         *int64                        `json:"fail_status_code,omitempty"`
 	FailSummary            string                        `json:"fail_summary,omitempty"`
+	Guard                  string                        `json:"guard,omitempty"`
+	GuardReason            string                        `json:"guard_reason,omitempty"`
+	Degraded               bool                          `json:"degraded,omitempty"`
 	ResponseMetadata       *usage.ResponseHeaderMetadata `json:"response_metadata,omitempty"`
 	HeaderQuotaRecoverAtMS *int64                        `json:"header_quota_recover_at_ms,omitempty"`
 	HeaderQuotaUsedPercent *float64                      `json:"header_quota_used_percent,omitempty"`
@@ -4028,6 +4031,9 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			Failed:                 item.Failed,
 			FailStatusCode:         nullableInt(item.FailStatusCode.Valid, item.FailStatusCode.Int64),
 			FailSummary:            item.FailSummary,
+			Guard:                  item.Guard,
+			GuardReason:            item.GuardReason,
+			Degraded:               item.Degraded,
 			ResponseMetadata:       item.ResponseMetadata,
 			HeaderQuotaRecoverAtMS: nullableInt(item.HeaderQuotaRecoverAtMS.Valid, item.HeaderQuotaRecoverAtMS.Int64),
 			HeaderQuotaUsedPercent: nullableFloat(item.HeaderQuotaUsedPercent.Valid, item.HeaderQuotaUsedPercent.Float64),

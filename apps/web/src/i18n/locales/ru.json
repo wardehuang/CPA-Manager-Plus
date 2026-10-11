@@ -3867,6 +3867,7 @@
     "state_inactive": "Неактивно",
     "result_failed": "Ошибка",
     "result_success": "Успех",
+    "result_degraded": "Деградация",
     "resolved_model_label": "Маршрутизированная модель: {{model}}",
     "requested_model": "Запрошенная модель",
     "resolved_model": "Маршрутизированная модель",

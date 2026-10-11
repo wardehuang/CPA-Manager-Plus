@@ -77,6 +77,7 @@ type preparedUsageEvent struct {
 	ledgerNowMS int64
 	bucketMS    int64
 	failed      int
+	degraded    int
 
 	metadataJSON     string
 	quotaRecoverAtMS int64
@@ -257,6 +258,10 @@ func (r *repository) prepareUsageEvent(rawEvent model.UsageEvent) (preparedUsage
 	if event.Failed {
 		failed = 1
 	}
+	degraded := 0
+	if event.Degraded {
+		degraded = 1
+	}
 	metadataJSON, quotaRecoverAtMS, quotaUsedPercent, quotaPlanType, errorKind, errorCode, traceID := responseHeaderDerivedForInsert(event)
 	failSummary := event.FailSummary
 	rawJSON := event.RawJSON
@@ -272,6 +277,7 @@ func (r *repository) prepareUsageEvent(rawEvent model.UsageEvent) (preparedUsage
 		ledgerNowMS:      ledgerNowMS,
 		bucketMS:         bucketMS,
 		failed:           failed,
+		degraded:         degraded,
 		metadataJSON:     metadataJSON,
 		quotaRecoverAtMS: quotaRecoverAtMS,
 		quotaUsedPercent: quotaUsedPercent,
@@ -426,6 +432,7 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		response_metadata_json, header_quota_recover_at_ms, header_quota_used_percent, header_quota_plan_type, header_error_kind, header_error_code, header_trace_id,
 		fail_body, raw_json,
 		response_model, session_id, parent_session_id, access_token_sha256, generate, stream,
+		guard, guard_reason, degraded,
 		created_at_ms
 		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
@@ -518,6 +525,9 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 			nullString(ev.AccessTokenSHA256),
 			nullBool(ev.Generate),
 			nullBool(ev.Stream),
+			nullString(ev.Guard),
+			nullString(ev.GuardReason),
+			prep.degraded,
 			ev.CreatedAtMS,
 		)
 		if err != nil {

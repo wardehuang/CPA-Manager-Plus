@@ -453,6 +453,9 @@ type EventPageItem struct {
 	HeaderErrorKind        string
 	HeaderErrorCode        string
 	HeaderTraceID          string
+	Guard                  string
+	GuardReason            string
+	Degraded               bool
 }
 
 type EventsPage struct {
@@ -2677,7 +2680,10 @@ func (r *repository) EventsPageWithFilter(ctx context.Context, filter AnalyticsF
 	coalesce(parent_session_id, ''),
 	coalesce(access_token_sha256, ''),
 	generate,
-	stream
+	stream,
+	coalesce(guard, ''),
+	coalesce(guard_reason, ''),
+	coalesce(degraded, 0)
 from usage_events `+where+`
 order by timestamp_ms desc, id desc
 limit ?`, args...)
@@ -2690,6 +2696,8 @@ limit ?`, args...)
 	for rows.Next() {
 		var item EventPageItem
 		var failed int
+		var guard, guardReason string
+		var degraded int
 		var responseMetadataJSON string
 		var responseModel, sessionID, parentSessionID, accessTokenSHA256 sql.NullString
 		var generateVal, streamVal sql.NullInt64
@@ -2747,10 +2755,16 @@ limit ?`, args...)
 			&accessTokenSHA256,
 			&generateVal,
 			&streamVal,
+			&guard,
+			&guardReason,
+			&degraded,
 		); err != nil {
 			return EventsPage{}, err
 		}
 		item.Failed = failed != 0
+		item.Guard = guard
+		item.GuardReason = guardReason
+		item.Degraded = degraded != 0
 		item.ResponseModel = responseModel.String
 		item.SessionID = sessionID.String
 		item.ParentSessionID = parentSessionID.String

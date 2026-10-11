@@ -2074,6 +2074,9 @@ export interface MonitoringAnalyticsEventRow {
   failed: boolean;
   fail_status_code?: number | null;
   fail_summary?: string;
+  guard?: string;
+  guard_reason?: string;
+  degraded?: boolean;
   response_metadata?: ResponseHeaderMetadata;
   header_quota_recover_at_ms?: number | null;
   header_quota_used_percent?: number | null;

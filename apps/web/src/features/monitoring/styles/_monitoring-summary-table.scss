@@ -1120,6 +1120,10 @@
     color: var(--monitor-red);
   }
 
+  .realtimeRequestStatusWarn {
+    color: var(--monitor-amber);
+  }
+
   .realtimeFailureTooltip {
     --monitor-surface: var(--bg-primary);
     --monitor-surface-elevated: var(--app-surface-strong);

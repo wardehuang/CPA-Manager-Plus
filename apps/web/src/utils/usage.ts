@@ -245,6 +245,10 @@ export interface UsageDetail {
   failStatusCode?: number | null;
   fail_summary?: string;
   failSummary?: string;
+  guard?: string;
+  guard_reason?: string;
+  guardReason?: string;
+  degraded?: boolean;
   response_metadata?: UsageResponseHeaderMetadata;
   responseMetadata?: UsageResponseHeaderMetadata;
   header_quota_recover_at_ms?: number | null;
@@ -992,6 +996,9 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
                 failRaw.statusCode
             ) ?? null,
           fail_summary: readDetailString(detailRaw.fail_summary ?? detailRaw.failSummary),
+          guard: readDetailString(detailRaw.guard),
+          guard_reason: readDetailString(detailRaw.guard_reason ?? detailRaw.guardReason),
+          degraded: detailRaw.degraded === true,
           response_metadata: readResponseHeaderMetadata(
             detailRaw.response_metadata ?? detailRaw.responseMetadata
           ),
@@ -1127,6 +1134,9 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
                 failRaw.statusCode
             ) ?? null,
           fail_summary: readDetailString(detailRaw.fail_summary ?? detailRaw.failSummary),
+          guard: readDetailString(detailRaw.guard),
+          guard_reason: readDetailString(detailRaw.guard_reason ?? detailRaw.guardReason),
+          degraded: detailRaw.degraded === true,
           response_metadata: readResponseHeaderMetadata(
             detailRaw.response_metadata ?? detailRaw.responseMetadata
           ),

@@ -520,6 +520,30 @@ const buildRequestDiagnosticMetaText = (row: MonitoringEventRow, t: TFunction, l
   return parts.join(' · ');
 };
 
+type RealtimeRequestStatusTone = 'bad' | 'warn' | 'good';
+
+const REALTIME_REQUEST_STATUS_LABEL_KEYS = {
+  bad: 'monitoring.result_failed',
+  warn: 'monitoring.result_degraded',
+  good: 'monitoring.result_success',
+} as const;
+
+const realtimeRequestStatusToneClasses: Record<RealtimeRequestStatusTone, string> = {
+  bad: styles.realtimeRequestStatusBad,
+  warn: styles.realtimeRequestStatusWarn,
+  good: styles.realtimeRequestStatusGood,
+};
+
+// Status priority: failure (bad) > degraded (warn) > success (good).
+const resolveRealtimeRequestStatusTone = (
+  failed: boolean,
+  degraded?: boolean
+): RealtimeRequestStatusTone => {
+  if (failed) return 'bad';
+  if (degraded === true) return 'warn';
+  return 'good';
+};
+
 const buildRequestDiagnosticDetails = (row: MonitoringEventRow, t: TFunction, locale: string) => {
   if (!row.failed) return null;
 
@@ -531,6 +555,7 @@ const buildRequestDiagnosticDetails = (row: MonitoringEventRow, t: TFunction, lo
     : t('monitoring.result_failed');
   return {
     failed: row.failed,
+    tone: resolveRealtimeRequestStatusTone(row.failed, row.degraded),
     statusCode: row.failStatusCode,
     statusText,
     summary,
@@ -716,10 +741,10 @@ function RealtimeRequestDiagnosticStatus({
     >
       <span
         className={`${styles.realtimeRequestStatus} ${
-          details.failed ? styles.realtimeRequestStatusBad : styles.realtimeRequestStatusGood
+          realtimeRequestStatusToneClasses[details.tone]
         }`}
       >
-        {t(details.failed ? 'monitoring.result_failed' : 'monitoring.result_success')}
+        {t(REALTIME_REQUEST_STATUS_LABEL_KEYS[details.tone])}
       </span>
       {!isBrowser ? tooltip : null}
       {isBrowser && open ? createPortal(tooltip, document.body) : null}
@@ -1162,6 +1187,7 @@ export function RealtimeEventsPanel({
               const requestDiagnosticTooltipId = requestDiagnosticDetails
                 ? `${tooltipIdPrefix}-request-diagnostic-tooltip-${row.id}`
                 : undefined;
+              const requestStatusTone = resolveRealtimeRequestStatusTone(row.failed, row.degraded);
               const timeParts = formatRealtimeDateParts(row.timestampMs, locale);
               const hasTtftMs = row.ttftMs !== null && row.ttftMs !== undefined;
               const ttftToneClass = getRealtimeDurationToneClass(row.ttftMs);
@@ -1268,16 +1294,12 @@ export function RealtimeEventsPanel({
                         <span
                           className={[
                             styles.realtimeRequestStatus,
-                            row.failed
-                              ? styles.realtimeRequestStatusBad
-                              : styles.realtimeRequestStatusGood,
+                            realtimeRequestStatusToneClasses[requestStatusTone],
                           ]
                             .filter(Boolean)
                             .join(' ')}
                         >
-                          {row.failed
-                            ? t('monitoring.result_failed')
-                            : t('monitoring.result_success')}
+                          {t(REALTIME_REQUEST_STATUS_LABEL_KEYS[requestStatusTone])}
                         </span>
                       )}
                     </div>
