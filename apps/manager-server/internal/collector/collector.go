@@ -272,6 +272,7 @@ func (m *Manager) consumeSubscribe(ctx context.Context, cfg RuntimeConfig, clien
 		}
 		log.Printf("usage collector: payload received bytes=%d control=%t", len(payload), classifyUsageControlPayload(payload) != usageControlNone)
 		if err := m.processItems(ctx, cfg, []string{payload}); err != nil {
+			log.Printf("usage collector: process payload failed: %v", err)
 			return err
 		}
 	}
@@ -374,6 +375,7 @@ func (m *Manager) consumeHTTP(ctx context.Context, cfg RuntimeConfig, client *ht
 			}
 		}
 		if err := m.processItems(ctx, cfg, items); err != nil {
+			log.Printf("usage collector: process batch failed: %v", err)
 			return err
 		}
 	}
@@ -400,6 +402,7 @@ func (m *Manager) consumeRESP(ctx context.Context, cfg RuntimeConfig, client *re
 			}
 		}
 		if err := m.processItems(ctx, cfg, items); err != nil {
+			log.Printf("usage collector: process batch failed: %v", err)
 			return err
 		}
 	}
