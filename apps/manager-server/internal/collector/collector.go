@@ -212,6 +212,7 @@ func (m *Manager) runSubscribe(ctx context.Context, cfg RuntimeConfig, mode stri
 			status.Transport = "subscribe"
 			status.LastError = ""
 		})
+		log.Printf("usage collector: subscribed upstream=%s channel=%s", cfg.CPAUpstreamURL, channel)
 
 		err = m.consumeSubscribe(ctx, cfg, client)
 		_ = client.Close()
@@ -263,11 +264,13 @@ func (m *Manager) consumeSubscribe(ctx context.Context, cfg RuntimeConfig, clien
 				}
 				continue
 			}
+			log.Printf("usage collector: subscribe read failed: %v", err)
 			return err
 		}
 		if strings.TrimSpace(payload) == "" {
 			continue
 		}
+		log.Printf("usage collector: payload received bytes=%d control=%t", len(payload), classifyUsageControlPayload(payload) != usageControlNone)
 		if err := m.processItems(ctx, cfg, []string{payload}); err != nil {
 			return err
 		}
@@ -423,6 +426,7 @@ func (m *Manager) processItems(ctx context.Context, cfg RuntimeConfig, items []s
 		}
 		event, err := usage.NormalizeRaw([]byte(payload))
 		if err != nil {
+			log.Printf("usage collector: normalize failed: %v", err)
 			_ = m.store.AddDeadLetter(ctx, item, err)
 			m.setStatus(func(status *Status) {
 				status.DeadLetters++
@@ -436,6 +440,7 @@ func (m *Manager) processItems(ctx context.Context, cfg RuntimeConfig, items []s
 	if err != nil {
 		return err
 	}
+	log.Printf("usage collector: batch items=%d events=%d inserted=%d skipped=%d", len(items), len(events), result.Inserted, result.Skipped)
 	if result.Inserted > 0 {
 		inserted := insertedEvents(events, result.InsertedEventHashes)
 		if err := m.quotaSnapshots.WriteUsageEvents(ctx, inserted); err != nil {
